@@ -16,7 +16,8 @@
       "Bash(python3:*)",
       "WebFetch(domain:tsdata.techassist.au)",
       "Bash(npx prisma migrate:*)",
-      "Bash(ls:*)"
+      "Bash(ls:*)",
+      "Bash(echo:*)"
     ]
   }
 }
