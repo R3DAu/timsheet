@@ -1,7 +1,6 @@
 services:
   timesheet:
-    build: .
-    image: timesheet-system:latest
+    image: ghcr.io/r3dau/timsheet:latest
     container_name: timesheet
     restart: unless-stopped
     env_file:
