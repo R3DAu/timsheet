@@ -9,21 +9,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum TimesheetStatus {
-  OPEN
-  INCOMPLETE
-  SUBMITTED
-  AWAITING_APPROVAL
-  APPROVED
-  LOCKED
-  UNLOCKED
-  PROCESSED
-}
-
-enum EntryType {
-  TRAVEL
-  GENERAL
-}
+// Note: SQLite doesn't support enums, so we use String with application-level validation
+// Valid values for status: OPEN, INCOMPLETE, SUBMITTED, AWAITING_APPROVAL, APPROVED, LOCKED, UNLOCKED, PROCESSED
+// Valid values for entryType: TRAVEL, GENERAL
 
 model User {
   id            Int      @id @default(autoincrement())
@@ -117,16 +105,16 @@ model EmployeeRole {
 }
 
 model Timesheet {
-  id           Int              @id @default(autoincrement())
+  id           Int      @id @default(autoincrement())
   employeeId   Int
   weekStarting DateTime
   weekEnding   DateTime
-  status       TimesheetStatus  @default(OPEN)
+  status       String   @default("OPEN")
   submittedAt  DateTime?
   approvedAt   DateTime?
   approvedById Int?
-  createdAt    DateTime         @default(now())
-  updatedAt    DateTime         @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   employee     Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
   approvedBy   User?             @relation("ApprovedBy", fields: [approvedById], references: [id])
@@ -136,20 +124,20 @@ model Timesheet {
 }
 
 model TimesheetEntry {
-  id          Int              @id @default(autoincrement())
+  id          Int      @id @default(autoincrement())
   timesheetId Int
-  entryType   EntryType
+  entryType   String
   date        DateTime
   hours       Float
   roleId      Int
   companyId   Int
-  status      TimesheetStatus  @default(OPEN)
+  status      String   @default("OPEN")
   notes       String?
   travelFrom  String?
   travelTo    String?
   distance    Float?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   timesheet Timesheet @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
   role      Role      @relation(fields: [roleId], references: [id])
