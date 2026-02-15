@@ -27,12 +27,12 @@ COPY prisma/ prisma/
 COPY scripts/ scripts/
 
 # Data directory for SQLite databases
-RUN mkdir -p /data
-ENV DATABASE_URL="file:/data/timesheet.db"
-ENV SESSION_DB_PATH="/data/sessions.db"
+RUN mkdir -p /app/data
 ENV NODE_ENV=production
 
 EXPOSE 3000
 
-# Run migrations then start the server
-CMD ["sh", "-c", "npx prisma migrate deploy && node src/server.js"]
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+ENTRYPOINT ["/docker-entrypoint.sh"]
