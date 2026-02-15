@@ -124,20 +124,23 @@ model Timesheet {
 }
 
 model TimesheetEntry {
-  id          Int      @id @default(autoincrement())
-  timesheetId Int
-  entryType   String
-  date        DateTime
-  hours       Float
-  roleId      Int
-  companyId   Int
-  status      String   @default("OPEN")
-  notes       String?
-  travelFrom  String?
-  travelTo    String?
-  distance    Float?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           Int      @id @default(autoincrement())
+  timesheetId  Int
+  entryType    String
+  date         DateTime
+  startTime    String?  // HH:MM format e.g. "07:00"
+  endTime      String?  // HH:MM format e.g. "17:00"
+  hours        Float
+  roleId       Int
+  companyId    Int
+  status       String   @default("OPEN")
+  notes        String?  // Rich HTML content from WYSIWYG editor
+  privateNotes String?  // Internal-only notes, not visible to clients
+  travelFrom   String?
+  travelTo     String?
+  distance     Float?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   timesheet Timesheet @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
   role      Role      @relation(fields: [roleId], references: [id])

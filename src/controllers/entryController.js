@@ -3,23 +3,56 @@ const mapsService = require('../services/mapsService');
 
 const prisma = new PrismaClient();
 
+// Calculate hours from start and end time strings (HH:MM format)
+function calculateHoursFromTimes(startTime, endTime) {
+  if (!startTime || !endTime) return null;
+
+  const [startH, startM] = startTime.split(':').map(Number);
+  const [endH, endM] = endTime.split(':').map(Number);
+
+  let startMinutes = startH * 60 + startM;
+  let endMinutes = endH * 60 + endM;
+
+  // Handle overnight shifts (e.g. 22:00 -> 06:00)
+  if (endMinutes <= startMinutes) {
+    endMinutes += 24 * 60;
+  }
+
+  return (endMinutes - startMinutes) / 60;
+}
+
 const createEntry = async (req, res) => {
   try {
     const {
       timesheetId,
       entryType,
       date,
+      startTime,
+      endTime,
       hours,
       roleId,
       companyId,
       notes,
+      privateNotes,
       travelFrom,
       travelTo
     } = req.body;
 
-    if (!timesheetId || !entryType || !date || hours === undefined || !roleId || !companyId) {
+    if (!timesheetId || !entryType || !date || !roleId || !companyId) {
       return res.status(400).json({
-        error: 'timesheetId, entryType, date, hours, roleId, and companyId are required'
+        error: 'timesheetId, entryType, date, roleId, and companyId are required'
+      });
+    }
+
+    // Calculate hours from times, or use directly provided hours as fallback
+    let calculatedHours = hours;
+    if (startTime && endTime) {
+      calculatedHours = calculateHoursFromTimes(startTime, endTime);
+    }
+
+    if (calculatedHours === null || calculatedHours === undefined) {
+      return res.status(400).json({
+        error: 'Either startTime/endTime or hours must be provided'
       });
     }
 
@@ -33,11 +66,9 @@ const createEntry = async (req, res) => {
     let distance = null;
     if (entryType === 'TRAVEL') {
       try {
-        // Calculate distance using Google Maps API
         distance = await mapsService.calculateDistance(travelFrom, travelTo);
       } catch (error) {
         console.error('Failed to calculate distance:', error);
-        // Continue without distance if API fails
       }
     }
 
@@ -46,10 +77,13 @@ const createEntry = async (req, res) => {
         timesheetId: parseInt(timesheetId),
         entryType,
         date: new Date(date),
-        hours: parseFloat(hours),
+        startTime: startTime || null,
+        endTime: endTime || null,
+        hours: parseFloat(calculatedHours),
         roleId: parseInt(roleId),
         companyId: parseInt(companyId),
-        notes,
+        notes: notes || null,
+        privateNotes: privateNotes || null,
         ...(entryType === 'TRAVEL' && {
           travelFrom,
           travelTo,
@@ -75,22 +109,32 @@ const updateEntry = async (req, res) => {
     const { id } = req.params;
     const {
       date,
+      startTime,
+      endTime,
       hours,
       roleId,
       companyId,
       notes,
+      privateNotes,
       travelFrom,
       travelTo,
       status
     } = req.body;
 
-    // Get existing entry to check type
     const existingEntry = await prisma.timesheetEntry.findUnique({
       where: { id: parseInt(id) }
     });
 
     if (!existingEntry) {
       return res.status(404).json({ error: 'Entry not found' });
+    }
+
+    // Recalculate hours if times are provided
+    let calculatedHours = hours;
+    const newStartTime = startTime !== undefined ? startTime : existingEntry.startTime;
+    const newEndTime = endTime !== undefined ? endTime : existingEntry.endTime;
+    if (newStartTime && newEndTime && (startTime !== undefined || endTime !== undefined)) {
+      calculatedHours = calculateHoursFromTimes(newStartTime, newEndTime);
     }
 
     let distance = existingEntry.distance;
@@ -108,10 +152,13 @@ const updateEntry = async (req, res) => {
       where: { id: parseInt(id) },
       data: {
         ...(date && { date: new Date(date) }),
-        ...(hours !== undefined && { hours: parseFloat(hours) }),
+        ...(startTime !== undefined && { startTime }),
+        ...(endTime !== undefined && { endTime }),
+        ...(calculatedHours !== undefined && { hours: parseFloat(calculatedHours) }),
         ...(roleId && { roleId: parseInt(roleId) }),
         ...(companyId && { companyId: parseInt(companyId) }),
         ...(notes !== undefined && { notes }),
+        ...(privateNotes !== undefined && { privateNotes }),
         ...(travelFrom && { travelFrom }),
         ...(travelTo && { travelTo }),
         ...(distance !== null && { distance }),
@@ -156,7 +203,7 @@ const getEntriesByTimesheet = async (req, res) => {
         role: true,
         company: true
       },
-      orderBy: { date: 'asc' }
+      orderBy: [{ date: 'asc' }, { startTime: 'asc' }]
     });
 
     res.json({ entries });

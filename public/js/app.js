@@ -4,6 +4,49 @@ let companies = [];
 let roles = [];
 let employees = [];
 let timesheets = [];
+let activeQuillEditors = {};
+
+// Time helpers
+function formatTime(timeStr) {
+  if (!timeStr) return '';
+  const [h, m] = timeStr.split(':');
+  const hour = parseInt(h);
+  const ampm = hour >= 12 ? 'PM' : 'AM';
+  const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+  return `${displayHour}:${m} ${ampm}`;
+}
+
+function calculateHoursPreview(startTime, endTime) {
+  if (!startTime || !endTime) return '';
+  const [sH, sM] = startTime.split(':').map(Number);
+  const [eH, eM] = endTime.split(':').map(Number);
+  let startMins = sH * 60 + sM;
+  let endMins = eH * 60 + eM;
+  if (endMins <= startMins) endMins += 24 * 60;
+  const hours = (endMins - startMins) / 60;
+  return `${hours.toFixed(2)} hrs`;
+}
+
+function initQuillEditor(containerId, placeholder) {
+  const editor = new Quill(`#${containerId}`, {
+    theme: 'snow',
+    placeholder: placeholder || 'Enter details...',
+    modules: {
+      toolbar: [
+        ['bold', 'italic', 'underline'],
+        [{ 'list': 'ordered' }, { 'list': 'bullet' }],
+        ['link'],
+        ['clean']
+      ]
+    }
+  });
+  activeQuillEditors[containerId] = editor;
+  return editor;
+}
+
+function destroyQuillEditors() {
+  activeQuillEditors = {};
+}
 
 // API helper
 const api = {
@@ -118,6 +161,7 @@ function showModal(title, content) {
 
 function hideModal() {
   document.getElementById('modal').style.display = 'none';
+  destroyQuillEditors();
 }
 
 // ==================== TIMESHEETS ====================
@@ -318,10 +362,11 @@ async function viewTimesheet(id) {
             <tr>
               <th>Date</th>
               <th>Type</th>
+              <th>Time</th>
               <th>Hours</th>
               <th>Company</th>
               <th>Role</th>
-              <th>Notes</th>
+              <th>Details</th>
             </tr>
           </thead>
           <tbody>
@@ -329,12 +374,14 @@ async function viewTimesheet(id) {
               <tr>
                 <td>${new Date(entry.date).toLocaleDateString()}</td>
                 <td>${entry.entryType}</td>
-                <td>${entry.hours}</td>
+                <td>${entry.startTime && entry.endTime ? `${formatTime(entry.startTime)} - ${formatTime(entry.endTime)}` : '-'}</td>
+                <td>${entry.hours.toFixed(2)}</td>
                 <td>${entry.company.name}</td>
                 <td>${entry.role.name}</td>
                 <td>
-                  ${entry.notes || '-'}
+                  <div class="rich-text-content">${entry.notes || '-'}</div>
                   ${entry.entryType === 'TRAVEL' ? `<br><small>${entry.travelFrom} &rarr; ${entry.travelTo}${entry.distance ? ` (${entry.distance.toFixed(1)} km)` : ''}</small>` : ''}
+                  ${entry.privateNotes ? `<br><span class="private-notes-badge">Private notes</span>` : ''}
                 </td>
               </tr>
             `).join('')}
@@ -379,6 +426,7 @@ function displayEntries(entries) {
         <tr>
           <th>Date</th>
           <th>Type</th>
+          <th>Time</th>
           <th>Hours</th>
           <th>Company</th>
           <th>Role</th>
@@ -391,10 +439,14 @@ function displayEntries(entries) {
           <tr>
             <td>${new Date(entry.date).toLocaleDateString()}</td>
             <td>${entry.entryType}${entry.entryType === 'TRAVEL' ? `<br><small>${entry.travelFrom} &rarr; ${entry.travelTo}</small>` : ''}</td>
-            <td>${entry.hours}</td>
+            <td>${entry.startTime && entry.endTime ? `${formatTime(entry.startTime)}<br>${formatTime(entry.endTime)}` : '-'}</td>
+            <td>${entry.hours.toFixed(2)}</td>
             <td>${entry.company.name}</td>
             <td>${entry.role.name}</td>
-            <td><span class="status-badge status-${entry.status}">${entry.status}</span></td>
+            <td>
+              <span class="status-badge status-${entry.status}">${entry.status}</span>
+              ${entry.privateNotes ? `<br><span class="private-notes-badge">Private</span>` : ''}
+            </td>
             <td>
               ${entry.status === 'OPEN' ? `
                 <button class="btn btn-sm btn-primary" onclick="editEntry(${entry.id})">Edit</button>
@@ -429,9 +481,16 @@ async function createEntry() {
         <label>Date</label>
         <input type="date" name="date" required>
       </div>
-      <div class="form-group">
-        <label>Hours</label>
-        <input type="number" name="hours" step="0.25" min="0" required>
+      <div class="time-row">
+        <div class="form-group">
+          <label>Start Time</label>
+          <input type="time" name="startTime" id="createStartTime" required>
+        </div>
+        <div class="form-group">
+          <label>End Time</label>
+          <input type="time" name="endTime" id="createEndTime" required>
+        </div>
+        <div class="calculated-hours" id="createHoursPreview">0.00 hrs</div>
       </div>
       <div class="form-group">
         <label>Company</label>
@@ -457,15 +516,33 @@ async function createEntry() {
           <input type="text" name="travelTo" placeholder="e.g. School 1, or full address">
         </div>
       </div>
-      <div class="form-group">
-        <label>Notes</label>
-        <textarea name="notes"></textarea>
+      <div class="quill-wrapper">
+        <label>Notes / Details</label>
+        <div id="createNotesEditor"></div>
+      </div>
+      <div class="private-notes-wrapper">
+        <label>Private Notes (internal only - not visible to clients)</label>
+        <div id="createPrivateNotesEditor"></div>
       </div>
       <button type="submit" class="btn btn-primary">Create Entry</button>
     </form>
   `;
 
   showModal('Create Entry', form);
+  destroyQuillEditors();
+
+  // Initialize Quill editors
+  const notesEditor = initQuillEditor('createNotesEditor', 'Enter notes or details...');
+  const privateNotesEditor = initQuillEditor('createPrivateNotesEditor', 'Internal notes...');
+
+  // Live hours calculation
+  const updateHoursPreview = () => {
+    const start = document.getElementById('createStartTime').value;
+    const end = document.getElementById('createEndTime').value;
+    document.getElementById('createHoursPreview').textContent = calculateHoursPreview(start, end) || '0.00 hrs';
+  };
+  document.getElementById('createStartTime').onchange = updateHoursPreview;
+  document.getElementById('createEndTime').onchange = updateHoursPreview;
 
   // Show/hide travel fields based on entry type
   document.getElementById('entryTypeSelect').onchange = (e) => {
@@ -487,15 +564,20 @@ async function createEntry() {
   document.getElementById('entryForm').onsubmit = async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
+    const notesHtml = notesEditor.root.innerHTML === '<p><br></p>' ? '' : notesEditor.root.innerHTML;
+    const privateNotesHtml = privateNotesEditor.root.innerHTML === '<p><br></p>' ? '' : privateNotesEditor.root.innerHTML;
+
     try {
       await api.post('/entries', {
         timesheetId: parseInt(timesheetId),
         entryType: formData.get('entryType'),
         date: formData.get('date'),
-        hours: parseFloat(formData.get('hours')),
+        startTime: formData.get('startTime'),
+        endTime: formData.get('endTime'),
         companyId: parseInt(formData.get('companyId')),
         roleId: parseInt(formData.get('roleId')),
-        notes: formData.get('notes'),
+        notes: notesHtml || null,
+        privateNotes: privateNotesHtml || null,
         travelFrom: formData.get('travelFrom'),
         travelTo: formData.get('travelTo')
       });
@@ -509,8 +591,6 @@ async function createEntry() {
 }
 
 async function editEntry(id) {
-  // Fetch current entry data from the entries list in the DOM isn't ideal,
-  // so we'll use the timesheet's entries
   const timesheetId = document.getElementById('timesheetSelect').value;
   const ts = timesheets.find(t => t.id === parseInt(timesheetId));
   const entry = ts ? ts.entries.find(e => e.id === id) : null;
@@ -535,9 +615,16 @@ async function editEntry(id) {
         <label>Date</label>
         <input type="date" name="date" value="${dateStr}" required>
       </div>
-      <div class="form-group">
-        <label>Hours</label>
-        <input type="number" name="hours" step="0.25" min="0" value="${entry.hours}" required>
+      <div class="time-row">
+        <div class="form-group">
+          <label>Start Time</label>
+          <input type="time" name="startTime" id="editStartTime" value="${entry.startTime || ''}" required>
+        </div>
+        <div class="form-group">
+          <label>End Time</label>
+          <input type="time" name="endTime" id="editEndTime" value="${entry.endTime || ''}" required>
+        </div>
+        <div class="calculated-hours" id="editHoursPreview">${entry.hours.toFixed(2)} hrs</div>
       </div>
       <div class="form-group">
         <label>Company</label>
@@ -561,15 +648,40 @@ async function editEntry(id) {
           <input type="text" name="travelTo" value="${entry.travelTo || ''}">
         </div>
       </div>
-      <div class="form-group">
-        <label>Notes</label>
-        <textarea name="notes">${entry.notes || ''}</textarea>
+      <div class="quill-wrapper">
+        <label>Notes / Details</label>
+        <div id="editNotesEditor"></div>
+      </div>
+      <div class="private-notes-wrapper">
+        <label>Private Notes (internal only - not visible to clients)</label>
+        <div id="editPrivateNotesEditor"></div>
       </div>
       <button type="submit" class="btn btn-primary">Save Changes</button>
     </form>
   `;
 
   showModal('Edit Entry', form);
+  destroyQuillEditors();
+
+  // Initialize Quill editors with existing content
+  const notesEditor = initQuillEditor('editNotesEditor', 'Enter notes or details...');
+  const privateNotesEditor = initQuillEditor('editPrivateNotesEditor', 'Internal notes...');
+
+  if (entry.notes) {
+    notesEditor.root.innerHTML = entry.notes;
+  }
+  if (entry.privateNotes) {
+    privateNotesEditor.root.innerHTML = entry.privateNotes;
+  }
+
+  // Live hours calculation
+  const updateHoursPreview = () => {
+    const start = document.getElementById('editStartTime').value;
+    const end = document.getElementById('editEndTime').value;
+    document.getElementById('editHoursPreview').textContent = calculateHoursPreview(start, end) || `${entry.hours.toFixed(2)} hrs`;
+  };
+  document.getElementById('editStartTime').onchange = updateHoursPreview;
+  document.getElementById('editEndTime').onchange = updateHoursPreview;
 
   document.getElementById('editEntryTypeSelect').onchange = (e) => {
     document.getElementById('editTravelFields').style.display =
@@ -579,14 +691,19 @@ async function editEntry(id) {
   document.getElementById('editEntryForm').onsubmit = async (e) => {
     e.preventDefault();
     const formData = new FormData(e.target);
+    const notesHtml = notesEditor.root.innerHTML === '<p><br></p>' ? '' : notesEditor.root.innerHTML;
+    const privateNotesHtml = privateNotesEditor.root.innerHTML === '<p><br></p>' ? '' : privateNotesEditor.root.innerHTML;
+
     try {
       await api.put(`/entries/${id}`, {
         entryType: formData.get('entryType'),
         date: formData.get('date'),
-        hours: parseFloat(formData.get('hours')),
+        startTime: formData.get('startTime'),
+        endTime: formData.get('endTime'),
         companyId: parseInt(formData.get('companyId')),
         roleId: parseInt(formData.get('roleId')),
-        notes: formData.get('notes'),
+        notes: notesHtml || null,
+        privateNotes: privateNotesHtml || null,
         travelFrom: formData.get('travelFrom'),
         travelTo: formData.get('travelTo')
       });

@@ -283,6 +283,93 @@ table tr:hover {
   margin-bottom: 2rem;
 }
 
+/* Time inputs side by side */
+.time-row {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-end;
+}
+
+.time-row .form-group {
+  flex: 1;
+}
+
+.time-row .calculated-hours {
+  flex: 0 0 auto;
+  padding: 0.5rem 1rem;
+  background: #e3f2fd;
+  border-radius: 4px;
+  font-weight: 600;
+  white-space: nowrap;
+  margin-bottom: 1rem;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+}
+
+/* WYSIWYG editor */
+.quill-wrapper {
+  margin-bottom: 1rem;
+}
+
+.quill-wrapper label {
+  display: block;
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+
+.quill-wrapper .ql-container {
+  min-height: 100px;
+  font-size: 1rem;
+}
+
+.quill-wrapper .ql-editor {
+  min-height: 100px;
+}
+
+/* Private notes styling */
+.private-notes-wrapper {
+  border: 2px dashed #f0ad4e;
+  border-radius: 4px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  background: #fffbf0;
+}
+
+.private-notes-wrapper label {
+  color: #8a6d3b;
+  font-weight: 600;
+}
+
+.private-notes-wrapper .ql-container {
+  min-height: 60px;
+  background: white;
+}
+
+.private-notes-wrapper .ql-editor {
+  min-height: 60px;
+}
+
+.private-notes-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #fff3cd;
+  color: #856404;
+  border: 1px solid #ffc107;
+}
+
+/* Rich text content display */
+.rich-text-content {
+  line-height: 1.5;
+}
+
+.rich-text-content p {
+  margin: 0.25rem 0;
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .nav-right {
