@@ -1,0 +1,36 @@
+{
+  "name": "timesheet-system",
+  "version": "1.0.0",
+  "description": "Comprehensive timesheet management system with approval workflow",
+  "main": "src/server.js",
+  "scripts": {
+    "dev": "nodemon src/server.js",
+    "start": "node src/server.js",
+    "db:migrate": "npx prisma migrate dev",
+    "db:studio": "npx prisma studio",
+    "db:seed": "node prisma/seed.js",
+    "reminder:check": "node src/jobs/reminder-check.js"
+  },
+  "keywords": ["timesheet", "tracking", "approval"],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@prisma/client": "^5.22.0",
+    "bcrypt": "^5.1.1",
+    "connect-session-sequelize": "^7.1.7",
+    "express": "^4.21.2",
+    "express-session": "^1.18.1",
+    "express-validator": "^7.2.0",
+    "dotenv": "^16.4.7",
+    "nodemailer": "^6.9.16",
+    "twilio": "^5.3.5",
+    "axios": "^1.7.9",
+    "node-cron": "^3.0.3",
+    "morgan": "^1.10.0",
+    "cors": "^2.8.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.9",
+    "prisma": "^5.22.0"
+  }
+}
