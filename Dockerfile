@@ -1,27 +1,10 @@
 FROM node:20-slim
 
-# Install dependencies for Playwright Chromium and better-sqlite3
+# Install build tools for native modules (better-sqlite3, bcrypt)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     make \
     g++ \
-    # Playwright Chromium dependencies
-    libnss3 \
-    libatk1.0-0 \
-    libatk-bridge2.0-0 \
-    libcups2 \
-    libdrm2 \
-    libxkbcommon0 \
-    libxcomposite1 \
-    libxdamage1 \
-    libxrandr2 \
-    libgbm1 \
-    libpango-1.0-0 \
-    libcairo2 \
-    libasound2 \
-    libxshmfence1 \
-    libglib2.0-0 \
-    fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -30,8 +13,8 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 
-# Install Playwright Chromium browser
-RUN npx playwright install chromium
+# Install Playwright Chromium and ALL its system dependencies
+RUN npx playwright install --with-deps chromium
 
 # Copy prisma schema and generate client
 COPY prisma/schema.prisma prisma/
