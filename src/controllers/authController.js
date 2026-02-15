@@ -53,10 +53,37 @@ const login = async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    // Find user
+    // Find user with full employee data (roles, company info needed for WMS sync button)
     const user = await prisma.user.findUnique({
       where: { email },
-      include: { employee: true }
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        isAdmin: true,
+        passwordHash: true,
+        employee: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            morningStart: true,
+            morningEnd: true,
+            afternoonStart: true,
+            afternoonEnd: true,
+            maxDailyHours: true,
+            presetAddresses: true,
+            roles: {
+              include: {
+                role: true,
+                company: true
+              }
+            }
+          }
+        }
+      }
     });
 
     if (!user) {
@@ -74,15 +101,13 @@ const login = async (req, res) => {
     req.session.isAdmin = user.isAdmin;
     req.session.employeeId = user.employee ? user.employee.id : null;
 
+    // Remove passwordHash from response
+    const { passwordHash: _, ...userData } = user;
+    userData.employeeId = user.employee ? user.employee.id : null;
+
     res.json({
       message: 'Login successful',
-      user: {
-        id: user.id,
-        email: user.email,
-        name: user.name,
-        isAdmin: user.isAdmin,
-        employeeId: user.employee ? user.employee.id : null
-      }
+      user: userData
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -118,7 +143,19 @@ const getCurrentUser = async (req, res) => {
             firstName: true,
             lastName: true,
             email: true,
-            phone: true
+            phone: true,
+            morningStart: true,
+            morningEnd: true,
+            afternoonStart: true,
+            afternoonEnd: true,
+            maxDailyHours: true,
+            presetAddresses: true,
+            roles: {
+              include: {
+                role: true,
+                company: true
+              }
+            }
           }
         }
       }
@@ -141,9 +178,87 @@ const getCurrentUser = async (req, res) => {
   }
 };
 
+const updateProfile = async (req, res) => {
+  try {
+    const userId = req.session.userId;
+    const { name, password, phone, morningStart, morningEnd, afternoonStart, afternoonEnd, presetAddresses } = req.body;
+
+    // Update user name/password
+    const userData = {};
+    if (name) userData.name = name;
+    if (password) {
+      userData.passwordHash = await bcrypt.hash(password, 10);
+    }
+
+    if (Object.keys(userData).length > 0) {
+      await prisma.user.update({
+        where: { id: userId },
+        data: userData
+      });
+    }
+
+    // Update employee profile if exists
+    const employee = await prisma.employee.findUnique({ where: { userId } });
+    if (employee) {
+      const empData = {};
+      if (phone !== undefined) empData.phone = phone;
+      if (morningStart !== undefined) empData.morningStart = morningStart;
+      if (morningEnd !== undefined) empData.morningEnd = morningEnd;
+      if (afternoonStart !== undefined) empData.afternoonStart = afternoonStart;
+      if (afternoonEnd !== undefined) empData.afternoonEnd = afternoonEnd;
+      if (presetAddresses !== undefined) empData.presetAddresses = presetAddresses ? JSON.stringify(presetAddresses) : null;
+
+      if (Object.keys(empData).length > 0) {
+        await prisma.employee.update({
+          where: { id: employee.id },
+          data: empData
+        });
+      }
+    }
+
+    // Return updated user
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        email: true,
+        name: true,
+        isAdmin: true,
+        employee: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            email: true,
+            phone: true,
+            morningStart: true,
+            morningEnd: true,
+            afternoonStart: true,
+            afternoonEnd: true,
+            maxDailyHours: true,
+            presetAddresses: true,
+            roles: {
+              include: {
+                role: true,
+                company: true
+              }
+            }
+          }
+        }
+      }
+    });
+
+    res.json({ message: 'Profile updated successfully', user: { ...user, employeeId: user.employee ? user.employee.id : null } });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ error: 'Failed to update profile' });
+  }
+};
+
 module.exports = {
   register,
   login,
   logout,
-  getCurrentUser
+  getCurrentUser,
+  updateProfile
 };

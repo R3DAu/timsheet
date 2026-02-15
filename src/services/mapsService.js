@@ -3,7 +3,10 @@ const { PrismaClient } = require('@prisma/client');
 
 const prisma = new PrismaClient();
 
-const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+// Nominatim (OpenStreetMap) — free, no API key required
+// Usage policy: max 1 req/sec, identify with User-Agent
+const NOMINATIM_BASE = 'https://nominatim.openstreetmap.org';
+const NOMINATIM_HEADERS = { 'User-Agent': 'TimesheetSystem/1.0' };
 
 const geocodeAddress = async (address) => {
   // Check cache first
@@ -12,7 +15,6 @@ const geocodeAddress = async (address) => {
   });
 
   if (cached) {
-    console.log(`Using cached geocode for: ${address}`);
     return {
       address: cached.address,
       latitude: cached.latitude,
@@ -21,48 +23,40 @@ const geocodeAddress = async (address) => {
     };
   }
 
-  if (!GOOGLE_MAPS_API_KEY) {
-    console.warn('Google Maps API key not configured');
-    return null;
-  }
-
-  // Call Google Maps Geocoding API
   try {
-    const response = await axios.get(
-      'https://maps.googleapis.com/maps/api/geocode/json',
-      {
-        params: {
-          address,
-          key: GOOGLE_MAPS_API_KEY
-        }
-      }
-    );
+    const response = await axios.get(`${NOMINATIM_BASE}/search`, {
+      params: {
+        q: address,
+        format: 'json',
+        addressdetails: 1,
+        limit: 1,
+        countrycodes: 'au'
+      },
+      headers: NOMINATIM_HEADERS
+    });
 
-    if (response.data.status !== 'OK' || !response.data.results.length) {
-      console.error(`Geocoding failed for: ${address}`);
+    if (!response.data || response.data.length === 0) {
       return null;
     }
 
-    const result = response.data.results[0];
-    const location = result.geometry.location;
+    const result = response.data[0];
 
     // Cache the result
     await prisma.placeCache.create({
       data: {
         placeName: address,
-        address: result.formatted_address,
-        latitude: location.lat,
-        longitude: location.lng,
-        googlePlaceId: result.place_id
+        address: result.display_name,
+        latitude: parseFloat(result.lat),
+        longitude: parseFloat(result.lon),
+        googlePlaceId: `osm_${result.osm_type}_${result.osm_id}`
       }
     });
 
-    console.log(`Geocoded and cached: ${address}`);
     return {
-      address: result.formatted_address,
-      latitude: location.lat,
-      longitude: location.lng,
-      placeId: result.place_id
+      address: result.display_name,
+      latitude: parseFloat(result.lat),
+      longitude: parseFloat(result.lon),
+      placeId: `osm_${result.osm_type}_${result.osm_id}`
     };
   } catch (error) {
     console.error('Geocoding error:', error.message);
@@ -71,38 +65,25 @@ const geocodeAddress = async (address) => {
 };
 
 const calculateDistance = async (fromAddress, toAddress) => {
-  if (!GOOGLE_MAPS_API_KEY) {
-    console.warn('Google Maps API key not configured');
-    return null;
-  }
-
   try {
-    const response = await axios.get(
-      'https://maps.googleapis.com/maps/api/distancematrix/json',
-      {
-        params: {
-          origins: fromAddress,
-          destinations: toAddress,
-          units: 'metric',
-          key: GOOGLE_MAPS_API_KEY
-        }
-      }
-    );
+    // Geocode both addresses first
+    const from = await geocodeAddress(fromAddress);
+    const to = await geocodeAddress(toAddress);
 
-    if (response.data.status !== 'OK') {
-      console.error('Distance calculation failed');
+    if (!from || !to) {
       return null;
     }
 
-    const element = response.data.rows[0].elements[0];
-    if (element.status !== 'OK') {
-      console.error('Distance calculation failed for route');
-      return null;
-    }
+    // Haversine formula for straight-line distance
+    const R = 6371; // Earth's radius in km
+    const dLat = (to.latitude - from.latitude) * Math.PI / 180;
+    const dLon = (to.longitude - from.longitude) * Math.PI / 180;
+    const a = Math.sin(dLat / 2) ** 2 +
+      Math.cos(from.latitude * Math.PI / 180) * Math.cos(to.latitude * Math.PI / 180) *
+      Math.sin(dLon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distanceKm = Math.round(R * c * 100) / 100;
 
-    // Return distance in kilometers
-    const distanceKm = element.distance.value / 1000;
-    console.log(`Distance from ${fromAddress} to ${toAddress}: ${distanceKm} km`);
     return distanceKm;
   } catch (error) {
     console.error('Distance calculation error:', error.message);
@@ -110,7 +91,54 @@ const calculateDistance = async (fromAddress, toAddress) => {
   }
 };
 
+/**
+ * Search for places using OpenStreetMap Nominatim.
+ * Biased toward Australia, prioritises schools and businesses.
+ */
+const searchPlaces = async (query, { lat, lng } = {}) => {
+  try {
+    const params = {
+      q: query,
+      format: 'json',
+      addressdetails: 1,
+      limit: 8,
+      countrycodes: 'au'
+    };
+
+    // Bias results toward user's location if provided
+    if (lat && lng) {
+      params.viewbox = `${lng - 0.5},${lat + 0.5},${lng + 0.5},${lat - 0.5}`;
+      params.bounded = 0; // prefer but don't restrict
+    }
+
+    const response = await axios.get(`${NOMINATIM_BASE}/search`, {
+      params,
+      headers: NOMINATIM_HEADERS
+    });
+
+    if (!response.data || response.data.length === 0) {
+      return [];
+    }
+
+    return response.data.map(r => {
+      const addr = r.address || {};
+      // Build a short secondary text from address parts
+      const parts = [addr.suburb, addr.city || addr.town || addr.village, addr.state].filter(Boolean);
+      return {
+        placeId: `osm_${r.osm_type}_${r.osm_id}`,
+        description: r.display_name,
+        mainText: r.name || r.display_name.split(',')[0],
+        secondaryText: parts.join(', ')
+      };
+    });
+  } catch (error) {
+    console.error('Places search error:', error.message);
+    return [];
+  }
+};
+
 module.exports = {
   geocodeAddress,
-  calculateDistance
+  calculateDistance,
+  searchPlaces
 };

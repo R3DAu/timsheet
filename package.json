@@ -11,23 +11,32 @@
     "db:seed": "node prisma/seed.js",
     "reminder:check": "node src/jobs/reminder-check.js"
   },
-  "keywords": ["timesheet", "tracking", "approval"],
+  "keywords": [
+    "timesheet",
+    "tracking",
+    "approval"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "@prisma/client": "^5.22.0",
+    "axios": "^1.7.9",
     "bcrypt": "^6.0.0",
+    "better-sqlite3": "^12.6.2",
+    "better-sqlite3-session-store": "^0.1.0",
     "connect-session-sequelize": "^7.1.7",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "express-session": "^1.18.1",
     "express-validator": "^7.2.0",
-    "dotenv": "^16.4.7",
-    "nodemailer": "^8.0.1",
-    "twilio": "^5.3.5",
-    "axios": "^1.7.9",
-    "node-cron": "^3.0.3",
     "morgan": "^1.10.0",
-    "cors": "^2.8.5"
+    "node-cron": "^3.0.3",
+    "nodemailer": "^8.0.1",
+    "playwright": "^1.58.2",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
+    "twilio": "^5.3.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.9",

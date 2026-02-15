@@ -1,9 +1,14 @@
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
+const Database = require('better-sqlite3');
+const SqliteStore = require('better-sqlite3-session-store')(session);
 const morgan = require('morgan');
 const cors = require('cors');
 const path = require('path');
+
+const swaggerUi = require('swagger-ui-express');
+const swaggerSpec = require('./swagger');
 
 const authRoutes = require('./routes/auth');
 const companyRoutes = require('./routes/companies');
@@ -13,13 +18,24 @@ const timesheetRoutes = require('./routes/timesheets');
 const entryRoutes = require('./routes/entries');
 const approverRoutes = require('./routes/approvers');
 const mapsRoutes = require('./routes/maps');
+const userRoutes = require('./routes/users');
+const wmsSyncRoutes = require('./routes/wmsSync');
+const apiKeyRoutes = require('./routes/apiKeys');
+const tsDataRoutes = require('./routes/tsData');
+const wmsSyncService = require('./services/wmsSyncService');
 const { startScheduler } = require('./jobs/scheduler');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+const isDev = process.env.NODE_ENV !== 'production';
+
+// Trust proxy (required behind Traefik/nginx for secure cookies)
+if (!isDev) {
+  app.set('trust proxy', 1);
+}
 
 // Middleware
-app.use(morgan('dev'));
+app.use(morgan(isDev ? 'dev' : 'combined'));
 app.use(cors({
   origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
   credentials: true
@@ -28,17 +44,26 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Session configuration
+// Session configuration (SQLite-backed, survives restarts)
+const sessionDbPath = process.env.SESSION_DB_PATH || path.join(__dirname, '../prisma/sessions.db');
+const sessionDb = new Database(sessionDbPath);
 app.use(session({
+  store: new SqliteStore({ client: sessionDb, expired: { clear: true, intervalMs: 900000 } }),
   secret: process.env.SESSION_SECRET || 'change-this-secret-key',
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: process.env.NODE_ENV === 'production',
+    secure: process.env.COOKIE_SECURE === 'true',
     httpOnly: true,
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
+    maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    sameSite: 'lax'
   }
 }));
+
+// Swagger API docs (development only)
+if (isDev) {
+  app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+}
 
 // API Routes
 app.use('/api/auth', authRoutes);
@@ -49,6 +74,10 @@ app.use('/api/timesheets', timesheetRoutes);
 app.use('/api/entries', entryRoutes);
 app.use('/api/approvers', approverRoutes);
 app.use('/api/maps', mapsRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/wms-sync', wmsSyncRoutes);
+app.use('/api/api-keys', apiKeyRoutes);
+app.use('/api/tsdata', tsDataRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -69,10 +98,33 @@ app.use((err, req, res, next) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Timesheet system running on http://localhost:${PORT}`);
-  console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+async function startServer() {
+  try {
+    await wmsSyncService.initializeBrowser();
+  } catch (err) {
+    console.warn('Playwright browser init failed (WMS sync will be unavailable):', err.message);
+  }
 
-  // Start reminder scheduler
-  startScheduler();
+  app.listen(PORT, () => {
+    console.log(`Timesheet system running on http://localhost:${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    if (isDev) {
+      console.log(`Swagger docs: http://localhost:${PORT}/api-docs`);
+      console.log(`Verbose logging: enabled`);
+    }
+    startScheduler();
+  });
+}
+
+// Graceful shutdown
+process.on('SIGTERM', async () => {
+  await wmsSyncService.closeBrowser();
+  process.exit(0);
 });
+
+process.on('SIGINT', async () => {
+  await wmsSyncService.closeBrowser();
+  process.exit(0);
+});
+
+startServer();

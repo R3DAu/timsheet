@@ -38,6 +38,7 @@
           <h1>Timesheet System</h1>
           <div class="nav-right">
             <span id="userDisplay"></span>
+            <button id="myProfileBtn" class="btn btn-secondary">My Profile</button>
             <button id="logoutBtn" class="btn btn-secondary">Logout</button>
           </div>
         </div>
@@ -46,21 +47,34 @@
       <div class="container">
         <!-- Navigation Tabs -->
         <div class="tabs">
-          <button class="tab active" data-tab="timesheets">My Timesheets</button>
+          <button class="tab" data-tab="myTimesheets" style="display:none;">My Timesheets</button>
+          <button class="tab" data-tab="allTimesheets" style="display:none;">All Timesheets</button>
           <button class="tab" data-tab="entries">Timesheet Entries</button>
           <button class="tab admin-only" data-tab="employees" style="display:none;">Employees</button>
           <button class="tab admin-only" data-tab="companies" style="display:none;">Companies</button>
           <button class="tab admin-only" data-tab="roles" style="display:none;">Roles</button>
+          <button class="tab admin-only" data-tab="users" style="display:none;">Users</button>
+          <button class="tab admin-only" data-tab="apiKeys" style="display:none;">API Keys</button>
         </div>
 
-        <!-- Timesheets Tab -->
-        <div id="timesheetsTab" class="tab-content active">
+        <!-- My Timesheets Tab -->
+        <div id="myTimesheetsTab" class="tab-content">
           <div class="card">
             <div class="card-header">
               <h2>My Timesheets</h2>
               <button id="createTimesheetBtn" class="btn btn-primary">Create Timesheet</button>
             </div>
-            <div id="timesheetsList"></div>
+            <div id="myTimesheetsList"></div>
+          </div>
+        </div>
+
+        <!-- All Timesheets Tab (Admin) -->
+        <div id="allTimesheetsTab" class="tab-content">
+          <div class="card">
+            <div class="card-header">
+              <h2>All Timesheets</h2>
+            </div>
+            <div id="allTimesheetsList"></div>
           </div>
         </div>
 
@@ -108,6 +122,28 @@
               <button id="createRoleBtn" class="btn btn-primary">Add Role</button>
             </div>
             <div id="rolesList"></div>
+          </div>
+        </div>
+
+        <!-- Users Tab (Admin) -->
+        <div id="usersTab" class="tab-content">
+          <div class="card">
+            <div class="card-header">
+              <h2>System Users</h2>
+              <button id="createUserBtn" class="btn btn-primary">Add User</button>
+            </div>
+            <div id="usersList"></div>
+          </div>
+        </div>
+
+        <!-- API Keys Tab (Admin) -->
+        <div id="apiKeysTab" class="tab-content">
+          <div class="card">
+            <div class="card-header">
+              <h2>API Keys</h2>
+              <button id="createApiKeyBtn" class="btn btn-primary">Create API Key</button>
+            </div>
+            <div id="apiKeysList"></div>
           </div>
         </div>
       </div>

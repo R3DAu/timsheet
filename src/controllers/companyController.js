@@ -47,7 +47,7 @@ const getCompanyById = async (req, res) => {
 
 const createCompany = async (req, res) => {
   try {
-    const { name, isBillable } = req.body;
+    const { name, isBillable, wmsSyncEnabled } = req.body;
 
     if (!name) {
       return res.status(400).json({ error: 'Company name is required' });
@@ -56,7 +56,8 @@ const createCompany = async (req, res) => {
     const company = await prisma.company.create({
       data: {
         name,
-        isBillable: isBillable !== undefined ? isBillable : true
+        isBillable: isBillable !== undefined ? isBillable : true,
+        wmsSyncEnabled: wmsSyncEnabled !== undefined ? wmsSyncEnabled : false
       }
     });
 
@@ -70,13 +71,14 @@ const createCompany = async (req, res) => {
 const updateCompany = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, isBillable } = req.body;
+    const { name, isBillable, wmsSyncEnabled } = req.body;
 
     const company = await prisma.company.update({
       where: { id: parseInt(id) },
       data: {
         ...(name && { name }),
-        ...(isBillable !== undefined && { isBillable })
+        ...(isBillable !== undefined && { isBillable }),
+        ...(wmsSyncEnabled !== undefined && { wmsSyncEnabled })
       }
     });
 

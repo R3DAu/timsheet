@@ -52,7 +52,8 @@ const getTimesheetById = async (req, res) => {
           include: {
             user: {
               select: { name: true, email: true }
-            }
+            },
+            identifiers: true
           }
         },
         entries: {

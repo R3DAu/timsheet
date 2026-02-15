@@ -52,6 +52,7 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 1rem;
   margin-bottom: 1.5rem;
   border-bottom: 2px solid #eee;
   padding-bottom: 1rem;
@@ -215,6 +216,27 @@ table tr:hover {
 .status-LOCKED { background-color: #ffebee; color: #c62828; }
 .status-PROCESSED { background-color: #e0e0e0; color: #424242; }
 
+/* Source badges (TSDATA vs Local) */
+.source-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.tsdata-badge {
+  background-color: #3498db;
+  color: white;
+}
+
+.local-badge {
+  background-color: #95a5a6;
+  color: white;
+}
+
 /* Modal */
 .modal {
   display: none;
@@ -234,7 +256,7 @@ table tr:hover {
   padding: 2rem;
   border-radius: 8px;
   width: 90%;
-  max-width: 600px;
+  max-width: 900px;
   position: relative;
 }
 
@@ -368,6 +390,126 @@ table tr:hover {
 
 .rich-text-content p {
   margin: 0.25rem 0;
+}
+
+/* Location notes */
+.location-note-item {
+  border: 1px solid #bee5eb;
+  border-radius: 4px;
+  padding: 0.75rem;
+  margin-bottom: 0.75rem;
+  background: white;
+}
+
+.location-note-item .quill-wrapper {
+  margin-bottom: 0;
+}
+
+.location-note-item .ql-container {
+  min-height: 60px;
+}
+
+.location-note-item .ql-editor {
+  min-height: 60px;
+}
+
+/* Checkbox label alignment */
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+}
+
+.checkbox-label span {
+  font-weight: 500;
+}
+
+/* Table responsive wrapper for modal overflow */
+.table-responsive {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+/* Wider modal for tables/detail views */
+.modal-content.modal-wide {
+  max-width: 900px;
+}
+
+/* Alerts */
+.alert {
+  padding: 1rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.alert-info {
+  background-color: #d1ecf1;
+  border: 1px solid #bee5eb;
+  color: #0c5460;
+}
+
+.alert-success {
+  background-color: #d4edda;
+  border: 1px solid #c3e6cb;
+  color: #155724;
+}
+
+.alert-danger {
+  background-color: #f8d7da;
+  border: 1px solid #f5c6cb;
+  color: #721c24;
+}
+
+.alert-warning {
+  background-color: #fff3cd;
+  border: 1px solid #ffeaa7;
+  color: #856404;
+}
+
+/* Sync spinner */
+.sync-spinner {
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(12, 84, 96, 0.3);
+  border-top-color: #0c5460;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Info button */
+.btn-info {
+  background-color: #17a2b8;
+  color: white;
+}
+
+.btn-info:hover {
+  background-color: #138496;
+}
+
+/* Sync status badges */
+.status-COMPLETED { background-color: #e8f5e9; color: #388e3c; }
+.status-FAILED { background-color: #ffebee; color: #c62828; }
+.status-RUNNING { background-color: #e3f2fd; color: #1976d2; }
+.status-PENDING { background-color: #f3e5f5; color: #7b1fa2; }
+
+/* Location autocomplete dropdown */
+.location-autocomplete-dropdown {
+  font-size: 0.9rem;
+}
+
+.location-autocomplete-dropdown > div:last-child {
+  border-bottom: none !important;
 }
 
 /* Responsive */

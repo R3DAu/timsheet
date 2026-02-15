@@ -42,7 +42,28 @@ const calculateDistance = async (req, res) => {
   }
 };
 
+const searchPlaces = async (req, res) => {
+  try {
+    const { query, lat, lng } = req.query;
+
+    if (!query) {
+      return res.status(400).json({ error: 'query parameter is required' });
+    }
+
+    const results = await mapsService.searchPlaces(query, {
+      lat: lat ? parseFloat(lat) : undefined,
+      lng: lng ? parseFloat(lng) : undefined
+    });
+
+    res.json({ results });
+  } catch (error) {
+    console.error('Search places error:', error);
+    res.status(500).json({ error: 'Failed to search places' });
+  }
+};
+
 module.exports = {
   geocode,
-  calculateDistance
+  calculateDistance,
+  searchPlaces
 };

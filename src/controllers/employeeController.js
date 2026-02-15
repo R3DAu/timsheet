@@ -108,6 +108,8 @@ const updateEmployee = async (req, res) => {
     const { id } = req.params;
     const { firstName, lastName, email, phone, presetAddresses } = req.body;
 
+    const { morningStart, morningEnd, afternoonStart, afternoonEnd, maxDailyHours } = req.body;
+
     const employee = await prisma.employee.update({
       where: { id: parseInt(id) },
       data: {
@@ -115,7 +117,12 @@ const updateEmployee = async (req, res) => {
         ...(lastName && { lastName }),
         ...(email && { email }),
         ...(phone !== undefined && { phone }),
-        ...(presetAddresses && { presetAddresses: JSON.stringify(presetAddresses) })
+        ...(presetAddresses && { presetAddresses: JSON.stringify(presetAddresses) }),
+        ...(morningStart !== undefined && { morningStart }),
+        ...(morningEnd !== undefined && { morningEnd }),
+        ...(afternoonStart !== undefined && { afternoonStart }),
+        ...(afternoonEnd !== undefined && { afternoonEnd }),
+        ...(maxDailyHours !== undefined && { maxDailyHours: parseFloat(maxDailyHours) })
       },
       include: {
         user: {
@@ -174,6 +181,43 @@ const addEmployeeIdentifier = async (req, res) => {
   }
 };
 
+const updateIdentifier = async (req, res) => {
+  try {
+    const { identifierId } = req.params;
+    const { identifierType, identifierValue, companyId } = req.body;
+
+    const identifier = await prisma.employeeIdentifier.update({
+      where: { id: parseInt(identifierId) },
+      data: {
+        ...(identifierType && { identifierType }),
+        ...(identifierValue && { identifierValue }),
+        ...(companyId !== undefined && { companyId: companyId ? parseInt(companyId) : null })
+      },
+      include: { company: true }
+    });
+
+    res.json({ message: 'Identifier updated successfully', identifier });
+  } catch (error) {
+    console.error('Update identifier error:', error);
+    res.status(500).json({ error: 'Failed to update identifier' });
+  }
+};
+
+const deleteIdentifier = async (req, res) => {
+  try {
+    const { identifierId } = req.params;
+
+    await prisma.employeeIdentifier.delete({
+      where: { id: parseInt(identifierId) }
+    });
+
+    res.json({ message: 'Identifier deleted successfully' });
+  } catch (error) {
+    console.error('Delete identifier error:', error);
+    res.status(500).json({ error: 'Failed to delete identifier' });
+  }
+};
+
 const assignRole = async (req, res) => {
   try {
     const { id } = req.params;
@@ -210,5 +254,7 @@ module.exports = {
   updateEmployee,
   deleteEmployee,
   addEmployeeIdentifier,
+  updateIdentifier,
+  deleteIdentifier,
   assignRole
 };
