@@ -918,6 +918,49 @@ async function viewTimesheet(id) {
 
 // ==================== ENTRIES ====================
 
+/**
+ * Get company options for entry forms.
+ * Admins see all companies; regular users see only companies they have roles assigned to.
+ */
+function getEntryCompanyOptions(selectedId) {
+  const emp = currentUser && currentUser.employee;
+  let companyList;
+
+  if (currentUser && currentUser.isAdmin) {
+    // Admins see all companies
+    companyList = companies;
+  } else if (emp && emp.roles && emp.roles.length > 0) {
+    // Regular users see only companies they're assigned to
+    const assignedCompanyIds = new Set(emp.roles.map(er => er.company.id));
+    companyList = companies.filter(c => assignedCompanyIds.has(c.id));
+  } else {
+    companyList = [];
+  }
+
+  return companyList.map(c =>
+    `<option value="${c.id}" ${c.id === selectedId ? 'selected' : ''}>${c.name}</option>`
+  );
+}
+
+/**
+ * Get roles for a specific company in entry forms.
+ * Admins see all roles for the company; regular users see only their assigned roles.
+ */
+function getEntryRolesForCompany(companyId) {
+  const emp = currentUser && currentUser.employee;
+
+  if (currentUser && currentUser.isAdmin) {
+    // Admins see all roles for this company
+    return roles.filter(r => r.company.id === companyId);
+  } else if (emp && emp.roles && emp.roles.length > 0) {
+    // Regular users see only their assigned roles for this company
+    return emp.roles
+      .filter(er => er.company.id === companyId)
+      .map(er => er.role);
+  }
+  return [];
+}
+
 async function loadEntries(timesheetId) {
   if (!timesheetId) {
     document.getElementById('entriesList').innerHTML = '<p>Please select a timesheet</p>';
@@ -1027,14 +1070,13 @@ async function createEntry() {
         <label>Company</label>
         <select name="companyId" id="entryCompanySelect" required>
           <option value="">Select company...</option>
-          ${companies.map(c => `<option value="${c.id}">${c.name}</option>`).join('')}
+          ${getEntryCompanyOptions().join('')}
         </select>
       </div>
       <div class="form-group">
         <label>Role</label>
         <select name="roleId" id="entryRoleSelect" required>
-          <option value="">Select role...</option>
-          ${roles.map(r => `<option value="${r.id}">${r.name} - ${r.company.name}</option>`).join('')}
+          <option value="">Select company first...</option>
         </select>
       </div>
       <div class="form-group">
@@ -1103,11 +1145,13 @@ async function createEntry() {
   document.getElementById('entryCompanySelect').onchange = (e) => {
     const companyId = parseInt(e.target.value);
     const roleSelect = document.getElementById('entryRoleSelect');
-    const filteredRoles = companyId
-      ? roles.filter(r => r.company.id === companyId)
-      : roles;
+    if (!companyId) {
+      roleSelect.innerHTML = '<option value="">Select company first...</option>';
+      return;
+    }
+    const filteredRoles = getEntryRolesForCompany(companyId);
     roleSelect.innerHTML = '<option value="">Select role...</option>' +
-      filteredRoles.map(r => `<option value="${r.id}">${r.name} - ${r.company.name}</option>`).join('');
+      filteredRoles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
   };
 
   // Attach location autocomplete to all location inputs
@@ -1212,14 +1256,16 @@ async function editEntry(id, timesheetIdParam) {
       </div>
       <div class="form-group">
         <label>Company</label>
-        <select name="companyId" required>
-          ${companies.map(c => `<option value="${c.id}" ${c.id === entry.companyId ? 'selected' : ''}>${c.name}</option>`).join('')}
+        <select name="companyId" id="editEntryCompanySelect" required>
+          <option value="">Select company...</option>
+          ${getEntryCompanyOptions(entry.companyId).join('')}
         </select>
       </div>
       <div class="form-group">
         <label>Role</label>
-        <select name="roleId" required>
-          ${roles.map(r => `<option value="${r.id}" ${r.id === entry.roleId ? 'selected' : ''}>${r.name} - ${r.company.name}</option>`).join('')}
+        <select name="roleId" id="editEntryRoleSelect" required>
+          <option value="">Select role...</option>
+          ${getEntryRolesForCompany(entry.companyId).map(r => `<option value="${r.id}" ${r.id === entry.roleId ? 'selected' : ''}>${r.name}</option>`).join('')}
         </select>
       </div>
       <div class="form-group">
@@ -1299,6 +1345,18 @@ async function editEntry(id, timesheetIdParam) {
   document.getElementById('editEntryTypeSelect').onchange = (e) => {
     document.getElementById('editTravelFields').style.display =
       e.target.value === 'TRAVEL' ? 'block' : 'none';
+  };
+
+  document.getElementById('editEntryCompanySelect').onchange = (e) => {
+    const companyId = parseInt(e.target.value);
+    const roleSelect = document.getElementById('editEntryRoleSelect');
+    if (!companyId) {
+      roleSelect.innerHTML = '<option value="">Select company first...</option>';
+      return;
+    }
+    const filteredRoles = getEntryRolesForCompany(companyId);
+    roleSelect.innerHTML = '<option value="">Select role...</option>' +
+      filteredRoles.map(r => `<option value="${r.id}">${r.name}</option>`).join('');
   };
 
   // Attach location autocomplete to all location inputs
@@ -3062,13 +3120,8 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('createUserBtn').onclick = createUser;
   document.getElementById('createApiKeyBtn').onclick = createApiKey;
 
-  // Modal close
+  // Modal close (only via X button, not clicking outside)
   document.querySelector('.close').onclick = hideModal;
-  window.onclick = (e) => {
-    if (e.target === document.getElementById('modal')) {
-      hideModal();
-    }
-  };
 
   // Check authentication
   checkAuth();
