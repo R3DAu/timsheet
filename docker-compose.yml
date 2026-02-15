@@ -6,7 +6,7 @@ services:
     env_file:
       - /srv/timesheet/.env
     volumes:
-      - /srv/timesheet/data:/app/data
+      - /srv/timesheet/data:/app/data:z
     networks:
       - proxy
     labels:
