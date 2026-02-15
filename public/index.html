@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Timesheet Management System</title>
+  <link rel="stylesheet" href="/css/style.css">
+  <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
+</head>
+<body>
+  <div id="app">
+    <!-- Login Screen -->
+    <div id="loginScreen" class="screen">
+      <div class="container">
+        <h1>Timesheet System</h1>
+        <div class="card">
+          <h2>Login</h2>
+          <form id="loginForm">
+            <div class="form-group">
+              <label for="loginEmail">Email</label>
+              <input type="email" id="loginEmail" required>
+            </div>
+            <div class="form-group">
+              <label for="loginPassword">Password</label>
+              <input type="password" id="loginPassword" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Login</button>
+          </form>
+          <div id="loginError" class="error"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Screen -->
+    <div id="mainScreen" class="screen" style="display: none;">
+      <nav class="navbar">
+        <div class="container">
+          <h1>Timesheet System</h1>
+          <div class="nav-right">
+            <span id="userDisplay"></span>
+            <button id="myProfileBtn" class="btn btn-secondary">My Profile</button>
+            <button id="logoutBtn" class="btn btn-secondary">Logout</button>
+          </div>
+        </div>
+      </nav>
+
+      <div class="container">
+        <!-- Navigation Tabs -->
+        <div class="tabs">
+          <button class="tab" data-tab="myTimesheets" style="display:none;">My Timesheets</button>
+          <button class="tab" data-tab="allTimesheets" style="display:none;">All Timesheets</button>
+          <button class="tab" data-tab="entries">Timesheet Entries</button>
+          <button class="tab admin-only" data-tab="employees" style="display:none;">Employees</button>
+          <button class="tab admin-only" data-tab="companies" style="display:none;">Companies</button>
+          <button class="tab admin-only" data-tab="roles" style="display:none;">Roles</button>
+          <button class="tab admin-only" data-tab="users" style="display:none;">Users</button>
+          <button class="tab admin-only" data-tab="apiKeys" style="display:none;">API Keys</button>
+        </div>
+
+        <!-- My Timesheets Tab -->
+        <div id="myTimesheetsTab" class="tab-content">
+          <div class="card">
+            <div class="card-header">
+              <h2>My Timesheets</h2>
+              <button id="createTimesheetBtn" class="btn btn-primary">Create Timesheet</button>
+            </div>
+            <div id="myTimesheetsList"></div>
+          </div>
+        </div>
+
+        <!-- All Timesheets Tab (Admin) -->
+        <div id="allTimesheetsTab" class="tab-content">
+          <div class="card">
+            <div class="card-header">
+              <h2>All Timesheets</h2>
+            </div>
+            <div id="allTimesheetsList"></div>
+          </div>
+        </div>
+
+        <!-- Entries Tab -->
+        <div id="entriesTab" class="tab-content">
+          <div class="card">
+            <div class="card-header">
+              <h2>Timesheet Entries</h2>
+              <select id="timesheetSelect" class="form-control">
+                <option value="">Select a timesheet...</option>
+              </select>
+              <button id="createEntryBtn" class="btn btn-primary">Add Entry</button>
+            </div>
+            <div id="entriesList"></div>
+          </div>
+        </div>
+
+        <!-- Employees Tab (Admin) -->
+        <div id="employeesTab" class="tab-content">
+          <div class="card">
+            <div class="card-header">
+              <h2>Employees</h2>
+              <button id="createEmployeeBtn" class="btn btn-primary">Add Employee</button>
+            </div>
+            <div id="employeesList"></div>
+          </div>
+        </div>
+
+        <!-- Companies Tab (Admin) -->
+        <div id="companiesTab" class="tab-content">
+          <div class="card">
+            <div class="card-header">
+              <h2>Companies</h2>
+              <button id="createCompanyBtn" class="btn btn-primary">Add Company</button>
+            </div>
+            <div id="companiesList"></div>
+          </div>
+        </div>
+
+        <!-- Roles Tab (Admin) -->
+        <div id="rolesTab" class="tab-content">
+          <div class="card">
+            <div class="card-header">
+              <h2>Roles</h2>
+              <button id="createRoleBtn" class="btn btn-primary">Add Role</button>
+            </div>
+            <div id="rolesList"></div>
+          </div>
+        </div>
+
+        <!-- Users Tab (Admin) -->
+        <div id="usersTab" class="tab-content">
+          <div class="card">
+            <div class="card-header">
+              <h2>System Users</h2>
+              <button id="createUserBtn" class="btn btn-primary">Add User</button>
+            </div>
+            <div id="usersList"></div>
+          </div>
+        </div>
+
+        <!-- API Keys Tab (Admin) -->
+        <div id="apiKeysTab" class="tab-content">
+          <div class="card">
+            <div class="card-header">
+              <h2>API Keys</h2>
+              <button id="createApiKeyBtn" class="btn btn-primary">Create API Key</button>
+            </div>
+            <div id="apiKeysList"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal for forms -->
+  <div id="modal" class="modal">
+    <div class="modal-content">
+      <span class="close">&times;</span>
+      <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.js"></script>
+  <script src="/js/app.js"></script>
+</body>
+</html>

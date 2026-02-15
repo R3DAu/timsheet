@@ -1,0 +1,246 @@
+// This is your Prisma schema file
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// Note: SQLite doesn't support enums, so we use String with application-level validation
+// Valid values for status: OPEN, INCOMPLETE, SUBMITTED, AWAITING_APPROVAL, APPROVED, LOCKED, UNLOCKED, PROCESSED
+// Valid values for entryType: TRAVEL, GENERAL
+
+model User {
+  id            Int      @id @default(autoincrement())
+  email         String   @unique
+  passwordHash  String
+  name          String
+  isAdmin       Boolean  @default(false)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  employee      Employee?
+  approvals     TimesheetApprover[]
+  approvedTimesheets Timesheet[] @relation("ApprovedBy")
+  apiKeys       ApiKey[]
+}
+
+model Company {
+  id          Int      @id @default(autoincrement())
+  name        String
+  isBillable      Boolean  @default(true)
+  wmsSyncEnabled  Boolean  @default(false)  // Allow DE WMS timesheet sync for this company's entries
+  createdAt       DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  roles            Role[]
+  employeeRoles    EmployeeRole[]
+  approvers        TimesheetApprover[]
+  timesheetEntries TimesheetEntry[]
+  employeeIdentifiers EmployeeIdentifier[]
+}
+
+model Employee {
+  id              Int      @id @default(autoincrement())
+  userId          Int      @unique
+  firstName       String
+  lastName        String
+  email           String   @unique
+  phone           String?
+  presetAddresses String?  // JSON string
+  morningStart    String   @default("08:30")  // HH:MM format
+  morningEnd      String   @default("12:30")
+  afternoonStart  String   @default("13:00")
+  afternoonEnd    String   @default("17:00")
+  maxDailyHours   Float    @default(16)  // Max billable hours per day (admin-configurable)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identifiers EmployeeIdentifier[]
+  roles       EmployeeRole[]
+  timesheets  Timesheet[]
+}
+
+model EmployeeIdentifier {
+  id              Int      @id @default(autoincrement())
+  employeeId      Int
+  identifierType  String   // e.g., "payroll", "contractor_id", "hr_system"
+  identifierValue String
+  companyId       Int?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  company  Company? @relation(fields: [companyId], references: [id])
+
+  @@unique([employeeId, identifierType, companyId])
+}
+
+model Role {
+  id         Int      @id @default(autoincrement())
+  name       String
+  companyId  Int
+  payRate    Float
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  company         Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeRoles   EmployeeRole[]
+  timesheetEntries TimesheetEntry[]
+
+  @@unique([name, companyId])
+}
+
+model EmployeeRole {
+  id         Int      @id @default(autoincrement())
+  employeeId Int
+  roleId     Int
+  companyId  Int
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  role     Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, roleId, companyId])
+}
+
+model Timesheet {
+  id             Int      @id @default(autoincrement())
+  employeeId     Int
+  weekStarting   DateTime
+  weekEnding     DateTime
+  status         String   @default("OPEN")
+  submittedAt    DateTime?
+  approvedAt     DateTime?
+  approvedById   Int?
+  tsDataPeriodId String?          // DE period ID from TSDATA
+  tsDataStatus   String?          // Authoritative status from TSDATA
+  tsDataSyncedAt DateTime?        // Last sync timestamp
+  autoCreated    Boolean  @default(false) // Auto-created by TSDATA sync
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  employee     Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  approvedBy   User?             @relation("ApprovedBy", fields: [approvedById], references: [id])
+  entries      TimesheetEntry[]
+  wmsSyncLogs  WmsSyncLog[]
+
+  @@unique([employeeId, weekStarting])
+}
+
+model TimesheetEntry {
+  id           Int      @id @default(autoincrement())
+  timesheetId  Int
+  entryType    String
+  date         DateTime
+  startTime    String?  // HH:MM format e.g. "07:00"
+  endTime      String?  // HH:MM format e.g. "17:00"
+  hours        Float
+  roleId       Int
+  companyId    Int
+  status       String   @default("OPEN")
+  tsDataSource   Boolean  @default(false) // true if entry came from TSDATA
+  tsDataEntryId  String?  @unique         // External ID from TSDATA
+  tsDataSyncedAt DateTime?                // Last sync timestamp
+  startingLocation String? // School/location where this entry's work began
+  reasonForDeviation String? // Reason for deviation from approved schedule (for WMS/TSSP)
+  notes        String?  // Rich HTML content from WYSIWYG editor
+  privateNotes String?  // Internal-only notes, not visible to clients
+  locationNotes String? // JSON array of {location, description} pairs with HTML descriptions
+  travelFrom   String?
+  travelTo     String?
+  distance     Float?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  timesheet Timesheet @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
+  role      Role      @relation(fields: [roleId], references: [id])
+  company   Company   @relation(fields: [companyId], references: [id])
+}
+
+model TimesheetApprover {
+  id        Int      @id @default(autoincrement())
+  companyId Int
+  userId    Int
+  email     String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, userId])
+}
+
+model WmsSyncLog {
+  id           Int       @id @default(autoincrement())
+  timesheetId  Int
+  status       String    // PENDING, RUNNING, COMPLETED, FAILED
+  wmsUsername   String?
+  startedAt    DateTime?
+  completedAt  DateTime?
+  errorMessage String?
+  syncDetails  String?   // JSON: steps completed, entries synced, etc.
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  timesheet    Timesheet @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
+
+  @@index([timesheetId])
+  @@index([status])
+}
+
+model ApiKey {
+  id         Int       @id @default(autoincrement())
+  keyHash    String    @unique  // SHA-256 hash of the full key
+  keyPrefix  String              // First 8 chars for display (e.g., "tsk_abcd")
+  name       String              // Human-readable label
+  userId     Int
+  isActive   Boolean   @default(true)
+  lastUsedAt DateTime?
+  expiresAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([keyHash])
+}
+
+model TsDataSyncLog {
+  id               Int       @id @default(autoincrement())
+  syncType         String    // FULL_SYNC, ENTRY_IMPORT, STATUS_UPDATE
+  status           String    // SUCCESS, ERROR, PARTIAL
+  employeeId       Int?
+  timesheetId      Int?
+  recordsProcessed Int       @default(0)
+  recordsCreated   Int       @default(0)
+  recordsUpdated   Int       @default(0)
+  recordsSkipped   Int       @default(0)
+  errorMessage     String?
+  syncDetails      String?   // JSON details
+  startedAt        DateTime  @default(now())
+  completedAt      DateTime?
+  createdAt        DateTime  @default(now())
+
+  @@index([syncType, status])
+  @@index([startedAt])
+}
+
+model PlaceCache {
+  id            Int      @id @default(autoincrement())
+  placeName     String   @unique
+  address       String
+  latitude      Float
+  longitude     Float
+  googlePlaceId String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
