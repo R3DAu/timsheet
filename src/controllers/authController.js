@@ -107,7 +107,6 @@ const getCurrentUser = async (req, res) => {
 
     const user = await prisma.user.findUnique({
       where: { id: req.session.userId },
-      include: { employee: true },
       select: {
         id: true,
         email: true,
@@ -129,7 +128,13 @@ const getCurrentUser = async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    res.json({ user });
+    // Add employeeId at top level for UI convenience
+    const userData = {
+      ...user,
+      employeeId: user.employee ? user.employee.id : null
+    };
+
+    res.json({ user: userData });
   } catch (error) {
     console.error('Get current user error:', error);
     res.status(500).json({ error: 'Failed to get current user' });
