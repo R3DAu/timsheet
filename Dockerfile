@@ -40,11 +40,11 @@ COPY scripts/ scripts/
 
 # Data directory for SQLite databases
 RUN mkdir -p /app/data
-ENV NODE_ENV=production
+#ENV NODE_ENV=production
 
 EXPOSE 3000
 
-COPY docker-entrypoint.sh /docker-entrypoint.sh
+COPY ./docker-entrypoint.sh /docker-entrypoint.sh
 RUN chmod +x /docker-entrypoint.sh
 
 ENTRYPOINT ["/docker-entrypoint.sh"]

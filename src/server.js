@@ -30,7 +30,8 @@ const PORT = process.env.PORT || 3000;
 const isDev = process.env.NODE_ENV !== 'production';
 
 // Trust proxy (required behind Traefik/nginx for secure cookies)
-if (!isDev) {
+// Enables Express to trust X-Forwarded-Proto from the reverse proxy
+if (process.env.TRUST_PROXY === 'true') {
   app.set('trust proxy', 1);
 }
 

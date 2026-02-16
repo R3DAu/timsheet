@@ -8,6 +8,9 @@ export SESSION_DB_PATH="/app/data/sessions.db"
 # Ensure Playwright finds its browser binaries
 export PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 
+# Write WMS debug screenshots to the persistent data volume
+export WMS_DEBUG_DIR=/app/data/wms-debug
+
 # Ensure data directory exists
 mkdir -p /app/data
 
