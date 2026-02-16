@@ -27,6 +27,9 @@ import * as roles from './features/roles/roles.js';
 import * as auth from './features/auth/auth.js';
 import * as employees from './features/employees/employees.js';
 import * as users from './features/users/users.js';
+import * as timesheets from './features/timesheets/timesheets.js';
+import * as wmsSync from './features/wms/wms-sync.js';
+import * as wmsComparison from './features/wms/wms-comparison.js';
 
 // Validation
 import { validateEntry, getTimesheetById, getTimesheetEntries, formatTime } from './features/entries/entry-validation.js';
@@ -68,6 +71,19 @@ Object.assign(window, {
   editUser: users.editUser,
   linkProfileToUser: users.linkProfileToUser,
   deleteUser: users.deleteUser,
+
+  // Timesheets
+  createTimesheet: timesheets.createTimesheet,
+  viewTimesheet: timesheets.viewTimesheet,
+  submitTimesheet: timesheets.submitTimesheet,
+  approveTimesheet: timesheets.approveTimesheet,
+  lockTimesheet: timesheets.lockTimesheet,
+  deleteTimesheet: timesheets.deleteTimesheet,
+
+  // WMS
+  syncToWms: wmsSync.syncToWms,
+  viewSyncHistory: wmsSync.viewSyncHistory,
+  showDeWmsEntries: wmsComparison.showDeWmsEntries,
 
   // Location autocomplete
   removeLocationNote,

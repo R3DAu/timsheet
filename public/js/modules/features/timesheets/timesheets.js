@@ -5,7 +5,7 @@ import {registerTabHook} from '../../core/navigation.js';
 import {showModalWithForm, hideModal} from '../../core/modal.js';
 import {showAlert, showConfirmation} from '../../core/alerts.js';
 import {formatTime, todayStr} from '../../core/dateTime.js';
-import {getWmsSyncButton} from '../wms/wms.js';
+import {getWmsSyncButton} from '../wms/wms-sync.js';
 
 export async function loadMyTimesheets() {
     const currentUser = state.get('currentUser');

@@ -159,6 +159,17 @@ var App = (() => {
     if (!str) return "";
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
+  function sanitizeRichText(html) {
+    if (!html) return "";
+    if (typeof DOMPurify === "undefined") {
+      console.error("DOMPurify is not loaded");
+      return escapeHtml(html);
+    }
+    return DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: ["p", "br", "strong", "em", "u", "ol", "ul", "li", "a"],
+      ALLOWED_ATTR: ["href", "target", "rel"]
+    });
+  }
   var init_dom = __esm({
     "public/js/modules/core/dom.js"() {
     }
@@ -643,7 +654,7 @@ var App = (() => {
   }
   function displayUsers() {
     const users = state.get("users");
-    const currentUser = state.get("currentUser");
+    const currentUser2 = state.get("currentUser");
     const container = document.getElementById("usersList");
     if (users.length === 0) {
       container.innerHTML = "<p>No users found.</p>";
@@ -677,7 +688,7 @@ var App = (() => {
                 data-user-id="${u.id}"
                 data-user-name="${escapeHtml(u.name)}"
                 data-user-email="${escapeHtml(u.email)}">Link Profile</button>` : ""}
-              ${u.id !== currentUser.id ? `<button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})">Delete</button>` : ""}
+              ${u.id !== currentUser2.id ? `<button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})">Delete</button>` : ""}
             </td>
           </tr>
         `).join("")}
@@ -1342,6 +1353,558 @@ var App = (() => {
     }
   });
 
+  // public/js/modules/core/dateTime.js
+  function formatTime(timeStr) {
+    if (!timeStr) return "";
+    const [h, m] = timeStr.split(":");
+    const hour = parseInt(h);
+    const ampm = hour >= 12 ? "PM" : "AM";
+    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+    return `${displayHour}:${m} ${ampm}`;
+  }
+  var init_dateTime = __esm({
+    "public/js/modules/core/dateTime.js"() {
+    }
+  });
+
+  // public/js/modules/features/wms/wms-sync.js
+  function employeeHasWmsSyncRole(employee) {
+    if (!employee || !employee.roles) return false;
+    return employee.roles.some(
+      (r) => r.company && r.company.wmsSyncEnabled
+    );
+  }
+  function timesheetHasWmsSyncEntries(ts) {
+    if (!ts.entries || ts.entries.length === 0) return false;
+    return ts.entries.some(
+      (e) => e.company && e.company.wmsSyncEnabled
+    );
+  }
+  function getWmsSyncButton(ts) {
+    const currentUser2 = state.get("currentUser");
+    const isOwnTimesheet = currentUser2 && currentUser2.employeeId && ts.employee && ts.employee.id === currentUser2.employeeId;
+    if (isOwnTimesheet) {
+      const emp = currentUser2.employee;
+      if (!emp || !employeeHasWmsSyncRole(emp)) {
+        return "";
+      }
+    }
+    const hasWmsEntries = timesheetHasWmsSyncEntries(ts);
+    if (!hasWmsEntries) {
+      if (isOwnTimesheet) {
+        return `<button class="btn btn-sm btn-info" disabled title="No WMS-syncable entries to sync" style="opacity: 0.5; cursor: not-allowed;">Sync to WMS</button>`;
+      }
+      return "";
+    }
+    return `<button class="btn btn-sm btn-info" onclick="syncToWms(${ts.id})">Sync to WMS</button>`;
+  }
+  async function syncToWms(timesheetId) {
+    const html = `
+    <h3>Sync to DE WMS (TSSP)</h3>
+    <div class="alert alert-info">
+      Enter your DE (ADFS) login credentials. These are <strong>not stored</strong> on our servers and are only used for this sync session. Your employee profile must have a <strong>DE Worker ID</strong> identifier configured.
+    </div>
+    <form id="wmsSyncForm">
+      <div class="form-group">
+        <label>ADFS Username (e.g. domain\\username or email)</label>
+        <input type="text" name="wmsUsername" required autocomplete="off" placeholder="EDUCATION\\jsmith or jsmith@education.vic.gov.au">
+      </div>
+      <div class="form-group">
+        <label>ADFS Password</label>
+        <input type="password" name="wmsPassword" required autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="wmsSyncShowPw">
+          <span>Show password</span>
+        </label>
+      </div>
+      <button type="submit" class="btn btn-primary">Start Sync</button>
+      <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+    </form>
+  `;
+    showModalWithHTML(html);
+    document.getElementById("wmsSyncShowPw").onchange = (e) => {
+      const pwInput = document.querySelector('#modalBody input[name="wmsPassword"]');
+      pwInput.type = e.target.checked ? "text" : "password";
+    };
+    document.getElementById("wmsSyncForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const credentials = {
+        username: form.wmsUsername.value,
+        password: form.wmsPassword.value
+      };
+      form.wmsPassword.value = "";
+      try {
+        const result = await api.post("/wms-sync/start", {
+          timesheetId,
+          credentials
+        });
+        showSyncProgress(result.syncLog.id);
+      } catch (error) {
+        showAlert("Failed to start sync: " + error.message);
+      }
+    };
+  }
+  function showSyncProgress(syncLogId) {
+    const html = `
+    <h3>WMS Sync Progress</h3>
+    <div class="sync-progress">
+      <div class="alert alert-info" id="syncProgressAlert">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div class="sync-spinner" id="syncSpinner"></div>
+          <span id="syncProgressMessage">Initialising sync...</span>
+        </div>
+      </div>
+      <div id="syncProgressLog" style="background: #1a1a2e; border-radius: 6px; padding: 0.75rem; margin: 0.75rem 0; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; line-height: 1.6;"></div>
+      <div id="syncResultDetails"></div>
+    </div>
+    <button type="button" class="btn btn-secondary" onclick="hideModal()">Close</button>
+  `;
+    showModalWithHTML(html);
+    pollSyncStatus(syncLogId);
+  }
+  function pollSyncStatus(syncLogId) {
+    let attempts = 0;
+    const maxAttempts = 120;
+    let lastProgressCount = 0;
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        const result = await api.get("/wms-sync/status/" + syncLogId);
+        const log = result.syncLog;
+        const alertEl = document.getElementById("syncProgressAlert");
+        const messageEl = document.getElementById("syncProgressMessage");
+        const spinnerEl = document.getElementById("syncSpinner");
+        const logEl = document.getElementById("syncProgressLog");
+        const detailsEl = document.getElementById("syncResultDetails");
+        if (!alertEl) {
+          clearInterval(interval);
+          return;
+        }
+        if (log.progress && log.progress.length > lastProgressCount) {
+          for (let i = lastProgressCount; i < log.progress.length; i++) {
+            const p = log.progress[i];
+            const line = document.createElement("div");
+            const isSaved = p.message.includes("Saved ");
+            const isError = p.message.includes("Error") || p.message.includes("Failed");
+            const isSkipped = p.message.includes("Skipped");
+            const color = isError ? "#ff6b6b" : isSkipped ? "#ffd93d" : isSaved ? "#6bcb77" : "#a8b2d1";
+            line.style.color = color;
+            line.textContent = p.message;
+            logEl.appendChild(line);
+          }
+          logEl.scrollTop = logEl.scrollHeight;
+          lastProgressCount = log.progress.length;
+          const latest = log.progress[log.progress.length - 1];
+          if (latest && messageEl) {
+            messageEl.textContent = latest.message;
+          }
+        }
+        if (log.status === "COMPLETED") {
+          clearInterval(interval);
+          if (spinnerEl) spinnerEl.style.display = "none";
+          if (log.syncDetails) {
+            try {
+              const details = JSON.parse(log.syncDetails);
+              const fillStep = details.steps && details.steps.find((s) => s.step === "fillEntries");
+              const entered = fillStep ? fillStep.entriesEntered || 0 : details.entriesSynced || 0;
+              const failed = fillStep ? fillStep.entriesFailed || 0 : 0;
+              const skipped = fillStep ? fillStep.entriesSkipped || 0 : 0;
+              const entries = fillStep ? fillStep.entries || [] : [];
+              if (failed > 0 && entered === 0) {
+                alertEl.className = "alert alert-danger";
+                alertEl.innerHTML = "<strong>Sync completed with errors \u2014 no entries were saved.</strong>";
+              } else if (failed > 0) {
+                alertEl.className = "alert alert-warning";
+                alertEl.innerHTML = `<strong>Sync completed with ${failed} error(s).</strong>`;
+              } else {
+                alertEl.className = "alert alert-success";
+                alertEl.innerHTML = "<strong>Timesheet synced to DE WMS successfully!</strong>";
+              }
+              let summary = `Entries synced: ${entered}`;
+              if (failed > 0) summary += ` | Failed: ${failed}`;
+              if (skipped > 0) summary += ` | Skipped: ${skipped}`;
+              summary += ` | Total hours: ${(details.totalHours || 0).toFixed(2)}`;
+              let errorDetails = "";
+              const failedEntries = entries.filter((e) => e.status === "failed");
+              if (failedEntries.length > 0) {
+                errorDetails = '<ul style="margin: 0.5rem 0 0; padding-left: 1.25rem; color: #ff6b6b;">';
+                failedEntries.forEach((e) => {
+                  errorDetails += `<li>${escapeHtml(e.date)} ${escapeHtml(e.startTime || "")}-${escapeHtml(e.endTime || "")}: ${escapeHtml(e.error)}</li>`;
+                });
+                errorDetails += "</ul>";
+              }
+              detailsEl.innerHTML = `<p style="margin-top: 0.5rem;">${escapeHtml(summary)}</p>${errorDetails}`;
+            } catch (_) {
+              alertEl.className = "alert alert-success";
+              alertEl.innerHTML = "<strong>Timesheet synced to DE WMS successfully!</strong>";
+            }
+          } else {
+            alertEl.className = "alert alert-success";
+            alertEl.innerHTML = "<strong>Timesheet synced to DE WMS successfully!</strong>";
+          }
+          refreshTimesheets();
+        } else if (log.status === "FAILED") {
+          clearInterval(interval);
+          if (spinnerEl) spinnerEl.style.display = "none";
+          alertEl.className = "alert alert-danger";
+          alertEl.innerHTML = "<strong>Sync failed:</strong> " + escapeHtml(log.errorMessage || "Unknown error");
+        } else if (attempts >= maxAttempts) {
+          clearInterval(interval);
+          if (spinnerEl) spinnerEl.style.display = "none";
+          alertEl.className = "alert alert-warning";
+          alertEl.innerHTML = "Sync is taking longer than expected. Check sync history later.";
+        }
+      } catch (error) {
+        console.error("Poll error:", error);
+      }
+    }, 2e3);
+  }
+  async function viewSyncHistory(timesheetId) {
+    try {
+      const result = await api.get("/wms-sync/timesheet/" + timesheetId);
+      const syncs = result.syncs;
+      if (syncs.length === 0) {
+        showModalWithHTML("<h3>Sync History</h3><p>No sync history for this timesheet.</p>");
+        return;
+      }
+      const rows = syncs.map((sync) => {
+        const started = sync.startedAt ? new Date(sync.startedAt).toLocaleString() : new Date(sync.createdAt).toLocaleString();
+        const duration = sync.startedAt && sync.completedAt ? Math.round((new Date(sync.completedAt) - new Date(sync.startedAt)) / 1e3) + "s" : "-";
+        return `
+        <tr>
+          <td>${started}</td>
+          <td><span class="status-badge status-${sync.status}">${sync.status}</span></td>
+          <td>${escapeHtml(sync.wmsUsername) || "-"}</td>
+          <td>${duration}</td>
+          <td>${sync.errorMessage ? escapeHtml(sync.errorMessage) : sync.status === "COMPLETED" ? "OK" : "-"}</td>
+        </tr>
+      `;
+      }).join("");
+      const html = `
+      <h3>Sync History</h3>
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr><th>Started</th><th>Status</th><th>WMS User</th><th>Duration</th><th>Result</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+      showModalWithHTML(html);
+    } catch (error) {
+      showAlert("Failed to load sync history: " + error.message);
+    }
+  }
+  async function refreshTimesheets() {
+    const currentUser2 = state.get("currentUser");
+    const { loadMyTimesheets: loadMyTimesheets2 } = await Promise.resolve().then(() => (init_timesheets(), timesheets_exports));
+    if (currentUser2.employeeId) {
+      await loadMyTimesheets2();
+    }
+    if (currentUser2.isAdmin) {
+      const { loadAllTimesheets: loadAllTimesheets2 } = await Promise.resolve().then(() => (init_timesheets(), timesheets_exports));
+      await loadAllTimesheets2();
+    }
+  }
+  var init_wms_sync = __esm({
+    "public/js/modules/features/wms/wms-sync.js"() {
+      init_api();
+      init_state();
+      init_modal();
+      init_alerts();
+      init_dom();
+    }
+  });
+
+  // public/js/modules/features/timesheets/timesheets.js
+  var timesheets_exports = {};
+  __export(timesheets_exports, {
+    approveTimesheet: () => approveTimesheet,
+    combineTimesheetsAndDedupe: () => combineTimesheetsAndDedupe,
+    createTimesheet: () => createTimesheet,
+    deleteTimesheet: () => deleteTimesheet,
+    displayAllTimesheets: () => displayAllTimesheets,
+    displayMyTimesheets: () => displayMyTimesheets,
+    loadAllTimesheets: () => loadAllTimesheets,
+    loadMyTimesheets: () => loadMyTimesheets,
+    lockTimesheet: () => lockTimesheet,
+    populateTimeSheetSelect: () => populateTimeSheetSelect,
+    refreshTimesheets: () => refreshTimesheets2,
+    submitTimesheet: () => submitTimesheet,
+    viewTimesheet: () => viewTimesheet
+  });
+  async function loadMyTimesheets() {
+    const currentUser2 = state.get("currentUser");
+    const result = await api.get(`/timesheets?employeeId=${currentUser2.employeeId}`);
+    state.set("myTimesheets", result.timesheets);
+    await combineTimesheetsAndDedupe();
+    displayMyTimesheets();
+    populateTimesheetSelect();
+  }
+  async function loadAllTimesheets() {
+    const result = await api.get("/timesheets");
+    state.set("allTimesheets", result.timesheets);
+    await combineTimesheetsAndDedupe();
+    displayAllTimesheets();
+  }
+  function displayTimesheetsTable(tsArray, containerId, showEmployee) {
+    const container = document.getElementById(containerId);
+    const currentUser2 = state.get("currentUser");
+    if (tsArray.length === 0) {
+      container.innerHTML = "<p>No timesheets found.</p>";
+      return;
+    }
+    const isAdmin = currentUser2.isAdmin;
+    container.innerHTML = `
+        <table>
+            <thead>
+                <tr>
+                    ${showEmployee ? "<th>Employee</th>" : ""}
+                    <th>Week</th>
+                    <th>Status</th>
+                    <th>Entries</th>
+                    <th>Submitted</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${tsArray.map((ts) => `
+                <tr>
+                    ${showEmployee ? `<td>${escapeHtml(ts.employee.user.name)}</td>` : ""}
+                    <td>${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}</td>
+                    <td>
+                        <span class="status-badge status-${ts.status}">${ts.status}</span>
+                        ${ts.autoCreated ? ' <span class="source-badge tsdata-badge" title="Auto-created from TSDATA sync">TSDATA</span>' : ""}
+                        ${ts.tsDataStatus && ts.tsDataStatus !== ts.status ? `<br><small style="color:#666;">TSDATA: ${ts.tsDataStatus}</small>` : ""}
+                    </td>
+                    <td>${ts.entries.length}</td>
+                    <td>${ts.submittedAt ? new Date(ts.submittedAt).toLocaleString() : ts.tsDataSyncedAt ? `<small>Synced ${new Date(ts.tsDataSyncedAt).toLocaleString()}</small>` : "-"}</td>
+                    <td>
+                      <button class="btn btn-sm btn-primary" onclick="viewTimesheet(${ts.id})">View</button>
+                      ${ts.status === "SUBMITTED" && isAdmin ? `
+                        <button class="btn btn-sm btn-success" onclick="approveTimesheet(${ts.id})">Approve</button>
+                      ` : ""}
+                      ${ts.status === "APPROVED" && isAdmin ? `
+                        <button class="btn btn-sm btn-secondary" onclick="lockTimesheet(${ts.id})">Lock</button>
+                      ` : ""}
+                      ${getWmsSyncButton(ts)}
+                      ${ts.status === "OPEN" ? `
+                        <button class="btn btn-sm btn-success" onclick="submitTimesheet(${ts.id})">Submit</button>
+                      ` : ""}
+                      <button class="btn btn-sm btn-danger" onclick="deleteTimesheet(${ts.id})">Delete</button>
+                    </td>
+                </tr>
+                `).join("")}
+            </tbody>
+        </table>
+    `;
+  }
+  async function populateTimeSheetSelect() {
+    const select = document.getElementById("timesheetSelect");
+    let timesheets = state.get("timesheets");
+    select.innerHTML = '<option value="">Select a timesheet...</option>' + timesheets.map((ts) => {
+      const label = currentUser.isAdmin ? `${escapeHtml(ts.employee.user.name)} - Week ${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}` : `Week ${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}`;
+      return `<option value="${ts.id}">${label}</option>`;
+    }).join("");
+  }
+  async function createTimesheet() {
+    const currentUser2 = state.get("currentUser");
+    let employeeSelectHtml = "";
+    if (currentUser2.isAdmin) {
+      const employees = await api.get("/employees");
+      employeeSelectHtml = `
+            <div class="form-group">
+                <label>Employee</label>
+                <select name="employeeId" required>
+                    <option value="">Select employee...</option>
+                    ${employees.filter((e) => e.id !== currentUser2.employeeId).map((e) => `<option value="${e.id}">${escapeHtml(e.user.name)}</option>`).join("")}
+                </select>
+            </div>
+        `;
+    }
+    const html = `
+        <form id="timesheetForm"> 
+            ${employeeSelectHtml}
+            <div class="form-group">
+                <label>Week Starting</label>
+                <input type="date" name="weekStarting" required>
+            </div>
+            <div class="form-group">
+                <label>Week Ending</label>
+                <input type="date" name="weekEnding" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Create Timesheet</button>
+        </form>
+    `;
+    showModalWithForm("Create Timesheet", html);
+    const timesheetModal = document.getElementById("timesheetForm");
+    timesheetModal.onsubmit = async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const employeeId = formData.get("employeeId") ? parseInt(formData.get("employeeId")) : currentUser2.employeeId;
+      if (!employeeId) {
+        showAlert("No employee profile found. An admin must create an employee profile for your account first.");
+      }
+      try {
+        await api.post("/timesheets", {
+          employeeId,
+          weekStarting: formData.get("weekStarting"),
+          weekEnding: formData.get("weekEnding")
+        });
+        hideModal();
+        await refreshTimesheets2();
+      } catch (error) {
+        showAlert(error.message);
+      }
+    };
+  }
+  async function refreshTimesheets2() {
+    const currentUser2 = state.get("currentUser");
+    if (currentUser2.isAdmin) await loadAllTimesheets();
+    if (currentUser2.employeeId) await loadMyTimesheets();
+  }
+  function displayMyTimesheets() {
+    displayTimesheetsTable(state.get("myTimesheets"), "myTimesheetsList", false);
+  }
+  async function displayAllTimesheets() {
+    displayTimesheetsTable(state.get("allTimesheets"), "allTimesheetsList", true);
+  }
+  async function viewTimesheet(id) {
+    const ts = state.get("timesheets").find((ts2) => ts2.id === id);
+    if (!ts) {
+      showAlert("Timesheet not found.");
+      return;
+    }
+    const html = `
+    <h3>${escapeHtml(ts.employee.user.name)}</h3>
+      <p>Week ${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}</p>
+      <p><strong>Status:</strong> <span class="status-badge status-${ts.status}">${ts.status}</span></p>
+      ${ts.approvedBy ? `<p><strong>Approved by:</strong> ${escapeHtml(ts.approvedBy.name)}</p>` : ""}
+      ${ts.entries.length > 0 ? `
+        <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Type</th>
+              <th>Time</th>
+              <th>Hours</th>
+              <th>Company</th>
+              <th>Role</th>
+              <th>Location</th>
+              <th>Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${ts.entries.map((entry) => `
+              <tr>
+                <td>${new Date(entry.date).toLocaleDateString()}</td>
+                <td>${entry.entryType}</td>
+                <td style="white-space:nowrap;">${entry.startTime && entry.endTime ? `${formatTime(entry.startTime)} - ${formatTime(entry.endTime)}` : "-"}</td>
+                <td>${entry.hours.toFixed(2)}</td>
+                <td>${escapeHtml(entry.company.name)}</td>
+                <td>${escapeHtml(entry.role.name)}</td>
+                <td>${escapeHtml(entry.startingLocation) || "-"}</td>
+                <td>
+                  <div class="rich-text-content">${sanitizeRichText(entry.notes) || "-"}</div>
+                  ${entry.reasonForDeviation ? `<div style="margin-top:0.25rem;padding:0.25rem 0.5rem;background:#fff3cd;border-radius:4px;border-left:3px solid #ffc107;"><small><strong>Deviation:</strong> ${sanitizeRichText(entry.reasonForDeviation)}</small></div>` : ""}
+                  ${entry.entryType === "TRAVEL" ? `<br><small>${escapeHtml(entry.travelFrom)} &rarr; ${escapeHtml(entry.travelTo)}${entry.distance ? ` (${entry.distance.toFixed(1)} km)` : ""}</small>` : ""}
+                  ${entry.locationNotes ? (() => {
+      try {
+        const lnotes = typeof entry.locationNotes === "string" ? JSON.parse(entry.locationNotes) : entry.locationNotes;
+        return lnotes.map((ln) => `<div style="margin-top:0.5rem;padding:0.25rem 0.5rem;background:#e8f4fd;border-radius:4px;border-left:3px solid #3498db;"><strong>${escapeHtml(ln.location)}</strong><div class="rich-text-content">${sanitizeRichText(ln.description)}</div></div>`).join("");
+      } catch (e) {
+        return "";
+      }
+    })() : ""}
+                  ${entry.privateNotes ? `<br><span class="private-notes-badge">Private notes</span>` : ""}
+                </td>
+              </tr>
+            `).join("")}
+          </tbody>
+        </table>
+        </div>
+        <p><strong>Total Hours:</strong> ${ts.entries.reduce((sum, e) => sum + e.hours, 0).toFixed(2)}</p>
+      ` : "<p>No entries yet</p>"}
+      <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
+        <button class="btn btn-secondary" onclick="hideModal(); showDeWmsEntries(${id});">DE WMS Entries</button>
+      </div>
+    `;
+    try {
+      showModalWithForm("Timesheet Details", html);
+    } catch (e) {
+      showAlert(e);
+    }
+  }
+  async function submitTimesheet(id) {
+    if (!showConfirmation("Are you sure you want to submit this timesheet?")) return;
+    try {
+      await api.post(`/timesheets/${id}/submit`);
+      await refreshTimesheets2();
+      showAlert("Timesheet submitted successfully");
+    } catch (error) {
+      showAlert(error.message);
+    }
+  }
+  async function approveTimesheet(id) {
+    if (!showConfirmation("Approve this timesheet?")) return;
+    try {
+      await api.post(`/timesheets/${id}/approve`);
+      await refreshTimesheets2();
+      showAlert("Timesheet approved");
+    } catch (error) {
+      showAlert(error.message);
+    }
+  }
+  async function lockTimesheet(id) {
+    if (!showConfirmation("Lock this timesheet? No further edits will be allowed.")) return;
+    try {
+      await api.post(`/timesheets/${id}/lock`);
+      await refreshTimesheets2();
+      showAlert("Timesheet locked");
+    } catch (error) {
+      showAlert(error.message);
+    }
+  }
+  async function deleteTimesheet(id) {
+    if (!showConfirmation("Are you sure you want to delete this timesheet?")) return;
+    try {
+      await api.delete(`/timesheets/${id}`);
+      await refreshTimesheets2();
+    } catch (error) {
+      showAlert(error.message);
+    }
+  }
+  function combineTimesheetsAndDedupe() {
+    const myTimesheets = state.get("myTimesheets");
+    const allTimesheets = state.get("allTimesheets");
+    const timesheets = [...myTimesheets];
+    allTimesheets.forEach((ts) => {
+      if (!timesheets.find((t) => t.id === ts.id)) timesheets.push(ts);
+    });
+    timesheets.sort((a, b) => new Date(b.weekStarting) - new Date(a.weekStarting));
+    state.set("timesheets", timesheets);
+    return timesheets;
+  }
+  var init_timesheets = __esm({
+    "public/js/modules/features/timesheets/timesheets.js"() {
+      init_api();
+      init_state();
+      init_dom();
+      init_navigation();
+      init_modal();
+      init_alerts();
+      init_dateTime();
+      init_wms_sync();
+      registerTabHook("myTimesheets", displayMyTimesheets);
+      registerTabHook("allTimesheets", displayAllTimesheets);
+    }
+  });
+
   // public/js/modules/main.js
   init_api();
   init_state();
@@ -1414,12 +1977,12 @@ var App = (() => {
     document.getElementById("mainScreen").style.display = "none";
   }
   async function showMainScreen() {
-    const currentUser = state.get("currentUser");
+    const currentUser2 = state.get("currentUser");
     document.getElementById("loginScreen").style.display = "none";
     document.getElementById("mainScreen").style.display = "block";
-    document.getElementById("userDisplay").textContent = currentUser.name;
-    const hasProfile = !!currentUser.employeeId;
-    const isAdmin = currentUser.isAdmin;
+    document.getElementById("userDisplay").textContent = currentUser2.name;
+    const hasProfile = !!currentUser2.employeeId;
+    const isAdmin = currentUser2.isAdmin;
     const myTimesheetsTabBtn = document.querySelector('[data-tab="myTimesheets"]');
     const allTimesheetsTabBtn = document.querySelector('[data-tab="allTimesheets"]');
     let defaultTabName = "entries";
@@ -1445,16 +2008,16 @@ var App = (() => {
     await loadAllData();
   }
   async function loadAllData() {
-    const currentUser = state.get("currentUser");
+    const currentUser2 = state.get("currentUser");
     const { loadCompanies: loadCompanies2 } = await Promise.resolve().then(() => (init_companies(), companies_exports));
     const { loadRoles: loadRoles2 } = await Promise.resolve().then(() => (init_roles(), roles_exports));
     await Promise.all([
       loadCompanies2(),
       loadRoles2()
     ]);
-    if (currentUser.employeeId) {
+    if (currentUser2.employeeId) {
     }
-    if (currentUser.isAdmin) {
+    if (currentUser2.isAdmin) {
       const { loadEmployees: loadEmployees2 } = await Promise.resolve().then(() => (init_employees(), employees_exports));
       const { loadUsers: loadUsers2 } = await Promise.resolve().then(() => (init_users(), users_exports));
       await Promise.all([
@@ -1469,6 +2032,123 @@ var App = (() => {
   // public/js/modules/main.js
   init_employees();
   init_users();
+  init_timesheets();
+  init_wms_sync();
+
+  // public/js/modules/features/wms/wms-comparison.js
+  init_api();
+  init_modal();
+  init_alerts();
+  init_dom();
+  async function showDeWmsEntries(timesheetId) {
+    try {
+      const result = await api.get(`/timesheets/${timesheetId}`);
+      const ts = result.timesheet;
+      const employee = ts.employee;
+      let workerId = null;
+      if (employee.identifiers) {
+        const deId = employee.identifiers.find((i) => i.identifierType === "de_worker_id");
+        if (deId) workerId = deId.identifierValue;
+      }
+      const fromDate = new Date(ts.weekStarting).toISOString().split("T")[0];
+      const toDate = new Date(ts.weekEnding).toISOString().split("T")[0];
+      let wmsEntries = [];
+      let fetchError = null;
+      try {
+        const params = new URLSearchParams({ fromDate, toDate });
+        if (workerId) params.set("workerId", workerId);
+        const wmsResult = await api.get(`/tsdata/timesheets?${params.toString()}`);
+        wmsEntries = wmsResult.timesheets || [];
+      } catch (err) {
+        fetchError = err.message;
+      }
+      const ourEntries = ts.entries.map((e) => ({
+        date: new Date(e.date).toLocaleDateString(),
+        dateRaw: new Date(e.date).toISOString().split("T")[0],
+        startTime: e.startTime || "-",
+        endTime: e.endTime || "-",
+        hours: e.hours,
+        company: e.company.name,
+        source: "ours"
+      }));
+      const wmsFormatted = wmsEntries.map((e) => ({
+        date: e.date ? new Date(e.date).toLocaleDateString() : "-",
+        dateRaw: e.date ? new Date(e.date).toISOString().split("T")[0] : "",
+        startTime: e.startTime || e.start_time || "-",
+        endTime: e.endTime || e.end_time || "-",
+        hours: e.hours || e.totalHours || 0,
+        // XSS FIX: Escape company/school name from WMS data
+        company: e.company || e.school || "-",
+        source: "wms"
+      }));
+      const allDates = [.../* @__PURE__ */ new Set([...ourEntries.map((e) => e.dateRaw), ...wmsFormatted.map((e) => e.dateRaw)])].sort();
+      let comparisonRows = "";
+      for (const date of allDates) {
+        const ours = ourEntries.filter((e) => e.dateRaw === date);
+        const wms = wmsFormatted.filter((e) => e.dateRaw === date);
+        const maxRows = Math.max(ours.length, wms.length, 1);
+        for (let i = 0; i < maxRows; i++) {
+          const ourEntry = ours[i];
+          const wmsEntry = wms[i];
+          let status = "";
+          if (ourEntry && wmsEntry) {
+            const hoursMatch = Math.abs(ourEntry.hours - wmsEntry.hours) < 0.05;
+            status = hoursMatch ? '<span class="status-badge status-APPROVED">Matched</span>' : '<span class="status-badge status-INCOMPLETE">Hours Differ</span>';
+          } else if (ourEntry && !wmsEntry) {
+            status = '<span class="status-badge status-SUBMITTED">Missing in WMS</span>';
+          } else {
+            status = '<span class="status-badge status-LOCKED">Extra in WMS</span>';
+          }
+          comparisonRows += `
+          <tr>
+            ${i === 0 ? `<td rowspan="${maxRows}">${new Date(date).toLocaleDateString()}</td>` : ""}
+            <td>${ourEntry ? `${ourEntry.startTime} - ${ourEntry.endTime}` : "-"}</td>
+            <td>${ourEntry ? ourEntry.hours.toFixed(2) : "-"}</td>
+            <td>${ourEntry ? escapeHtml(ourEntry.company) : "-"}</td>
+            <td>${wmsEntry ? `${wmsEntry.startTime} - ${wmsEntry.endTime}` : "-"}</td>
+            <td>${wmsEntry ? Number(wmsEntry.hours).toFixed(2) : "-"}</td>
+            <td>${wmsEntry ? escapeHtml(wmsEntry.company) : "-"}</td>
+            <td>${status}</td>
+          </tr>
+        `;
+        }
+      }
+      const html = `
+      <h3>DE WMS Entry Comparison</h3>
+      <p>${escapeHtml(ts.employee.user.name)} &mdash; Week ${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}</p>
+      ${workerId ? `<p><small>DE Worker ID: ${escapeHtml(workerId)}</small></p>` : '<p style="color: #e67e22;"><small>No DE WMS worker identifier found for this employee. Showing all entries for the date range.</small></p>'}
+      ${fetchError ? `<div class="alert alert-danger" style="padding: 0.75rem; background: #f8d7da; border-radius: 4px; margin-bottom: 1rem;">Could not fetch WMS data: ${escapeHtml(fetchError)}</div>` : ""}
+      ${allDates.length > 0 ? `
+        <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th rowspan="2">Date</th>
+              <th colspan="3" style="text-align:center; border-bottom: 2px solid #3498db;">Our Entries</th>
+              <th colspan="3" style="text-align:center; border-bottom: 2px solid #e67e22;">DE WMS Entries</th>
+              <th rowspan="2">Status</th>
+            </tr>
+            <tr>
+              <th>Time</th>
+              <th>Hours</th>
+              <th>Company</th>
+              <th>Time</th>
+              <th>Hours</th>
+              <th>Company</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${comparisonRows}
+          </tbody>
+        </table>
+        </div>
+      ` : "<p>No entries found for comparison.</p>"}
+    `;
+      showModalWithForm("DE WMS Entries", html);
+    } catch (error) {
+      showAlert("Failed to load DE WMS comparison: " + error.message);
+    }
+  }
 
   // public/js/modules/features/entries/entry-validation.js
   init_state();
@@ -1501,6 +2181,17 @@ var App = (() => {
     editUser,
     linkProfileToUser,
     deleteUser,
+    // Timesheets
+    createTimesheet,
+    viewTimesheet,
+    submitTimesheet,
+    approveTimesheet,
+    lockTimesheet,
+    deleteTimesheet,
+    // WMS
+    syncToWms,
+    viewSyncHistory,
+    showDeWmsEntries,
     // Location autocomplete
     removeLocationNote
   });

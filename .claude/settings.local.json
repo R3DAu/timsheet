@@ -21,7 +21,8 @@
       "Bash(printf:*)",
       "Bash(xxd:*)",
       "Bash(npm run build)",
-      "Bash(git restore:*)"
+      "Bash(git restore:*)",
+      "Bash(FINAL_STATUS.md:*)"
     ]
   }
 }
