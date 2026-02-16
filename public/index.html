@@ -33,119 +33,140 @@
 
     <!-- Main Screen -->
     <div id="mainScreen" class="screen" style="display: none;">
-      <nav class="navbar">
-        <div class="container">
-          <h1>Timesheet System</h1>
-          <div class="nav-right">
-            <span id="userDisplay"></span>
-            <button id="myProfileBtn" class="btn btn-secondary">My Profile</button>
-            <button id="logoutBtn" class="btn btn-secondary">Logout</button>
-          </div>
-        </div>
-      </nav>
-
-      <div class="container">
-        <!-- Navigation Tabs -->
-        <div class="tabs">
-          <button class="tab" data-tab="myTimesheets" style="display:none;">My Timesheets</button>
-          <button class="tab" data-tab="allTimesheets" style="display:none;">All Timesheets</button>
-          <button class="tab" data-tab="entries">Timesheet Entries</button>
-          <button class="tab admin-only" data-tab="employees" style="display:none;">Employees</button>
-          <button class="tab admin-only" data-tab="companies" style="display:none;">Companies</button>
-          <button class="tab admin-only" data-tab="roles" style="display:none;">Roles</button>
-          <button class="tab admin-only" data-tab="users" style="display:none;">Users</button>
-          <button class="tab admin-only" data-tab="apiKeys" style="display:none;">API Keys</button>
-        </div>
-
-        <!-- My Timesheets Tab -->
-        <div id="myTimesheetsTab" class="tab-content">
-          <div class="card">
-            <div class="card-header">
-              <h2>My Timesheets</h2>
-              <button id="createTimesheetBtn" class="btn btn-primary">Create Timesheet</button>
+      <header class="topbar">
+        <div class="topbar-left">
+          <div class="brand">
+            <div class="brand-mark">TS</div>
+            <div>
+              <div class="brand-title">Timesheet</div>
+              <div class="brand-subtitle" id="navPageTitle">My Timesheets</div>
             </div>
-            <div id="myTimesheetsList"></div>
           </div>
         </div>
 
-        <!-- All Timesheets Tab (Admin) -->
-        <div id="allTimesheetsTab" class="tab-content">
-          <div class="card">
-            <div class="card-header">
-              <h2>All Timesheets</h2>
-            </div>
-            <div id="allTimesheetsList"></div>
-          </div>
+        <div class="topbar-right">
+          <span class="user-pill"><span class="user-dot"></span><span id="userDisplay">User</span></span>
+          <button class="btn btn-secondary btn-sm" id="myProfileBtn">My Profile</button>
+          <button class="btn btn-danger btn-sm" id="logoutBtn">Logout</button>
         </div>
+      </header>
 
-        <!-- Entries Tab -->
-        <div id="entriesTab" class="tab-content">
-          <div class="card">
-            <div class="card-header">
-              <h2>Timesheet Entries</h2>
-              <select id="timesheetSelect" class="form-control">
-                <option value="">Select a timesheet...</option>
-              </select>
-              <button id="createEntryBtn" class="btn btn-primary">Add Entry</button>
-            </div>
-            <div id="entriesList"></div>
-          </div>
-        </div>
+      <div class="app-shell">
+        <aside class="sidebar">
+          <button class="nav-item active" data-tab="myTimesheets">
+            <span class="nav-icon">🗓️</span> My Timesheets
+          </button>
 
-        <!-- Employees Tab (Admin) -->
-        <div id="employeesTab" class="tab-content">
-          <div class="card">
-            <div class="card-header">
-              <h2>Employees</h2>
-              <button id="createEmployeeBtn" class="btn btn-primary">Add Employee</button>
-            </div>
-            <div id="employeesList"></div>
-          </div>
-        </div>
+          <button class="nav-item" data-tab="entries">
+            <span class="nav-icon">✍️</span> Timesheet Entries
+          </button>
 
-        <!-- Companies Tab (Admin) -->
-        <div id="companiesTab" class="tab-content">
-          <div class="card">
-            <div class="card-header">
-              <h2>Companies</h2>
-              <button id="createCompanyBtn" class="btn btn-primary">Add Company</button>
-            </div>
-            <div id="companiesList"></div>
-          </div>
-        </div>
+          <button class="nav-item" data-tab="allTimesheets">
+            <span class="nav-icon">📋</span> All Timesheets
+          </button>
 
-        <!-- Roles Tab (Admin) -->
-        <div id="rolesTab" class="tab-content">
-          <div class="card">
-            <div class="card-header">
-              <h2>Roles</h2>
-              <button id="createRoleBtn" class="btn btn-primary">Add Role</button>
-            </div>
-            <div id="rolesList"></div>
+          <div class="nav-section admin-only">
+            <div class="nav-section-title">Admin</div>
+            <button class="nav-item" data-tab="employees"><span class="nav-icon">👤</span> Employees</button>
+            <button class="nav-item" data-tab="users"><span class="nav-icon">🧑‍💻</span> Users</button>
+            <button class="nav-item" data-tab="companies"><span class="nav-icon">🏢</span> Companies</button>
+            <button class="nav-item" data-tab="roles"><span class="nav-icon">🧾</span> Roles</button>
+            <button class="nav-item" data-tab="apiKeys"><span class="nav-icon">🔑</span> API Keys</button>
           </div>
-        </div>
+        </aside>
 
-        <!-- Users Tab (Admin) -->
-        <div id="usersTab" class="tab-content">
-          <div class="card">
-            <div class="card-header">
-              <h2>System Users</h2>
-              <button id="createUserBtn" class="btn btn-primary">Add User</button>
+        <main class="main">
+          <!-- Keep your existing tab-content divs exactly as they are -->
+          <!-- My Timesheets Tab -->
+          <div id="myTimesheetsTab" class="tab-content">
+            <div class="card">
+              <div class="card-header">
+                <h2>My Timesheets</h2>
+                <button id="createTimesheetBtn" class="btn btn-primary">Create Timesheet</button>
+              </div>
+              <div id="myTimesheetsList"></div>
             </div>
-            <div id="usersList"></div>
           </div>
-        </div>
 
-        <!-- API Keys Tab (Admin) -->
-        <div id="apiKeysTab" class="tab-content">
-          <div class="card">
-            <div class="card-header">
-              <h2>API Keys</h2>
-              <button id="createApiKeyBtn" class="btn btn-primary">Create API Key</button>
+          <!-- All Timesheets Tab (Admin) -->
+          <div id="allTimesheetsTab" class="tab-content">
+            <div class="card">
+              <div class="card-header">
+                <h2>All Timesheets</h2>
+              </div>
+              <div id="allTimesheetsList"></div>
             </div>
-            <div id="apiKeysList"></div>
           </div>
-        </div>
+
+          <!-- Entries Tab -->
+          <div id="entriesTab" class="tab-content">
+            <div class="card">
+              <div class="card-header">
+                <h2>Timesheet Entries</h2>
+                <select id="timesheetSelect" class="form-control">
+                  <option value="">Select a timesheet...</option>
+                </select>
+                <button id="createEntryBtn" class="btn btn-primary">Add Entry</button>
+              </div>
+              <div id="entriesList"></div>
+            </div>
+          </div>
+
+          <!-- Employees Tab (Admin) -->
+          <div id="employeesTab" class="tab-content">
+            <div class="card">
+              <div class="card-header">
+                <h2>Employees</h2>
+                <button id="createEmployeeBtn" class="btn btn-primary">Add Employee</button>
+              </div>
+              <div id="employeesList"></div>
+            </div>
+          </div>
+
+          <!-- Companies Tab (Admin) -->
+          <div id="companiesTab" class="tab-content">
+            <div class="card">
+              <div class="card-header">
+                <h2>Companies</h2>
+                <button id="createCompanyBtn" class="btn btn-primary">Add Company</button>
+              </div>
+              <div id="companiesList"></div>
+            </div>
+          </div>
+
+          <!-- Roles Tab (Admin) -->
+          <div id="rolesTab" class="tab-content">
+            <div class="card">
+              <div class="card-header">
+                <h2>Roles</h2>
+                <button id="createRoleBtn" class="btn btn-primary">Add Role</button>
+              </div>
+              <div id="rolesList"></div>
+            </div>
+          </div>
+
+          <!-- Users Tab (Admin) -->
+          <div id="usersTab" class="tab-content">
+            <div class="card">
+              <div class="card-header">
+                <h2>System Users</h2>
+                <button id="createUserBtn" class="btn btn-primary">Add User</button>
+              </div>
+              <div id="usersList"></div>
+            </div>
+          </div>
+
+          <!-- API Keys Tab (Admin) -->
+          <div id="apiKeysTab" class="tab-content">
+            <div class="card">
+              <div class="card-header">
+                <h2>API Keys</h2>
+                <button id="createApiKeyBtn" class="btn btn-primary">Create API Key</button>
+              </div>
+              <div id="apiKeysList"></div>
+            </div>
+          </div>
+        </main>
       </div>
     </div>
   </div>

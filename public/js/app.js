@@ -10,6 +10,82 @@ let users = [];
 let activeQuillEditors = {};
 let locationNoteCounter = 0;
 
+// -------------------- Navigation / tab persistence --------------------
+const TAB_STORAGE_KEY = 'ts_active_tab';
+
+const TAB_TITLES = {
+  myTimesheets: 'My Timesheets',
+  allTimesheets: 'All Timesheets',
+  entries: 'Timesheet Entries',
+  employees: 'Employees',
+  companies: 'Companies',
+  roles: 'Roles',
+  users: 'Users',
+  apiKeys: 'API Keys',
+};
+
+function setNavTitle(tabName) {
+  const el = document.getElementById('navPageTitle');
+  if (!el) return;
+  el.textContent = TAB_TITLES[tabName] || 'Dashboard';
+}
+
+function getRequestedTab() {
+  const raw = (window.location.hash || '').replace('#', '').trim();
+  if (raw) {
+    if (raw.startsWith('tab=')) return raw.slice(4);
+    return raw;
+  }
+  try { return localStorage.getItem(TAB_STORAGE_KEY); } catch (_) { return null; }
+}
+
+function setRequestedTab(tabName) {
+  try { localStorage.setItem(TAB_STORAGE_KEY, tabName); } catch (_) {}
+  const newHash = `tab=${tabName}`;
+  if ((window.location.hash || '').replace('#', '') !== newHash) {
+    history.replaceState(null, '', `#${newHash}`);
+  }
+}
+
+function isTabAvailable(tabName) {
+  const btn = document.querySelector(`.sidebar .nav-item[data-tab="${tabName}"]`);
+  const content = document.getElementById(`${tabName}Tab`);
+  if (!btn || !content) return false;
+  return btn.style.display !== 'none';
+}
+
+function activateTab(tabName, { persist = true } = {}) {
+  if (!tabName) return;
+
+  const btn = document.querySelector(`.sidebar .nav-item[data-tab="${tabName}"]`);
+  const content = document.getElementById(`${tabName}Tab`);
+  if (!btn || !content) return;
+
+  document.querySelectorAll('.sidebar .nav-item[data-tab]').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
+
+  btn.classList.add('active');
+  content.classList.add('active');
+
+  setNavTitle(tabName);
+  if (persist) setRequestedTab(tabName);
+
+  // On-show hooks
+  if (tabName === 'companies') displayCompanies();
+  if (tabName === 'roles') displayRoles();
+  if (tabName === 'employees') displayEmployees();
+  if (tabName === 'users') displayUsers();
+  if (tabName === 'apiKeys') loadApiKeys();
+  if (tabName === 'allTimesheets') displayAllTimesheets();
+  if (tabName === 'myTimesheets') displayMyTimesheets();
+}
+
+// Keep title in sync with back/forward navigation
+window.addEventListener('hashchange', () => {
+  const requested = getRequestedTab();
+  if (requested && isTabAvailable(requested)) activateTab(requested, { persist: true });
+});
+
 // Time helpers
 function formatTime(timeStr) {
   if (!timeStr) return '';
@@ -170,21 +246,22 @@ function showDropdown(input, id, presets, places, query) {
   const dropdown = document.createElement('div');
   dropdown.className = 'location-autocomplete-dropdown';
   dropdown.id = 'dropdown_' + id;
-  dropdown.style.cssText = 'position:absolute;z-index:2000;background:white;border:1px solid #ddd;border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.15);max-height:250px;overflow-y:auto;';
 
   if (presets.length > 0) {
     const header = document.createElement('div');
-    header.style.cssText = 'padding:4px 10px;font-size:0.75rem;color:#999;font-weight:600;text-transform:uppercase;border-bottom:1px solid #eee;';
+    header.className = 'ac-header';
+    //header.style.cssText = 'padding:4px 10px;font-size:0.75rem;color:#999;font-weight:600;text-transform:uppercase;border-bottom:1px solid #eee;';
     header.textContent = 'Saved Locations';
     dropdown.appendChild(header);
 
     for (const p of presets) {
       const item = document.createElement('div');
-      item.style.cssText = 'padding:8px 10px;cursor:pointer;border-bottom:1px solid #f5f5f5;';
-      item.innerHTML = `<strong>${escapeHtml(p.label)}</strong><br><small style="color:#666;">${escapeHtml(p.address)}</small>`;
+      item.className = 'ac-item';
+      //item.style.cssText = 'padding:8px 10px;cursor:pointer;border-bottom:1px solid #f5f5f5;';
+      item.innerHTML = `<strong>${escapeHtml(p.label)}</strong><br><small style="color:var(--text);">${escapeHtml(p.address)}</small>`;
       item.onmousedown = (e) => {
         e.preventDefault();
-        input.value = p.label;
+        input.value = `${p.label} - ${p.address}`;
         removeDropdown(id);
       };
       item.onmouseenter = () => item.style.background = '#f0f8ff';
@@ -195,17 +272,19 @@ function showDropdown(input, id, presets, places, query) {
 
   if (places.length > 0) {
     const header = document.createElement('div');
-    header.style.cssText = 'padding:4px 10px;font-size:0.75rem;color:#999;font-weight:600;text-transform:uppercase;border-bottom:1px solid #eee;';
+    //header.style.cssText = 'padding:4px 10px;font-size:0.75rem;color:#999;font-weight:600;text-transform:uppercase;border-bottom:1px solid #eee;';
+    header.className = 'ac-header';
     header.textContent = 'Search Results';
     dropdown.appendChild(header);
 
     for (const p of places.slice(0, 5)) {
       const item = document.createElement('div');
-      item.style.cssText = 'padding:8px 10px;cursor:pointer;border-bottom:1px solid #f5f5f5;';
+      //item.style.cssText = 'padding:8px 10px;cursor:pointer;border-bottom:1px solid #f5f5f5;';
+      item.className = 'ac-item';
       item.innerHTML = `<strong>${escapeHtml(p.mainText)}</strong><br><small style="color:#666;">${escapeHtml(p.secondaryText)}</small>`;
       item.onmousedown = (e) => {
         e.preventDefault();
-        input.value = p.mainText;
+        input.value = `${p.mainText} - ${p.secondaryText}`;
         removeDropdown(id);
       };
       item.onmouseenter = () => item.style.background = '#f0f8ff';
@@ -217,14 +296,13 @@ function showDropdown(input, id, presets, places, query) {
   // "Use as-is" option at the bottom when the user has typed something
   if (query && query.length >= 1) {
     const useAsIs = document.createElement('div');
-    useAsIs.style.cssText = 'padding:8px 10px;cursor:pointer;background:#f8f9fa;border-top:1px solid #ddd;color:#555;font-style:italic;';
+    useAsIs.className = 'ac-use-as-is';
+    //useAsIs.style.cssText = 'padding:8px 10px;cursor:pointer;background:#f8f9fa;border-top:1px solid #ddd;color:#555;font-style:italic;';
     useAsIs.innerHTML = `Use "<strong>${escapeHtml(query)}</strong>" as entered`;
     useAsIs.onmousedown = (e) => {
       e.preventDefault();
       removeDropdown(id);
     };
-    useAsIs.onmouseenter = () => useAsIs.style.background = '#e9ecef';
-    useAsIs.onmouseleave = () => useAsIs.style.background = '#f8f9fa';
     dropdown.appendChild(useAsIs);
   }
 
@@ -232,11 +310,23 @@ function showDropdown(input, id, presets, places, query) {
   if (dropdown.children.length === 0) return;
 
   // Position below input
-  const rect = input.getBoundingClientRect();
-  dropdown.style.position = 'fixed';
-  dropdown.style.top = (rect.bottom + 2) + 'px';
-  dropdown.style.left = rect.left + 'px';
-  dropdown.style.width = rect.width + 'px';
+  const position = () => {
+    const rect = input.getBoundingClientRect();
+    dropdown.style.position = 'fixed';
+    dropdown.style.top = (rect.bottom + 2) + 'px';
+    dropdown.style.left = rect.left + 'px';
+    dropdown.style.width = rect.width + 'px';
+  };
+
+  position();
+  window.addEventListener('scroll', position, true);
+  window.addEventListener('resize', position);
+
+  dropdown.addEventListener('remove', () => {
+    window.removeEventListener('scroll', position, true);
+    window.removeEventListener('resize', position);
+  });
+
   document.body.appendChild(dropdown);
 }
 
@@ -247,7 +337,7 @@ function removeDropdown(id) {
 
 function escapeHtml(str) {
   if (!str) return '';
-  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');;
 }
 
 /**
@@ -527,7 +617,7 @@ async function login(email, password) {
   try {
     const result = await api.post('/auth/login', { email, password });
     currentUser = result.user;
-    showMainScreen();
+    await showMainScreen();
   } catch (error) {
     document.getElementById('loginError').textContent = error.message;
   }
@@ -547,7 +637,7 @@ async function checkAuth() {
   try {
     const result = await api.get('/auth/me');
     currentUser = result.user;
-    showMainScreen();
+    await showMainScreen();
   } catch (error) {
     showLoginScreen();
   }
@@ -559,7 +649,7 @@ function showLoginScreen() {
   document.getElementById('mainScreen').style.display = 'none';
 }
 
-function showMainScreen() {
+async function showMainScreen() {
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('mainScreen').style.display = 'block';
   document.getElementById('userDisplay').textContent = currentUser.name;
@@ -568,35 +658,27 @@ function showMainScreen() {
   const isAdmin = currentUser.isAdmin;
 
   // Configure tabs visibility
-  const myTimesheetsTab = document.querySelector('[data-tab="myTimesheets"]');
-  const allTimesheetsTab = document.querySelector('[data-tab="allTimesheets"]');
+  const myTimesheetsTabBtn = document.querySelector('[data-tab="myTimesheets"]');
+  const allTimesheetsTabBtn = document.querySelector('[data-tab="allTimesheets"]');
+
+  // Default tab for this user type
+  let defaultTabName = 'entries';
 
   if (isAdmin && !hasProfile) {
-    // Admin without profile: hide My Timesheets, show All Timesheets
-    myTimesheetsTab.style.display = 'none';
-    allTimesheetsTab.style.display = '';
-    // Make All Timesheets the default active tab
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-    allTimesheetsTab.classList.add('active');
-    document.getElementById('allTimesheetsTab').classList.add('active');
+    // Admin without profile: All Timesheets only
+    myTimesheetsTabBtn.style.display = 'none';
+    allTimesheetsTabBtn.style.display = '';
+    defaultTabName = 'allTimesheets';
   } else if (isAdmin && hasProfile) {
-    // Admin with profile: show both
-    myTimesheetsTab.style.display = '';
-    allTimesheetsTab.style.display = '';
-    // Default to My Timesheets
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-    myTimesheetsTab.classList.add('active');
-    document.getElementById('myTimesheetsTab').classList.add('active');
+    // Admin with profile: show both, default to My Timesheets
+    myTimesheetsTabBtn.style.display = '';
+    allTimesheetsTabBtn.style.display = '';
+    defaultTabName = 'myTimesheets';
   } else {
     // Regular user: My Timesheets only
-    myTimesheetsTab.style.display = '';
-    allTimesheetsTab.style.display = 'none';
-    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-    document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-    myTimesheetsTab.classList.add('active');
-    document.getElementById('myTimesheetsTab').classList.add('active');
+    myTimesheetsTabBtn.style.display = '';
+    allTimesheetsTabBtn.style.display = 'none';
+    defaultTabName = 'myTimesheets';
   }
 
   // Show/hide admin tabs
@@ -604,25 +686,37 @@ function showMainScreen() {
     el.style.display = isAdmin ? '' : 'none';
   });
 
-  loadAllData();
+  // Restore requested tab (hash / localStorage), but fall back safely
+  const requested = getRequestedTab();
+  const chosen = (requested && isTabAvailable(requested)) ? requested : defaultTabName;
+  activateTab(chosen, { persist: true });
+
+  await loadAllData();
 }
 
+
 async function loadAllData() {
-  loadCompanies();
-  loadRoles();
-  if (currentUser.employeeId) {
-    loadMyTimesheets();
+  await Promise.all([
+      loadCompanies(),
+      loadRoles()
+  ]);
+
+  if(currentUser.employeeId) {
+    await loadMyTimesheets();
   }
+
   if (currentUser.isAdmin) {
-    loadAllTimesheets();
-    loadEmployees();
-    loadUsers();
-    loadApiKeys();
+    await Promise.all([
+      loadAllTimesheets(),
+      loadEmployees(),
+      loadUsers(),
+      loadApiKeys()
+    ]);
   }
 }
 
 // Modal management
-function showModal(title, content) {
+/*function showModal(title, content) {
   const modal = document.getElementById('modal');
   const modalBody = document.getElementById('modalBody');
   if (content === undefined) {
@@ -632,6 +726,23 @@ function showModal(title, content) {
     modalBody.innerHTML = `<h2>${title}</h2>${content}`;
   }
   modal.style.display = 'block';
+}*/
+
+//let's show modal a little bit differently
+function showModalWithHTML(html) {
+  const modal = document.getElementById('modal');
+  const modalBody = document.getElementById('modalBody');
+
+  modalBody.innerHTML = html;
+  modal.style.display = 'block';
+}
+
+function showModalWithForm(title, form) {
+  const modal = document.getElementById('modal');
+  const modalBody = document.getElementById('modalBody');
+
+  modal.style.display = 'block';
+  modalBody.innerHTML = `<h2>${title}</h2>${form}`;
 }
 
 function hideModal() {
@@ -775,7 +886,7 @@ async function createTimesheet() {
     </form>
   `;
 
-  showModal('Create Timesheet', form);
+  showModalWithForm('Create Timesheet', form);
 
   document.getElementById('timesheetForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -785,7 +896,7 @@ async function createTimesheet() {
       : currentUser.employeeId;
 
     if (!employeeId) {
-      alert('No employee profile found. An admin must create an employee profile for your account first.');
+      showAlert('No employee profile found. An admin must create an employee profile for your account first.');
       return;
     }
 
@@ -798,7 +909,7 @@ async function createTimesheet() {
       hideModal();
       refreshTimesheets();
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
     }
   };
 }
@@ -809,45 +920,45 @@ async function refreshTimesheets() {
 }
 
 async function submitTimesheet(id) {
-  if (!confirm('Are you sure you want to submit this timesheet?')) return;
+  if (!showConfirmation('Are you sure you want to submit this timesheet?')) return;
   try {
     await api.post(`/timesheets/${id}/submit`);
     refreshTimesheets();
-    alert('Timesheet submitted successfully');
+    showAlert('Timesheet submitted successfully');
   } catch (error) {
-    alert(error.message);
+    showAlert(error.message);
   }
 }
 
 async function approveTimesheet(id) {
-  if (!confirm('Approve this timesheet?')) return;
+  if (!showConfirmation('Approve this timesheet?')) return;
   try {
     await api.post(`/timesheets/${id}/approve`);
     refreshTimesheets();
-    alert('Timesheet approved');
+    showAlert('Timesheet approved');
   } catch (error) {
-    alert(error.message);
+    showAlert(error.message);
   }
 }
 
 async function lockTimesheet(id) {
-  if (!confirm('Lock this timesheet? No further edits will be allowed.')) return;
+  if (!showConfirmation('Lock this timesheet? No further edits will be allowed.')) return;
   try {
     await api.post(`/timesheets/${id}/lock`);
     refreshTimesheets();
-    alert('Timesheet locked');
+    showAlert('Timesheet locked');
   } catch (error) {
-    alert(error.message);
+    showAlert(error.message);
   }
 }
 
 async function deleteTimesheet(id) {
-  if (!confirm('Are you sure you want to delete this timesheet?')) return;
+  if (!showConfirmation('Are you sure you want to delete this timesheet?')) return;
   try {
     await api.delete(`/timesheets/${id}`);
     refreshTimesheets();
   } catch (error) {
-    alert(error.message);
+    showAlert(error.message);
   }
 }
 
@@ -910,9 +1021,9 @@ async function viewTimesheet(id) {
       </div>
     `;
 
-    showModal('Timesheet Details', html);
+    showModalWithForm('Timesheet Details', html);
   } catch (error) {
-    alert(error.message);
+    showAlert(error.message);
   }
 }
 
@@ -1036,7 +1147,7 @@ function displayEntries(entries, timesheetId) {
 async function createEntry() {
   const timesheetId = document.getElementById('timesheetSelect').value;
   if (!timesheetId) {
-    alert('Please select a timesheet first');
+    showAlert('Please select a timesheet first');
     return;
   }
 
@@ -1119,7 +1230,7 @@ async function createEntry() {
     </form>
   `;
 
-  showModal('Create Entry', form);
+  showModalWithForm('Create Entry', form);
   destroyQuillEditors();
 
   const notesEditor = initQuillEditor('createNotesEditor', 'Enter notes or details...');
@@ -1170,18 +1281,18 @@ async function createEntry() {
     }, existingEntries, null, timesheetId);
 
     if (!validation.valid) {
-      alert('Entry validation failed:\n\n' + validation.errors.join('\n'));
+      showAlert('Entry validation failed:\n\n' + validation.errors.join('\n'));
       return;
     }
 
     if (validation.warnings && validation.warnings.length > 0) {
-      if (!confirm('Warning:\n\n' + validation.warnings.join('\n') + '\n\nContinue anyway?')) {
+      if (!showConfirmation('Warning:\n\n' + validation.warnings.join('\n') + '\n\nContinue anyway?')) {
         return;
       }
     }
 
-    const notesHtml = notesEditor.root.innerHTML === '<p><br></p>' ? '' : notesEditor.root.innerHTML;
-    const privateNotesHtml = privateNotesEditor.root.innerHTML === '<p><br></p>' ? '' : privateNotesEditor.root.innerHTML;
+    const notesHtml =quillGetHtml(notesEditor) || null;
+    const privateNotesHtml = quillGetHtml(privateNotesEditor) || null;
     const locationNotesJson = collectLocationNotes('createLocationNotesContainer');
 
     try {
@@ -1205,7 +1316,7 @@ async function createEntry() {
       await refreshTimesheets();
       loadEntries(timesheetId);
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
     }
   };
 }
@@ -1219,12 +1330,12 @@ async function editEntry(id, timesheetIdParam) {
     const result = await api.get(`/entries/timesheet/${timesheetId}`);
     entry = result.entries.find(e => e.id === id);
   } catch (error) {
-    alert('Failed to load entry');
+    showAlert('Failed to load entry');
     return;
   }
 
   if (!entry) {
-    alert('Entry not found');
+    showAlert('Entry not found');
     return;
   }
 
@@ -1308,7 +1419,7 @@ async function editEntry(id, timesheetIdParam) {
     </form>
   `;
 
-  showModal('Edit Entry', form);
+  showModalWithForm('Edit Entry', form);
   destroyQuillEditors();
 
   const notesEditor = initQuillEditor('editNotesEditor', 'Enter notes or details...');
@@ -1375,18 +1486,18 @@ async function editEntry(id, timesheetIdParam) {
     }, existingEntries, id, timesheetId);
 
     if (!validation.valid) {
-      alert('Entry validation failed:\n\n' + validation.errors.join('\n'));
+      showAlert('Entry validation failed:\n\n' + validation.errors.join('\n'));
       return;
     }
 
     if (validation.warnings && validation.warnings.length > 0) {
-      if (!confirm('Warning:\n\n' + validation.warnings.join('\n') + '\n\nContinue anyway?')) {
+      if (!showConfirmation('Warning:\n\n' + validation.warnings.join('\n') + '\n\nContinue anyway?')) {
         return;
       }
     }
 
-    const notesHtml = notesEditor.root.innerHTML === '<p><br></p>' ? '' : notesEditor.root.innerHTML;
-    const privateNotesHtml = privateNotesEditor.root.innerHTML === '<p><br></p>' ? '' : privateNotesEditor.root.innerHTML;
+    const notesHtml = quillGetHtml(notesEditor) || null;
+    const privateNotesHtml = quillGetHtml(privateNotesEditor) || null;
     const locationNotesJson = collectLocationNotes('editLocationNotesContainer');
 
     try {
@@ -1409,13 +1520,13 @@ async function editEntry(id, timesheetIdParam) {
       await refreshTimesheets();
       loadEntries(timesheetId);
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
     }
   };
 }
 
 async function deleteEntry(id) {
-  if (!confirm('Delete this entry?')) return;
+  if (!showConfirmation('Delete this entry?')) return;
 
   try {
     await api.delete(`/entries/${id}`);
@@ -1423,7 +1534,7 @@ async function deleteEntry(id) {
     await refreshTimesheets();
     loadEntries(timesheetId);
   } catch (error) {
-    alert(error.message);
+    showAlert(error.message);
   }
 }
 
@@ -1501,7 +1612,7 @@ async function createCompany() {
     </form>
   `;
 
-  showModal('Add Company', form);
+  showModalWithForm('Add Company', form);
 
   document.getElementById('companyForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -1516,7 +1627,7 @@ async function createCompany() {
       loadCompanies();
       displayCompanies();
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
     }
   };
 }
@@ -1547,7 +1658,7 @@ async function editCompany(id) {
     </form>
   `;
 
-  showModal('Edit Company', form);
+  showModalWithForm('Edit Company', form);
 
   document.getElementById('editCompanyForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -1562,20 +1673,20 @@ async function editCompany(id) {
       loadCompanies();
       displayCompanies();
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
     }
   };
 }
 
 async function deleteCompany(id) {
-  if (!confirm('Delete this company? This will also delete all associated roles.')) return;
+  if (!showConfirmation('Delete this company? This will also delete all associated roles.')) return;
 
   try {
     await api.delete(`/companies/${id}`);
     loadCompanies();
     displayCompanies();
   } catch (error) {
-    alert(error.message);
+    showAlert(error.message);
   }
 }
 
@@ -1652,7 +1763,7 @@ async function createRole() {
     </form>
   `;
 
-  showModal('Add Role', form);
+  showModalWithForm('Add Role', form);
 
   document.getElementById('roleForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -1667,7 +1778,7 @@ async function createRole() {
       loadRoles();
       displayRoles();
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
     }
   };
 }
@@ -1697,7 +1808,7 @@ async function editRole(id) {
     </form>
   `;
 
-  showModal('Edit Role', form);
+  showModalWithForm('Edit Role', form);
 
   document.getElementById('editRoleForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -1711,20 +1822,20 @@ async function editRole(id) {
       loadRoles();
       displayRoles();
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
     }
   };
 }
 
 async function deleteRole(id) {
-  if (!confirm('Delete this role?')) return;
+  if (!showConfirmation('Delete this role?')) return;
 
   try {
     await api.delete(`/roles/${id}`);
     loadRoles();
     displayRoles();
   } catch (error) {
-    alert(error.message);
+    showAlert(error.message);
   }
 }
 
@@ -1816,7 +1927,7 @@ async function createEmployee() {
     </form>
   `;
 
-  showModal('Add Employee', form);
+  showModalWithForm('Add Employee', form);
 
   // Auto-fill name/email when user is selected
   document.querySelector('#employeeForm select[name="userId"]').onchange = (e) => {
@@ -1846,7 +1957,7 @@ async function createEmployee() {
       displayEmployees();
       loadUsers(); // Refresh to update profile links
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
     }
   };
 }
@@ -1926,9 +2037,9 @@ async function viewEmployee(id) {
       </div>
     `;
 
-    showModal(`Employee: ${emp.firstName} ${emp.lastName}`, html);
+    showModalWithForm(`Employee: ${emp.firstName} ${emp.lastName}`, html);
   } catch (error) {
-    alert(error.message);
+    showAlert(error.message);
   }
 }
 
@@ -1963,7 +2074,7 @@ async function editEmployee(id) {
     </form>
   `;
 
-  showModal('Edit Employee', form);
+  showModalWithForm('Edit Employee', form);
 
   document.getElementById('editEmployeeForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -1980,13 +2091,13 @@ async function editEmployee(id) {
       loadEmployees();
       displayEmployees();
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
     }
   };
 }
 
 async function deleteEmployee(id) {
-  if (!confirm('Delete this employee? This will also delete their timesheets.')) return;
+  if (!showConfirmation('Delete this employee? This will also delete their timesheets.')) return;
 
   try {
     await api.delete(`/employees/${id}`);
@@ -1994,7 +2105,7 @@ async function deleteEmployee(id) {
     displayEmployees();
     loadUsers();
   } catch (error) {
-    alert(error.message);
+    showAlert(error.message);
   }
 }
 
@@ -2031,7 +2142,7 @@ async function addIdentifierForm(employeeId) {
     </form>
   `;
 
-  showModal(form);
+  showModalWithHTML(form);
 
   document.getElementById('addIdType').onchange = (e) => {
     const customGroup = document.getElementById('addIdCustomGroup');
@@ -2052,7 +2163,7 @@ async function addIdentifierForm(employeeId) {
     if (identifierType === 'other') {
       identifierType = document.getElementById('addIdCustomType').value.trim();
       if (!identifierType) {
-        alert('Please enter a custom type name');
+        showAlert('Please enter a custom type name');
         return;
       }
     }
@@ -2065,7 +2176,7 @@ async function addIdentifierForm(employeeId) {
       hideModal();
       viewEmployee(employeeId);
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
     }
   };
 }
@@ -2106,7 +2217,7 @@ async function editIdentifierForm(employeeId, identifierId, type, value, company
     </form>
   `;
 
-  showModal(form);
+  showModalWithHTML(form);
 
   document.getElementById('editIdType').onchange = (e) => {
     const customGroup = document.getElementById('editIdCustomGroup');
@@ -2127,7 +2238,7 @@ async function editIdentifierForm(employeeId, identifierId, type, value, company
     if (identifierType === 'other') {
       identifierType = document.getElementById('editIdCustomType').value.trim();
       if (!identifierType) {
-        alert('Please enter a custom type name');
+        showAlert('Please enter a custom type name');
         return;
       }
     }
@@ -2140,18 +2251,18 @@ async function editIdentifierForm(employeeId, identifierId, type, value, company
       hideModal();
       viewEmployee(employeeId);
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
     }
   };
 }
 
 async function deleteIdentifier(employeeId, identifierId) {
-  if (!confirm('Delete this identifier?')) return;
+  if (!showConfirmation('Delete this identifier?')) return;
   try {
     await api.delete(`/employees/identifiers/${identifierId}`);
     viewEmployee(employeeId);
   } catch (error) {
-    alert(error.message);
+    showAlert(error.message);
   }
 }
 
@@ -2176,7 +2287,7 @@ async function assignRoleForm(employeeId) {
     </form>
   `;
 
-  showModal('Assign Role to Employee', form);
+  showModalWithForm('Assign Role to Employee', form);
 
   document.getElementById('assignRoleCompanySelect').onchange = (e) => {
     const companyId = parseInt(e.target.value);
@@ -2200,7 +2311,7 @@ async function assignRoleForm(employeeId) {
       loadEmployees();
       viewEmployee(employeeId);
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
     }
   };
 }
@@ -2286,7 +2397,7 @@ async function createUser() {
     </form>
   `;
 
-  showModal('Add System User', form);
+  showModalWithForm('Add System User', form);
 
   document.getElementById('userForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -2302,7 +2413,7 @@ async function createUser() {
       loadUsers();
       displayUsers();
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
     }
   };
 }
@@ -2335,7 +2446,7 @@ async function editUser(id) {
     </form>
   `;
 
-  showModal('Edit User', form);
+  showModalWithForm('Edit User', form);
 
   document.getElementById('editUserForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -2354,7 +2465,7 @@ async function editUser(id) {
       loadUsers();
       displayUsers();
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
     }
   };
 }
@@ -2384,7 +2495,7 @@ async function linkProfileToUser(userId, userName, userEmail) {
     </form>
   `;
 
-  showModal('Link Employee Profile', form);
+  showModalWithForm('Link Employee Profile', form);
 
   document.getElementById('linkProfileForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -2402,20 +2513,20 @@ async function linkProfileToUser(userId, userName, userEmail) {
       displayUsers();
       loadEmployees();
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
     }
   };
 }
 
 async function deleteUser(id) {
-  if (!confirm('Delete this user? This cannot be undone.')) return;
+  if (!showConfirmation('Delete this user? This cannot be undone.')) return;
 
   try {
     await api.delete(`/users/${id}`);
     loadUsers();
     displayUsers();
   } catch (error) {
-    alert(error.message);
+    showAlert(error.message);
   }
 }
 
@@ -2427,7 +2538,7 @@ async function showMyProfile() {
     const result = await api.get('/auth/me');
     currentUser = result.user;
   } catch (error) {
-    alert('Failed to load profile');
+    showAlert('Failed to load profile');
     return;
   }
 
@@ -2490,7 +2601,7 @@ async function showMyProfile() {
     </form>
   `;
 
-  showModal('My Profile', form);
+  showModalWithForm('My Profile', form);
 
   // Populate preset addresses
   if (emp) {
@@ -2559,9 +2670,9 @@ async function showMyProfile() {
       currentUser = result.user;
       document.getElementById('userDisplay').textContent = currentUser.name;
       hideModal();
-      alert('Profile updated successfully');
+      showAlert('Profile updated successfully');
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
     }
   };
 }
@@ -2637,7 +2748,7 @@ async function createApiKey() {
     </form>
   `;
 
-  showModal('Create API Key', form);
+  showModalWithForm('Create API Key', form);
 
   document.getElementById('apiKeyForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -2663,7 +2774,7 @@ async function createApiKey() {
       `;
       document.getElementById('modalBody').innerHTML = `<h2>API Key Created</h2>${keyDisplay}`;
     } catch (error) {
-      alert(error.message);
+      showAlert(error.message);
     }
   };
 }
@@ -2679,12 +2790,12 @@ function copyApiKey() {
 }
 
 async function revokeApiKey(id) {
-  if (!confirm('Are you sure you want to revoke this API key? This cannot be undone.')) return;
+  if (!showConfirmation('Are you sure you want to revoke this API key? This cannot be undone.')) return;
   try {
     await api.delete(`/api-keys/${id}`);
     loadApiKeys();
   } catch (error) {
-    alert(error.message);
+    showAlert(error.message);
   }
 }
 
@@ -2811,9 +2922,9 @@ async function showDeWmsEntries(timesheetId) {
       ` : '<p>No entries found for comparison.</p>'}
     `;
 
-    showModal('DE WMS Entries', html);
+    showModalWithForm('DE WMS Entries', html);
   } catch (error) {
-    alert('Failed to load DE WMS comparison: ' + error.message);
+    showAlert('Failed to load DE WMS comparison: ' + error.message);
   }
 }
 
@@ -2894,7 +3005,7 @@ async function syncToWms(timesheetId) {
     </form>
   `;
 
-  showModal(html);
+  showModalWithHTML(html);
 
   document.getElementById('wmsSyncShowPw').onchange = (e) => {
     const pwInput = document.querySelector('#modalBody input[name="wmsPassword"]');
@@ -2919,7 +3030,7 @@ async function syncToWms(timesheetId) {
       });
       showSyncProgress(result.syncLog.id);
     } catch (error) {
-      alert('Failed to start sync: ' + error.message);
+      showAlert('Failed to start sync: ' + error.message);
     }
   };
 }
@@ -2940,7 +3051,7 @@ function showSyncProgress(syncLogId) {
     <button type="button" class="btn btn-secondary" onclick="hideModal()">Close</button>
   `;
 
-  showModal(html);
+  showModalWithHTML(html);
   pollSyncStatus(syncLogId);
 }
 
@@ -3061,7 +3172,7 @@ async function viewSyncHistory(timesheetId) {
     const syncs = result.syncs;
 
     if (syncs.length === 0) {
-      showModal('<h3>Sync History</h3><p>No sync history for this timesheet.</p>');
+      showModalWithHTML('<h3>Sync History</h3><p>No sync history for this timesheet.</p>');
       return;
     }
 
@@ -3093,10 +3204,36 @@ async function viewSyncHistory(timesheetId) {
       </div>
     `;
 
-    showModal(html);
+    showModalWithHTML(html);
   } catch (error) {
-    alert('Failed to load sync history: ' + error.message);
+    showAlert('Failed to load sync history: ' + error.message);
   }
+}
+
+// ==================== ALERT FUNCTIONS =====================
+/*
+ * Simple Alert function for now, until we move to something else in the future...
+ */
+function showAlert(message, type = 'info', timeout = 5000) {
+  alert(message);
+}
+
+/*
+ * Simple Confirmation function for now, until we move to something else in the future...
+ */
+function showConfirmation(message, callback){
+  if(!callback || typeof callback !== 'function')
+    return confirm(message);
+
+  if (!confirm(message)) return false;
+  return callback();
+}
+
+// ==================== HELPER FUNCTIONS ====================
+function quillGetHtml(editor) {
+  if (!editor) return '';
+  const html = editor.root.innerHTML || '';
+  return (html.trim() === '<p><br></p>') ? '' : html;
 }
 
 // ==================== EVENT LISTENERS ====================
@@ -3117,30 +3254,33 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('myProfileBtn').onclick = showMyProfile;
 
   // Tab navigation
-  document.querySelectorAll('.tab').forEach(tab => {
-    tab.onclick = () => {
-      const tabName = tab.dataset.tab;
-
-      document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-      tab.classList.add('active');
-
-      document.querySelectorAll('.tab-content').forEach(tc => tc.classList.remove('active'));
-      document.getElementById(`${tabName}Tab`).classList.add('active');
-
-      if (tabName === 'companies') displayCompanies();
-      if (tabName === 'roles') displayRoles();
-      if (tabName === 'employees') displayEmployees();
-      if (tabName === 'users') displayUsers();
-      if (tabName === 'apiKeys') loadApiKeys();
-      if (tabName === 'allTimesheets') displayAllTimesheets();
-      if (tabName === 'myTimesheets') displayMyTimesheets();
-    };
+  document.querySelectorAll('.sidebar .nav-item[data-tab]').forEach(btn => {
+    btn.onclick = () => activateTab(btn.dataset.tab, { persist: true });
   });
+
+  // Restore tab if we already know one (e.g. after refresh)
+  const requested = getRequestedTab();
+  if (requested && isTabAvailable(requested)) {
+    activateTab(requested, { persist: true });
+  }
 
   // Timesheet select
   document.getElementById('timesheetSelect').onchange = (e) => {
     loadEntries(e.target.value);
   };
+
+// Disable "Add Entry" until a timesheet is selected
+const createEntryBtn = document.getElementById('createEntryBtn');
+const tsSelect = document.getElementById('timesheetSelect');
+function updateEntryBtnState() {
+  const ok = !!tsSelect.value;
+  createEntryBtn.disabled = !ok;
+  createEntryBtn.style.opacity = ok ? '1' : '0.55';
+  createEntryBtn.style.cursor = ok ? 'pointer' : 'not-allowed';
+}
+tsSelect.addEventListener('change', updateEntryBtnState);
+updateEntryBtnState();
+
 
   // Create buttons
   document.getElementById('createTimesheetBtn').onclick = createTimesheet;
