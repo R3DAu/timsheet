@@ -5,6 +5,9 @@ set -e
 export DATABASE_URL="file:/app/data/timesheet.db"
 export SESSION_DB_PATH="/app/data/sessions.db"
 
+# Ensure Playwright finds its browser binaries
+export PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
 # Ensure data directory exists
 mkdir -p /app/data
 

@@ -18,10 +18,25 @@ async function initializeBrowser() {
 
   const headless = process.env.WMS_HEADLESS !== 'false';
 
-  browser = await chromium.launch({
-    headless,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
+  console.log(`Launching Chromium (headless: ${headless})...`);
+  console.log(`PLAYWRIGHT_BROWSERS_PATH: ${process.env.PLAYWRIGHT_BROWSERS_PATH || '(not set)'}`);
+
+  try {
+    browser = await chromium.launch({
+      headless,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu'
+      ]
+    });
+  } catch (err) {
+    console.error('Failed to launch Chromium:', err.message);
+    console.error('This usually means Playwright browsers are not installed.');
+    console.error('Run: npx playwright install --with-deps chromium');
+    throw err;
+  }
 
   console.log(`Playwright browser initialized (headless: ${headless})`);
 
