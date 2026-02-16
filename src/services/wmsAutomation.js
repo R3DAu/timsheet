@@ -39,7 +39,7 @@ const WMS_CONFIG = {
 
 const DEBUG = process.env.WMS_HEADLESS === 'false';
 const isDev = process.env.NODE_ENV !== 'production';
-const DEBUG_DIR = path.join(__dirname, '../../public/wms-debug');
+const DEBUG_DIR = process.env.WMS_DEBUG_DIR || path.join(__dirname, '../../public/wms-debug');
 
 // Verbose logging only in development
 function wmsLog(...args) {
@@ -69,6 +69,37 @@ async function syncTimesheet(context, timesheet, credentials, onProgress) {
   const steps = [];
   const progress = onProgress || (() => {});
 
+  // Intercept TSSP API calls to log save requests/responses
+  const apiLogs = [];
+  page.on('response', async (response) => {
+    const url = response.url();
+    if (url.includes('tssp.educationapps.vic.gov.au') && !url.includes('.js') && !url.includes('.css')) {
+      const method = response.request().method();
+      if (method === 'POST' || method === 'PUT' || method === 'PATCH') {
+        let reqBody = null;
+        let resBody = null;
+        try {
+          reqBody = response.request().postData();
+        } catch (_) {}
+        try {
+          resBody = await response.text();
+        } catch (_) {}
+        const entry = {
+          method,
+          url,
+          status: response.status(),
+          reqBody: reqBody ? reqBody.substring(0, 2000) : null,
+          resBody: resBody ? resBody.substring(0, 2000) : null
+        };
+        apiLogs.push(entry);
+        console.log(`[WMS API] ${method} ${url} → ${response.status()}`);
+        if (response.status() >= 400) {
+          console.log(`[WMS API] Response: ${resBody ? resBody.substring(0, 500) : '(empty)'}`);
+        }
+      }
+    }
+  });
+
   try {
     const deWorkerId = getDeWorkerId(timesheet.employee);
     if (!deWorkerId) {
@@ -96,16 +127,47 @@ async function syncTimesheet(context, timesheet, credentials, onProgress) {
     progress('All entries processed');
     if (DEBUG) await saveDebugInfo(page, 'after-entries');
 
+    // Step 4: Logout to end the ADFS/TSSP session
+    progress('Logging out...');
+    await logout(page);
+    steps.push({ step: 'logout', status: 'success' });
+    progress('Logged out successfully');
+
+    // Log all intercepted API calls for debugging
+    if (apiLogs.length > 0) {
+      console.log(`[WMS API] ${apiLogs.length} API call(s) captured`);
+      apiLogs.forEach((log, i) => {
+        console.log(`[WMS API] #${i + 1}: ${log.method} ${log.url} → ${log.status}`);
+        if (log.reqBody) console.log(`[WMS API]   Request: ${log.reqBody.substring(0, 500)}`);
+        if (log.resBody && log.status >= 400) console.log(`[WMS API]   Response: ${log.resBody.substring(0, 500)}`);
+      });
+    }
+
     return {
       success: true,
       steps,
       deWorkerId,
       entriesSynced: timesheet.entries.filter(e => e.company && e.company.wmsSyncEnabled).length,
       totalHours: timesheet.entries.filter(e => e.company && e.company.wmsSyncEnabled).reduce((sum, e) => sum + e.hours, 0),
-      debugDir: DEBUG ? '/wms-debug/' : null
+      debugDir: DEBUG ? '/wms-debug/' : null,
+      apiLogs
     };
   } catch (error) {
-    if (DEBUG) await saveDebugInfo(page, 'error');
+    // Always save debug info on failure (not just in DEBUG mode)
+    await saveDebugInfo(page, 'error');
+
+    // Log captured API calls on failure
+    if (apiLogs.length > 0) {
+      console.log(`[WMS API] ${apiLogs.length} API call(s) captured before failure:`);
+      apiLogs.forEach((log, i) => {
+        console.log(`[WMS API] #${i + 1}: ${log.method} ${log.url} → ${log.status}`);
+        if (log.reqBody) console.log(`[WMS API]   Request: ${log.reqBody.substring(0, 1000)}`);
+        if (log.resBody) console.log(`[WMS API]   Response: ${log.resBody.substring(0, 1000)}`);
+      });
+    }
+
+    // Best-effort logout even on failure
+    await logout(page).catch(() => {});
 
     const enrichedError = new Error(`WMS sync failed at step ${steps.length + 1}: ${error.message}`);
     enrichedError.steps = steps;
@@ -121,66 +183,87 @@ async function syncTimesheet(context, timesheet, credentials, onProgress) {
 async function navigateAndLogin(page, deWorkerId, credentials) {
   const timesheetUrl = WMS_CONFIG.timesheetUrlTemplate.replace('{WORKER_ID}', deWorkerId);
 
+  console.log(`[WMS] Navigating to ${timesheetUrl}`);
   await page.goto(timesheetUrl, {
-    waitUntil: 'domcontentloaded',
+    waitUntil: 'load',
     timeout: WMS_CONFIG.navigationTimeout
   });
 
-  // Race: ADFS login form vs TSSP page (already authenticated)
-  // Whichever appears first wins — avoids waiting 60s when already logged in
+  // After page.goto resolves, we may be on:
+  // 1. The ADFS login page (SAML redirect happened during navigation)
+  // 2. The TSSP page (already authenticated, session still valid)
+  // 3. An intermediate page (JS-based redirect still pending)
+  //
+  // Wait a moment for any JS redirects to settle, then check where we are
+  await page.waitForTimeout(2000);
+  console.log(`[WMS] Landed on: ${page.url()}`);
+
+  // Race: ADFS login form vs TSSP table (already authenticated)
   const result = await Promise.race([
     page.waitForSelector(WMS_CONFIG.adfs.usernameInput, { state: 'visible', timeout: WMS_CONFIG.navigationTimeout })
       .then(() => 'adfs'),
     page.waitForSelector('table.table-striped', { state: 'visible', timeout: WMS_CONFIG.navigationTimeout })
-      .then(() => 'tssp'),
-    page.waitForURL(/tssp\.educationapps\.vic\.gov\.au/, { timeout: WMS_CONFIG.navigationTimeout })
-      .then(() => 'tssp-url')
+      .then(() => 'tssp')
   ]).catch(() => 'unknown');
 
+  console.log(`[WMS] Login detection result: "${result}", URL: ${page.url()}`);
+
   if (result === 'adfs') {
+    await saveDebugInfo(page, 'adfs-before-login');
+
     await page.fill(WMS_CONFIG.adfs.usernameInput, credentials.username);
     await page.fill(WMS_CONFIG.adfs.passwordInput, credentials.password);
     await page.click(WMS_CONFIG.adfs.submitButton);
 
-    await page.waitForTimeout(3000);
+    console.log('[WMS] Credentials submitted, waiting for ADFS response...');
 
-    // Check for ADFS error
-    const adfsError = await page.locator(WMS_CONFIG.adfs.errorMessage).textContent().catch(() => null);
-    if (adfsError && adfsError.trim().length > 0) {
-      throw new Error(`ADFS login failed: ${adfsError.trim()}`);
-    }
-
-    // Wait for redirect back to TSSP
-    await page.waitForURL(/tssp\.educationapps\.vic\.gov\.au/, {
+    // Wait for navigation away from ADFS — could be SAML POST back to TSSP
+    // or an error staying on the ADFS page
+    await page.waitForNavigation({
+      waitUntil: 'load',
       timeout: WMS_CONFIG.navigationTimeout
     }).catch(() => {});
 
+    await page.waitForTimeout(3000);
+
+    const currentUrl = page.url();
+    console.log(`[WMS] Post-login URL: ${currentUrl}`);
+
+    // Check for ADFS error (still on login page)
+    if (currentUrl.includes('adfs') || currentUrl.includes('login')) {
+      const adfsError = await page.locator(WMS_CONFIG.adfs.errorMessage).textContent().catch(() => null);
+      if (adfsError && adfsError.trim().length > 0) {
+        throw new Error(`ADFS login failed: ${adfsError.trim()}`);
+      }
+      // May need a second redirect (e.g. MFA or consent)
+      await saveDebugInfo(page, 'adfs-still-on-login');
+      throw new Error('Login failed - still on authentication page after submitting credentials. Check credentials.');
+    }
+
+    // Give Angular time to bootstrap after SAML POST
     await page.waitForTimeout(WMS_CONFIG.angularWaitTime);
-
-    const currentUrl = page.url();
-    if (currentUrl.includes('adfs') || currentUrl.includes('login')) {
-      throw new Error('Login failed - still on authentication page. Check credentials.');
-    }
-  } else if (result === 'tssp-url') {
-    // Redirected to TSSP but table may not be loaded yet
-    await page.waitForSelector('table.table-striped', {
-      state: 'visible',
-      timeout: WMS_CONFIG.actionTimeout
-    });
-  } else if (result === 'unknown') {
-    // Neither appeared — check where we ended up
-    const currentUrl = page.url();
-    if (currentUrl.includes('adfs') || currentUrl.includes('login')) {
-      throw new Error('Authentication page loaded but login form not found. Check ADFS selectors.');
-    }
-    // Might be on TSSP with slow Angular load
-    await page.waitForSelector('table.table-striped', {
-      state: 'visible',
-      timeout: WMS_CONFIG.actionTimeout
-    });
   }
-  // result === 'tssp' means table already visible — no extra wait needed
 
+  // Wait for the TSSP table to render (unless it's already visible)
+  if (result !== 'tssp') {
+    console.log(`[WMS] Waiting for TSSP table to render...`);
+    try {
+      await page.waitForSelector('table.table-striped', {
+        state: 'visible',
+        timeout: WMS_CONFIG.navigationTimeout
+      });
+    } catch (err) {
+      console.error(`[WMS] Table not found after ${WMS_CONFIG.navigationTimeout}ms. URL: ${page.url()}`);
+      await saveDebugInfo(page, 'table-not-found');
+      const pageTitle = await page.title().catch(() => '(unknown)');
+      throw new Error(
+        `TSSP table not visible after login. URL: ${page.url()}, Title: "${pageTitle}". ` +
+        `Check /wms-debug/ for screenshot.`
+      );
+    }
+  }
+
+  console.log(`[WMS] Login successful, on: ${page.url()}`);
   return { step: 'login', status: 'success', url: page.url() };
 }
 
@@ -352,10 +435,12 @@ async function fillEntries(page, timesheet, progress) {
         // Fill the entry fields
         await fillEntryRow(page, row, entry, timesheet.employee);
 
-        // Click away to trigger auto-save (blur)
+        // The fillEntryRow function already triggers save via Tab.
+        // Wait for Angular to process the save.
         progress(`[${entryNumber}/${totalEntries}] ${dateStr} — Saving ${entry.startTime}-${entry.endTime}...`);
-        await page.locator('th').first().click();
         await page.waitForTimeout(3000); // Give Angular time to save + re-render
+
+        await saveDebugInfo(page, `after-save-${dateStr}-entry${i}`);
 
         // Check for TSSP errors (Angular toast/notification)
         const tsspError = await detectTsspError(page);
@@ -363,7 +448,7 @@ async function fillEntries(page, timesheet, progress) {
           wmsLog(`[WMS]     TSSP ERROR after save: ${tsspError}`);
           progress(`[${entryNumber}/${totalEntries}] ${dateStr} — Error: ${tsspError}`);
           results.push({ date: dateStr, hours: entry.hours, status: 'failed', error: `TSSP: ${tsspError}` });
-          if (DEBUG) await saveDebugInfo(page, `tssp-error-${dateStr}-entry${i}`);
+          await saveDebugInfo(page, `tssp-error-${dateStr}-entry${i}`);
           // Dismiss the error toast/alert if possible
           await dismissTsspError(page);
           continue;
@@ -522,7 +607,16 @@ async function addNewEntryRow(page, existingRows, dateStr) {
 }
 
 /**
- * Fill a single entry row with data.
+ * Fill a single entry row with data, using keyboard-based interactions.
+ *
+ * TSSP auto-saves on blur at the ROW COMPONENT level. Using Tab to move
+ * between fields triggers Angular's blur handler within the row component,
+ * which saves just that row. Clicking away (to a header/other element) can
+ * trigger form-level validation instead, which validates ALL rows including
+ * ones with future end times.
+ *
+ * Key insight: Playwright's .fill() + click-away triggers form-level save,
+ * but Tab-based navigation triggers row-level save (like a human user).
  */
 async function fillEntryRow(page, row, entry, employee) {
   // 1. Client - standard <select> with formcontrolname="ClientId"
@@ -541,11 +635,22 @@ async function fillEntryRow(page, row, entry, employee) {
   // 4. Tasks - Syncfusion ejs-multiselect
   await fillTasks(page, row, entry);
 
-  // 5. Comments - formatted from locationNotes or plain notes
-  await fillComments(row, entry);
+  // 5. Comments — use evaluate to set value + dispatch events within Angular's zone
+  await fillCommentsViaEvaluate(page, row, entry);
 
-  // 6. Reason for Deviation - if entry times differ from default schedule
-  await fillReasonForDeviation(row, entry, employee);
+  // 6. Reason for Deviation
+  await fillReasonForDeviation(page, row, entry, employee);
+
+  // 7. Trigger save by clicking the hours/status column within THIS row.
+  //    This triggers focusout on the textarea, which Angular's component
+  //    handles as a row-level save. Clicking within the row keeps the
+  //    focusout event scoped to the row component.
+  const hoursCol = row.locator('td.timesheet-hours-column');
+  if (await hoursCol.count() > 0) {
+    wmsLog('[WMS]     Clicking hours column to trigger save...');
+    await hoursCol.click();
+    await page.waitForTimeout(2000);
+  }
 }
 
 /**
@@ -671,26 +776,15 @@ async function fillTasks(page, row, entry) {
 }
 
 /**
- * Fill the Comments textarea with formatted location notes or plain notes.
- * Format: [Location Name]
- *         - Task 1
- *         - Task 2
+ * Build the comment text from entry data.
  */
-async function fillComments(row, entry) {
-  const comments = row.locator('textarea[formcontrolname="Comments"]');
-  if (await comments.count() === 0) return;
-
-  const isDisabled = await comments.getAttribute('disabled');
-  if (isDisabled !== null) return;
-
+function buildCommentText(entry) {
   const parts = [];
 
-  // Starting location goes first
   if (entry.startingLocation) {
     parts.push(`[${entry.startingLocation}]`);
   }
 
-  // Then locationNotes formatted as structured text
   if (entry.locationNotes) {
     try {
       const locNotes = typeof entry.locationNotes === 'string'
@@ -709,16 +803,33 @@ async function fillComments(row, entry) {
     }
   }
 
-  // Fall back to plain notes if no location notes were added
   if (parts.length <= (entry.startingLocation ? 1 : 0) && entry.notes) {
     parts.push(htmlToPlainText(entry.notes));
   }
 
-  const commentText = parts.join('\n\n');
+  return parts.join('\n\n');
+}
 
-  if (commentText) {
-    await comments.fill(commentText);
-  }
+/**
+ * Fill the Comments textarea using Playwright's .fill() to stay within
+ * Angular's zone, ensuring the FormControl detects the change.
+ */
+async function fillCommentsViaEvaluate(page, row, entry) {
+  const commentText = buildCommentText(entry);
+  if (!commentText) return;
+
+  const comments = row.locator('textarea[formcontrolname="Comments"]');
+  if (await comments.count() === 0) return;
+
+  const isDisabled = await comments.getAttribute('disabled');
+  if (isDisabled !== null) return;
+
+  // Use Playwright's .fill() which triggers proper Angular zone events
+  await comments.click();
+  await page.waitForTimeout(200);
+  await comments.fill(commentText);
+  wmsLog(`[WMS]     Comments filled (${commentText.length} chars)`);
+  await page.waitForTimeout(300);
 }
 
 /**
@@ -727,7 +838,7 @@ async function fillComments(row, entry) {
  * Falls back to auto-generating one if times differ from default schedule.
  * Max 256 characters.
  */
-async function fillReasonForDeviation(row, entry, employee) {
+async function fillReasonForDeviation(page, row, entry, employee) {
   const textarea = row.locator('textarea[formcontrolname="ReasonForDeviation"]');
   if (await textarea.count() === 0) return;
 
@@ -738,27 +849,31 @@ async function fillReasonForDeviation(row, entry, employee) {
   const currentValue = await textarea.inputValue().catch(() => '');
   if (currentValue.trim()) return;
 
+  let deviationText = null;
+
   // Use user-provided reason if available
   if (entry.reasonForDeviation) {
-    await textarea.fill(entry.reasonForDeviation.substring(0, 256));
-    wmsLog(`[WMS]     Added reason for deviation: ${entry.reasonForDeviation}`);
-    return;
+    deviationText = entry.reasonForDeviation.substring(0, 256);
+  } else if (employee) {
+    // Auto-generate if times differ from default schedule
+    const morningStart = employee.morningStart || '08:30';
+    const morningEnd = employee.morningEnd || '12:30';
+    const afternoonStart = employee.afternoonStart || '13:00';
+    const afternoonEnd = employee.afternoonEnd || '17:00';
+
+    const isMorningSlot = entry.startTime === morningStart && entry.endTime === morningEnd;
+    const isAfternoonSlot = entry.startTime === afternoonStart && entry.endTime === afternoonEnd;
+
+    if (!isMorningSlot && !isAfternoonSlot) {
+      deviationText = '.';
+    }
   }
 
-  // Auto-generate if times differ from default schedule
-  if (!employee) return;
-
-  const morningStart = employee.morningStart || '08:30';
-  const morningEnd = employee.morningEnd || '12:30';
-  const afternoonStart = employee.afternoonStart || '13:00';
-  const afternoonEnd = employee.afternoonEnd || '17:00';
-
-  const isMorningSlot = entry.startTime === morningStart && entry.endTime === morningEnd;
-  const isAfternoonSlot = entry.startTime === afternoonStart && entry.endTime === afternoonEnd;
-
-  if (!isMorningSlot && !isAfternoonSlot) {
-    await textarea.fill('.');
-    wmsLog(`[WMS]     Auto-added reason for deviation: .`);
+  if (deviationText) {
+    await textarea.click();
+    await page.waitForTimeout(200);
+    await textarea.fill(deviationText);
+    wmsLog(`[WMS]     Added reason for deviation: ${deviationText}`);
   }
 }
 
@@ -771,14 +886,15 @@ async function fillReasonForDeviation(row, entry, employee) {
  */
 async function detectTsspError(page) {
   return await page.evaluate(() => {
-    // Check for Angular toast / Syncfusion toast notifications
+    // Check for ngx-toastr and Syncfusion toast notifications
     const toastSelectors = [
-      '.e-toast-container .e-toast',
+      '.toast-error .toast-message',     // ngx-toastr (TSSP uses this)
       '.toast-error',
+      '.e-toast-container .e-toast',
       '.e-toast.e-toast-danger',
       '.notification-error',
       '.alert-danger:not([style*="display: none"])',
-      '.e-dialog.e-popup .e-dlg-content',  // Syncfusion dialog
+      '.e-dialog.e-popup .e-dlg-content',
       '.error-message',
       '.toast-message'
     ];
@@ -815,8 +931,8 @@ async function detectTsspError(page) {
  */
 async function dismissTsspError(page) {
   try {
-    // Try closing Syncfusion toast
-    const closeBtn = page.locator('.e-toast-close-icon, .toast-close-button, .e-dlg-closeicon-btn').first();
+    // Try closing ngx-toastr / Syncfusion toast
+    const closeBtn = page.locator('.toast-close-button, .e-toast-close-icon, .e-dlg-closeicon-btn').first();
     if (await closeBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
       await closeBtn.click();
       await page.waitForTimeout(500);
@@ -917,6 +1033,45 @@ function htmlToPlainText(html) {
  */
 function stripTags(html) {
   return html.replace(/<[^>]*>/g, '');
+}
+
+// ==================== LOGOUT ====================
+
+/**
+ * Logout from TSSP/ADFS to end the session.
+ * This ensures no session persists between different users' syncs.
+ */
+async function logout(page) {
+  try {
+    // Try clicking a logout link/button on the TSSP page
+    const logoutSelectors = [
+      'a[href*="logout"]',
+      'a[href*="signout"]',
+      'button:has-text("Log out")',
+      'button:has-text("Sign out")',
+      'a:has-text("Log out")',
+      'a:has-text("Sign out")',
+      '.logout-link',
+      '#logout'
+    ];
+
+    for (const selector of logoutSelectors) {
+      const el = page.locator(selector).first();
+      if (await el.isVisible({ timeout: 1000 }).catch(() => false)) {
+        await el.click();
+        await page.waitForTimeout(2000);
+        console.log(`[WMS] Logged out via: ${selector}`);
+        return;
+      }
+    }
+
+    // Fallback: navigate to common ADFS sign-out URL
+    await page.goto(`${WMS_CONFIG.baseUrl}/signout`, { timeout: 10000 }).catch(() => {});
+    console.log('[WMS] Logged out via signout URL');
+  } catch (err) {
+    console.log('[WMS] Logout best-effort failed:', err.message);
+    // Non-fatal — the browser context will be destroyed anyway
+  }
 }
 
 // ==================== HELPERS ====================

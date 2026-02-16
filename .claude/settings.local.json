@@ -17,7 +17,9 @@
       "WebFetch(domain:tsdata.techassist.au)",
       "Bash(npx prisma migrate:*)",
       "Bash(ls:*)",
-      "Bash(echo:*)"
+      "Bash(echo:*)",
+      "Bash(printf:*)",
+      "Bash(xxd:*)"
     ]
   }
 }

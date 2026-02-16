@@ -3,6 +3,8 @@ services:
     image: ghcr.io/r3dau/timsheet:latest
     container_name: timesheet
     restart: unless-stopped
+    # Chromium needs more than Docker's default 64MB /dev/shm
+    shm_size: '512mb'
     env_file:
       - /srv/timesheet/.env
     volumes:

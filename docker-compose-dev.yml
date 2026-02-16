@@ -1,0 +1,17 @@
+services:
+  timesheet:
+    build:
+      context: .
+    container_name: timesheet
+    restart: unless-stopped
+    # Chromium needs more than Docker's default 64MB /dev/shm
+    shm_size: '512mb'
+    env_file:
+      - .env
+    volumes:
+      - timesheet_data:/app/data
+    ports:
+      - "3000:3000"
+volumes:
+  timesheet_data:
+    driver: local

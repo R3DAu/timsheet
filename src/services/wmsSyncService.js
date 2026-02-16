@@ -18,10 +18,25 @@ async function initializeBrowser() {
 
   const headless = process.env.WMS_HEADLESS !== 'false';
 
-  browser = await chromium.launch({
-    headless,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  });
+  console.log(`Launching Chromium (headless: ${headless})...`);
+  console.log(`PLAYWRIGHT_BROWSERS_PATH: ${process.env.PLAYWRIGHT_BROWSERS_PATH || '(not set)'}`);
+
+  try {
+    browser = await chromium.launch({
+      headless,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu'
+      ]
+    });
+  } catch (err) {
+    console.error('Failed to launch Chromium:', err.message);
+    console.error('This usually means Playwright browsers are not installed.');
+    console.error('Run: npx playwright install --with-deps chromium');
+    throw err;
+  }
 
   console.log(`Playwright browser initialized (headless: ${headless})`);
 
@@ -132,8 +147,13 @@ async function performSync(syncLogId, timesheet, credentials) {
     }
 
     // Create isolated browser context - own cookies, storage, session
+    // timezoneId is critical: Docker runs in UTC, but TSSP validates end times
+    // against the browser's local time. Without this, "12:30 PM" is interpreted
+    // as 12:30 PM UTC instead of 12:30 PM AEDT, making it "in the future".
     context = await browser.newContext({
       viewport: { width: 1920, height: 1080 },
+      timezoneId: process.env.WMS_TIMEZONE || 'Australia/Melbourne',
+      locale: 'en-AU',
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     });
 

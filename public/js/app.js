@@ -2991,20 +2991,51 @@ function pollSyncStatus(syncLogId) {
       if (log.status === 'COMPLETED') {
         clearInterval(interval);
         if (spinnerEl) spinnerEl.style.display = 'none';
-        alertEl.className = 'alert alert-success';
-        alertEl.innerHTML = '<strong>Timesheet synced to DE WMS successfully!</strong>';
         if (log.syncDetails) {
           try {
             const details = JSON.parse(log.syncDetails);
-            const entered = details.steps && details.steps[2] ? details.steps[2].entriesEntered || 0 : details.entriesSynced || 0;
-            const failed = details.steps && details.steps[2] ? details.steps[2].entriesFailed || 0 : 0;
-            const skipped = details.steps && details.steps[2] ? details.steps[2].entriesSkipped || 0 : 0;
+            const fillStep = details.steps && details.steps.find(s => s.step === 'fillEntries');
+            const entered = fillStep ? fillStep.entriesEntered || 0 : details.entriesSynced || 0;
+            const failed = fillStep ? fillStep.entriesFailed || 0 : 0;
+            const skipped = fillStep ? fillStep.entriesSkipped || 0 : 0;
+            const entries = fillStep ? fillStep.entries || [] : [];
+
+            // Set alert style based on results
+            if (failed > 0 && entered === 0) {
+              alertEl.className = 'alert alert-danger';
+              alertEl.innerHTML = '<strong>Sync completed with errors — no entries were saved.</strong>';
+            } else if (failed > 0) {
+              alertEl.className = 'alert alert-warning';
+              alertEl.innerHTML = `<strong>Sync completed with ${failed} error(s).</strong>`;
+            } else {
+              alertEl.className = 'alert alert-success';
+              alertEl.innerHTML = '<strong>Timesheet synced to DE WMS successfully!</strong>';
+            }
+
             let summary = `Entries synced: ${entered}`;
             if (failed > 0) summary += ` | Failed: ${failed}`;
             if (skipped > 0) summary += ` | Skipped: ${skipped}`;
             summary += ` | Total hours: ${(details.totalHours || 0).toFixed(2)}`;
-            detailsEl.innerHTML = `<p style="margin-top: 0.5rem;">${summary}</p>`;
-          } catch (_) {}
+
+            // Show per-entry error details
+            let errorDetails = '';
+            const failedEntries = entries.filter(e => e.status === 'failed');
+            if (failedEntries.length > 0) {
+              errorDetails = '<ul style="margin: 0.5rem 0 0; padding-left: 1.25rem; color: #ff6b6b;">';
+              failedEntries.forEach(e => {
+                errorDetails += `<li>${e.date} ${e.startTime || ''}-${e.endTime || ''}: ${e.error}</li>`;
+              });
+              errorDetails += '</ul>';
+            }
+
+            detailsEl.innerHTML = `<p style="margin-top: 0.5rem;">${summary}</p>${errorDetails}`;
+          } catch (_) {
+            alertEl.className = 'alert alert-success';
+            alertEl.innerHTML = '<strong>Timesheet synced to DE WMS successfully!</strong>';
+          }
+        } else {
+          alertEl.className = 'alert alert-success';
+          alertEl.innerHTML = '<strong>Timesheet synced to DE WMS successfully!</strong>';
         }
         refreshTimesheets();
       } else if (log.status === 'FAILED') {
