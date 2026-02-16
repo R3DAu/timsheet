@@ -10,3 +10,4 @@ prisma/*.db-journal
 .idea/
 /public/debug-wms/
 /public/wms-debug/
+public/js/app.js
