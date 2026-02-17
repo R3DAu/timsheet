@@ -170,8 +170,6 @@ class XeroPayrollService {
    * Create a leave application
    */
   async createLeaveApplication(tenantId, leaveData) {
-    console.log('[XeroPayroll] Creating leave application:', JSON.stringify(leaveData, null, 2));
-
     const xero = await this.getXeroClient(tenantId);
 
     // SDK accepts plain JavaScript objects

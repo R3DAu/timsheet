@@ -80,6 +80,11 @@ class XeroLeaveService {
       // Map leave type to Xero leave type
       const xeroLeaveType = await this.mapLeaveType(fullLeave.leaveType, tenantId);
 
+      // Strip HTML tags from notes (Quill stores HTML, Xero only accepts plain text)
+      const plainNotes = fullLeave.notes
+        ? fullLeave.notes.replace(/<[^>]*>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&nbsp;/g, ' ').trim()
+        : '';
+
       // Build Xero leave application data
       const xeroLeaveData = {
         employeeID: xeroEmployeeId.identifierValue,
@@ -87,7 +92,7 @@ class XeroLeaveService {
         title: `${fullLeave.leaveType} Leave`,
         startDate: this.formatXeroDate(fullLeave.startDate),
         endDate: this.formatXeroDate(fullLeave.endDate),
-        description: fullLeave.notes || ''
+        description: plainNotes
       };
 
       // Create leave application in Xero
