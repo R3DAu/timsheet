@@ -42,25 +42,36 @@ exports.mapEmployee = async (req, res) => {
       });
     }
 
-    // Store mapping in EmployeeIdentifier
-    const mapping = await prisma.employeeIdentifier.upsert({
+    // For xero_employee_id, we don't use companyId (it's a global mapping)
+    // Find existing mapping first
+    const existing = await prisma.employeeIdentifier.findFirst({
       where: {
-        employeeId_identifierType_companyId: {
-          employeeId: parseInt(employeeId),
-          identifierType: 'xero_employee_id',
-          companyId: companyId ? parseInt(companyId) : null
-        }
-      },
-      update: {
-        identifierValue: xeroEmployeeId
-      },
-      create: {
         employeeId: parseInt(employeeId),
         identifierType: 'xero_employee_id',
-        identifierValue: xeroEmployeeId,
-        companyId: companyId ? parseInt(companyId) : null
+        companyId: null
       }
     });
+
+    let mapping;
+    if (existing) {
+      // Update existing mapping
+      mapping = await prisma.employeeIdentifier.update({
+        where: { id: existing.id },
+        data: {
+          identifierValue: xeroEmployeeId
+        }
+      });
+    } else {
+      // Create new mapping
+      mapping = await prisma.employeeIdentifier.create({
+        data: {
+          employeeId: parseInt(employeeId),
+          identifierType: 'xero_employee_id',
+          identifierValue: xeroEmployeeId,
+          companyId: null
+        }
+      });
+    }
 
     res.json({
       success: true,
