@@ -4908,15 +4908,19 @@ var App = (() => {
       <button type="submit" class="btn btn-primary">Save Mapping</button>
     </form>
   `;
-    showModalWithForm2(`Map Company: ${company.name}`, form, async (formData) => {
+    showModalWithForm2(`Map Company: ${company.name}`, form);
+    document.getElementById("companyMappingForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
       try {
-        const xeroToken = tenants.find((t) => t.tenantId === formData.xeroTenantId);
+        const xeroTenantId = formData.get("xeroTenantId");
+        const xeroToken = tenants.find((t) => t.tenantId === xeroTenantId);
         await api.post("/xero/setup/company-mapping", {
           companyId: company.id,
           xeroTokenId: xeroToken.id,
-          xeroTenantId: formData.xeroTenantId,
-          invoiceRate: formData.invoiceRate || null,
-          xeroContactId: formData.xeroContactId || null
+          xeroTenantId,
+          invoiceRate: formData.get("invoiceRate") || null,
+          xeroContactId: formData.get("xeroContactId") || null
         });
         showAlert("Company mapping saved successfully", "success");
         await loadMappings();
@@ -4926,7 +4930,7 @@ var App = (() => {
         console.error("Failed to save company mapping:", error);
         showAlert("Failed to save mapping: " + error.message, "error");
       }
-    });
+    };
   };
   async function displayEmployeeMappings() {
     const container = document.getElementById("employeeMappingList");
@@ -5011,11 +5015,14 @@ var App = (() => {
       <button type="submit" class="btn btn-primary">Save Mapping</button>
     </form>
   `;
-    showModalWithForm2(`Map Employee: ${employee.firstName} ${employee.lastName}`, form, async (formData) => {
+    showModalWithForm2(`Map Employee: ${employee.firstName} ${employee.lastName}`, form);
+    document.getElementById("employeeMappingForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
       try {
         await api.post("/xero/setup/employees/map", {
           employeeId: employee.id,
-          xeroEmployeeId: formData.xeroEmployeeId,
+          xeroEmployeeId: formData.get("xeroEmployeeId"),
           companyId: null
         });
         showAlert("Employee mapping saved successfully", "success");
@@ -5026,7 +5033,7 @@ var App = (() => {
         console.error("Failed to save employee mapping:", error);
         showAlert("Failed to save mapping: " + error.message, "error");
       }
-    });
+    };
   };
   async function displayRoleMappings() {
     const container = document.getElementById("roleMappingList");
@@ -5113,13 +5120,17 @@ var App = (() => {
       <button type="submit" class="btn btn-primary">Save Mapping</button>
     </form>
   `;
-    showModalWithForm2(`Map Role: ${role.name}`, form, async (formData) => {
+    showModalWithForm2(`Map Role: ${role.name}`, form);
+    document.getElementById("roleMappingForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
       try {
-        const earningsRate = earningsRates.find((er) => er.EarningsRateID === formData.xeroEarningsRateId);
+        const xeroEarningsRateId = formData.get("xeroEarningsRateId");
+        const earningsRate = earningsRates.find((er) => er.EarningsRateID === xeroEarningsRateId);
         await api.post("/xero/setup/earnings-rates/map", {
           roleId: role.id,
           xeroTenantId: selectedRoleTenant,
-          xeroEarningsRateId: formData.xeroEarningsRateId,
+          xeroEarningsRateId,
           earningsRateName: earningsRate.Name
         });
         showAlert("Role mapping saved successfully", "success");
@@ -5130,7 +5141,7 @@ var App = (() => {
         console.error("Failed to save role mapping:", error);
         showAlert("Failed to save mapping: " + error.message, "error");
       }
-    });
+    };
   };
   function displayEmployeeSettings() {
     const container = document.getElementById("employeeSettingsList");
@@ -5210,13 +5221,16 @@ var App = (() => {
       <button type="submit" class="btn btn-primary">Save Settings</button>
     </form>
   `;
-    showModalWithForm2(`Configure: ${employee.firstName} ${employee.lastName}`, form, async (formData) => {
+    showModalWithForm2(`Configure: ${employee.firstName} ${employee.lastName}`, form);
+    document.getElementById("employeeSettingsForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
       try {
         await api.post("/xero/setup/employee-settings", {
           employeeId: employee.id,
-          employeeType: formData.employeeType,
-          autoApprove: formData.autoApprove === "on",
-          syncEnabled: formData.syncEnabled === "on"
+          employeeType: formData.get("employeeType"),
+          autoApprove: formData.get("autoApprove") === "on",
+          syncEnabled: formData.get("syncEnabled") === "on"
         });
         showAlert("Employee settings saved successfully", "success");
         await loadMappings();
@@ -5226,7 +5240,7 @@ var App = (() => {
         console.error("Failed to save employee settings:", error);
         showAlert("Failed to save settings: " + error.message, "error");
       }
-    });
+    };
   };
   registerTabHook("xeroSetup", initXeroSetup);
 
