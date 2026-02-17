@@ -8,9 +8,9 @@ const xeroAuthService = require('./xeroAuthService');
  */
 class XeroPayrollService {
   constructor() {
-    // Base URL for Xero Payroll API (AU)
-    this.baseUrl = 'https://api.xero.com/payroll.xro/1.0';
-    this.accountingUrl = 'https://api.xero.com/api.xro/2.0';
+    // Base URL for Xero Payroll AU API (v2)
+    this.baseUrl = 'https://api.xero.com/api.xro/2.0';
+    this.payrollAuUrl = 'https://api.xero.com/payroll.xro/2.0';
   }
 
   /**
@@ -47,7 +47,7 @@ class XeroPayrollService {
    * Get all employees from Xero
    */
   async getEmployees(tenantId) {
-    const url = `${this.baseUrl}/Employees`;
+    const url = `${this.payrollAuUrl}/Employees`;
     const response = await this.makeRequest('GET', url, tenantId);
     return response.Employees || [];
   }
@@ -56,7 +56,7 @@ class XeroPayrollService {
    * Get a single employee by ID
    */
   async getEmployee(tenantId, employeeId) {
-    const url = `${this.baseUrl}/Employees/${employeeId}`;
+    const url = `${this.payrollAuUrl}/Employees/${employeeId}`;
     const response = await this.makeRequest('GET', url, tenantId);
     return response.Employees?.[0] || null;
   }
@@ -65,7 +65,7 @@ class XeroPayrollService {
    * Get all earnings rates (pay types)
    */
   async getEarningsRates(tenantId) {
-    const url = `${this.baseUrl}/PayItems`;
+    const url = `${this.payrollAuUrl}/PayItems`;
     const response = await this.makeRequest('GET', url, tenantId);
     return response.PayItems?.EarningsRates || [];
   }
@@ -74,7 +74,7 @@ class XeroPayrollService {
    * Get all payruns
    */
   async getPayruns(tenantId, status = null) {
-    let url = `${this.baseUrl}/PayRuns`;
+    let url = `${this.payrollAuUrl}/PayRuns`;
     if (status) {
       url += `?where=Status=="${status}"`;
     }
@@ -86,7 +86,7 @@ class XeroPayrollService {
    * Get a single payrun by ID
    */
   async getPayrun(tenantId, payrunId) {
-    const url = `${this.baseUrl}/PayRuns/${payrunId}`;
+    const url = `${this.payrollAuUrl}/PayRuns/${payrunId}`;
     const response = await this.makeRequest('GET', url, tenantId);
     return response.PayRuns?.[0] || null;
   }
@@ -95,7 +95,7 @@ class XeroPayrollService {
    * Create a new payrun
    */
   async createPayrun(tenantId, payrunData) {
-    const url = `${this.baseUrl}/PayRuns`;
+    const url = `${this.payrollAuUrl}/PayRuns`;
     const response = await this.makeRequest('POST', url, tenantId, {
       PayRuns: [payrunData]
     });
@@ -106,7 +106,7 @@ class XeroPayrollService {
    * Get timesheets for a payrun
    */
   async getTimesheets(tenantId, payrunId = null) {
-    let url = `${this.baseUrl}/Timesheets`;
+    let url = `${this.payrollAuUrl}/Timesheets`;
     if (payrunId) {
       url += `?where=PayrollCalendarID=="${payrunId}"`;
     }
@@ -118,7 +118,7 @@ class XeroPayrollService {
    * Get a single timesheet by ID
    */
   async getTimesheet(tenantId, timesheetId) {
-    const url = `${this.baseUrl}/Timesheets/${timesheetId}`;
+    const url = `${this.payrollAuUrl}/Timesheets/${timesheetId}`;
     const response = await this.makeRequest('GET', url, tenantId);
     return response.Timesheets?.[0] || null;
   }
@@ -127,7 +127,7 @@ class XeroPayrollService {
    * Create a new timesheet
    */
   async createTimesheet(tenantId, timesheetData) {
-    const url = `${this.baseUrl}/Timesheets`;
+    const url = `${this.payrollAuUrl}/Timesheets`;
 
     console.log('[XeroPayroll] Creating timesheet:', JSON.stringify(timesheetData, null, 2));
 
@@ -142,7 +142,7 @@ class XeroPayrollService {
    * Update an existing timesheet
    */
   async updateTimesheet(tenantId, timesheetId, timesheetData) {
-    const url = `${this.baseUrl}/Timesheets/${timesheetId}`;
+    const url = `${this.payrollAuUrl}/Timesheets/${timesheetId}`;
 
     console.log('[XeroPayroll] Updating timesheet:', timesheetId);
 
@@ -157,7 +157,7 @@ class XeroPayrollService {
    * Get leave applications
    */
   async getLeaveApplications(tenantId, employeeId = null) {
-    let url = `${this.baseUrl}/LeaveApplications`;
+    let url = `${this.payrollAuUrl}/LeaveApplications`;
     if (employeeId) {
       url += `?where=EmployeeID=="${employeeId}"`;
     }
@@ -169,7 +169,7 @@ class XeroPayrollService {
    * Create a leave application
    */
   async createLeaveApplication(tenantId, leaveData) {
-    const url = `${this.baseUrl}/LeaveApplications`;
+    const url = `${this.payrollAuUrl}/LeaveApplications`;
 
     console.log('[XeroPayroll] Creating leave application:', JSON.stringify(leaveData, null, 2));
 
@@ -184,7 +184,7 @@ class XeroPayrollService {
    * Get employee leave balances
    */
   async getLeaveBalances(tenantId, employeeId) {
-    const url = `${this.baseUrl}/Employees/${employeeId}`;
+    const url = `${this.payrollAuUrl}/Employees/${employeeId}`;
     const response = await this.makeRequest('GET', url, tenantId);
     const employee = response.Employees?.[0];
     return employee?.LeaveBalances || [];
@@ -194,7 +194,7 @@ class XeroPayrollService {
    * Get all contacts (for invoicing)
    */
   async getContacts(tenantId) {
-    const url = `${this.accountingUrl}/Contacts`;
+    const url = `${this.baseUrl}/Contacts`;
     const response = await this.makeRequest('GET', url, tenantId);
     return response.Contacts || [];
   }
@@ -203,7 +203,7 @@ class XeroPayrollService {
    * Get a single contact by ID
    */
   async getContact(tenantId, contactId) {
-    const url = `${this.accountingUrl}/Contacts/${contactId}`;
+    const url = `${this.baseUrl}/Contacts/${contactId}`;
     const response = await this.makeRequest('GET', url, tenantId);
     return response.Contacts?.[0] || null;
   }
@@ -212,7 +212,7 @@ class XeroPayrollService {
    * Get all invoices
    */
   async getInvoices(tenantId, status = null) {
-    let url = `${this.accountingUrl}/Invoices`;
+    let url = `${this.baseUrl}/Invoices`;
     if (status) {
       url += `?where=Status=="${status}"`;
     }
@@ -224,7 +224,7 @@ class XeroPayrollService {
    * Get a single invoice by ID
    */
   async getInvoice(tenantId, invoiceId) {
-    const url = `${this.accountingUrl}/Invoices/${invoiceId}`;
+    const url = `${this.baseUrl}/Invoices/${invoiceId}`;
     const response = await this.makeRequest('GET', url, tenantId);
     return response.Invoices?.[0] || null;
   }
@@ -233,7 +233,7 @@ class XeroPayrollService {
    * Create a new invoice
    */
   async createInvoice(tenantId, invoiceData) {
-    const url = `${this.accountingUrl}/Invoices`;
+    const url = `${this.baseUrl}/Invoices`;
 
     console.log('[XeroPayroll] Creating invoice:', JSON.stringify(invoiceData, null, 2));
 
@@ -248,7 +248,7 @@ class XeroPayrollService {
    * Update an existing invoice
    */
   async updateInvoice(tenantId, invoiceId, invoiceData) {
-    const url = `${this.accountingUrl}/Invoices/${invoiceId}`;
+    const url = `${this.baseUrl}/Invoices/${invoiceId}`;
 
     console.log('[XeroPayroll] Updating invoice:', invoiceId);
 
@@ -263,7 +263,7 @@ class XeroPayrollService {
    * Get payroll calendars
    */
   async getPayrollCalendars(tenantId) {
-    const url = `${this.baseUrl}/PayrollCalendars`;
+    const url = `${this.payrollAuUrl}/PayrollCalendars`;
     const response = await this.makeRequest('GET', url, tenantId);
     return response.PayrollCalendars || [];
   }
