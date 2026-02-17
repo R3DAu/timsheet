@@ -50,7 +50,7 @@ class XeroAuthService {
           'payroll.payruns',
           'payroll.timesheets',
           'payroll.settings'
-        ].join(' ')
+        ]
       });
     } catch (error) {
       console.error('[XeroAuth] Failed to initialize XeroClient:', error.message);
