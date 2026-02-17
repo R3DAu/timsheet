@@ -1358,3 +1358,52 @@ table tr:hover {
     right: -100vw;
   }
 }
+/* ==================== XERO INTEGRATION STYLES ==================== */
+
+/* Xero Setup Tabs */
+.setup-tabs {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 2px solid #e5e7eb;
+  margin-bottom: 1.5rem;
+}
+
+.setup-tab-btn {
+  background: none;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #6b7280;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+  margin-bottom: -2px;
+}
+
+.setup-tab-btn:hover {
+  color: #3b82f6;
+  background: #eff6ff;
+}
+
+.setup-tab-btn.active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
+}
+
+.setup-tab-content {
+  display: none;
+}
+
+.setup-tab-content.active {
+  display: block;
+}
+
+/* Stat Cards */
+.stat-card {
+  transition: transform 0.2s;
+}
+
+.stat-card:hover {
+  transform: translateY(-2px);
+}
