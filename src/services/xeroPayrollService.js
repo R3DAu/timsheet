@@ -1,73 +1,65 @@
-const axios = require('axios');
+const { XeroClient } = require('xero-node');
 const xeroAuthService = require('./xeroAuthService');
 
 /**
  * Xero Payroll API Service
- * Wraps direct Xero API calls for payroll operations
+ * Uses xero-node SDK for Payroll AU API operations
  * Documentation: https://developer.xero.com/documentation/api/payrollau/overview
  */
 class XeroPayrollService {
   constructor() {
-    // Base URL for Xero Payroll AU API (v2)
-    this.baseUrl = 'https://api.xero.com/api.xro/2.0';
-    this.payrollAuUrl = 'https://api.xero.com/payroll.xro/2.0';
+    this.clientId = process.env.XERO_CLIENT_ID;
+    this.clientSecret = process.env.XERO_CLIENT_SECRET;
+    this.redirectUri = process.env.XERO_REDIRECT_URI;
   }
 
   /**
-   * Make authenticated request to Xero API
+   * Get configured XeroClient with valid token
    */
-  async makeRequest(method, url, tenantId, data = null) {
-    try {
-      const accessToken = await xeroAuthService.getAccessToken(tenantId);
+  async getXeroClient(tenantId) {
+    const accessToken = await xeroAuthService.getAccessToken(tenantId);
 
-      const config = {
-        method,
-        url,
-        headers: {
-          'Authorization': `Bearer ${accessToken}`,
-          'xero-tenant-id': tenantId,
-          'Accept': 'application/json',
-          'Content-Type': 'application/json'
-        }
-      };
+    const xero = new XeroClient({
+      clientId: this.clientId,
+      clientSecret: this.clientSecret,
+      redirectUris: [this.redirectUri],
+      scopes: []  // Scopes already granted during OAuth
+    });
 
-      if (data) {
-        config.data = data;
-      }
+    // Set the token manually
+    await xero.setTokenSet({
+      access_token: accessToken,
+      token_type: 'Bearer'
+    });
 
-      const response = await axios(config);
-      return response.data;
-    } catch (error) {
-      console.error(`[XeroPayroll] API request failed:`, error.response?.data || error.message);
-      throw error;
-    }
+    return xero;
   }
 
   /**
    * Get all employees from Xero
    */
   async getEmployees(tenantId) {
-    const url = `${this.payrollAuUrl}/Employees`;
-    const response = await this.makeRequest('GET', url, tenantId);
-    return response.Employees || [];
+    const xero = await this.getXeroClient(tenantId);
+    const response = await xero.payrollAUApi.getEmployees(tenantId);
+    return response.body.employees || [];
   }
 
   /**
    * Get a single employee by ID
    */
   async getEmployee(tenantId, employeeId) {
-    const url = `${this.payrollAuUrl}/Employees/${employeeId}`;
-    const response = await this.makeRequest('GET', url, tenantId);
-    return response.Employees?.[0] || null;
+    const xero = await this.getXeroClient(tenantId);
+    const response = await xero.payrollAUApi.getEmployee(tenantId, employeeId);
+    return response.body.employees?.[0] || null;
   }
 
   /**
    * Get all earnings rates (pay types)
    */
   async getEarningsRates(tenantId) {
-    const url = `${this.payrollAuUrl}/PayItems`;
-    const response = await this.makeRequest('GET', url, tenantId);
-    return response.PayItems?.EarningsRates || [];
+    const xero = await this.getXeroClient(tenantId);
+    const response = await xero.payrollAUApi.getPayItems(tenantId);
+    return response.body.payItems?.earningsRates || [];
   }
 
   /**
@@ -127,15 +119,17 @@ class XeroPayrollService {
    * Create a new timesheet
    */
   async createTimesheet(tenantId, timesheetData) {
-    const url = `${this.payrollAuUrl}/Timesheets`;
-
     console.log('[XeroPayroll] Creating timesheet:', JSON.stringify(timesheetData, null, 2));
 
-    const response = await this.makeRequest('POST', url, tenantId, {
-      Timesheets: [timesheetData]
-    });
+    const xero = await this.getXeroClient(tenantId);
 
-    return response.Timesheets?.[0] || null;
+    // Create timesheet object using SDK models
+    const { Timesheet } = require('xero-node');
+    const timesheet = Timesheet.constructFromObject(timesheetData);
+
+    const response = await xero.payrollAUApi.createTimesheet(tenantId, [timesheet]);
+
+    return response.body.timesheets?.[0] || null;
   }
 
   /**
