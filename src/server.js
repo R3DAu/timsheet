@@ -38,8 +38,27 @@ if (process.env.TRUST_PROXY === 'true') {
 // Middleware
 app.use(morgan(isDev ? 'dev' : 'combined'));
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-  credentials: true
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+
+    // Allow configured origin or localhost variants
+    const allowedOrigins = [
+      process.env.CORS_ORIGIN,
+      'http://localhost:3002',
+      'http://127.0.0.1:3002',
+      'http://localhost:3000'
+    ].filter(Boolean);
+
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Allow all in development
+    }
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key']
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -53,11 +72,13 @@ app.use(session({
   secret: process.env.SESSION_SECRET || 'change-this-secret-key',
   resave: false,
   saveUninitialized: false,
+  name: 'sessionId', // Custom name to avoid conflicts
   cookie: {
     secure: process.env.COOKIE_SECURE === 'true',
     httpOnly: true,
     maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    sameSite: 'lax'
+    sameSite: 'lax',
+    path: '/'
   }
 }));
 

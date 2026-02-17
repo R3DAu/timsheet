@@ -83,10 +83,79 @@ const getSyncLogs = async (req, res) => {
   }
 };
 
+const cleanupDuplicates = async (req, res) => {
+  try {
+    console.log(`[TSDATA Cleanup] Triggered by user ${req.session.userId}`);
+    const result = await tsDataSyncService.cleanupDuplicateTsDataEntries();
+
+    if (result.success === false) {
+      return res.status(500).json({
+        error: 'Cleanup failed',
+        details: result.error
+      });
+    }
+
+    res.json({
+      message: 'Cleanup completed successfully',
+      ...result
+    });
+  } catch (error) {
+    console.error('Cleanup duplicates error:', error);
+    res.status(500).json({ error: 'Failed to run cleanup: ' + error.message });
+  }
+};
+
+const removeWeekendEntries = async (req, res) => {
+  try {
+    console.log(`[TSDATA Cleanup] Remove weekend entries triggered by user ${req.session.userId}`);
+    const result = await tsDataSyncService.removeWeekendTsDataEntries();
+
+    if (result.success === false) {
+      return res.status(500).json({
+        error: 'Weekend removal failed',
+        details: result.error
+      });
+    }
+
+    res.json({
+      message: 'Weekend entries removed successfully',
+      ...result
+    });
+  } catch (error) {
+    console.error('Remove weekend entries error:', error);
+    res.status(500).json({ error: 'Failed to remove weekend entries: ' + error.message });
+  }
+};
+
+const mergeDuplicateTimesheets = async (req, res) => {
+  try {
+    console.log(`[TSDATA Cleanup] Merge duplicate timesheets triggered by user ${req.session.userId}`);
+    const result = await tsDataSyncService.mergeDuplicateTimesheets();
+
+    if (result.success === false) {
+      return res.status(500).json({
+        error: 'Merge failed',
+        details: result.error
+      });
+    }
+
+    res.json({
+      message: 'Duplicate timesheets merged successfully',
+      ...result
+    });
+  } catch (error) {
+    console.error('Merge duplicate timesheets error:', error);
+    res.status(500).json({ error: 'Failed to merge duplicates: ' + error.message });
+  }
+};
+
 module.exports = {
   getTimesheets,
   getWorkers,
   triggerRefresh,
   runManualSync,
-  getSyncLogs
+  getSyncLogs,
+  cleanupDuplicates,
+  removeWeekendEntries,
+  mergeDuplicateTimesheets
 };

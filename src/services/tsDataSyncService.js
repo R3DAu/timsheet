@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const tsDataService = require('./tsDataService');
+const { parseLocalDate, formatLocalDate, isWeekend, getWeekStart, getWeekEnd, parseTimeToHours } = require('../utils/dateUtils');
 
 const prisma = new PrismaClient();
 
@@ -12,39 +13,7 @@ const STATUS_PRIORITY = {
   'PROCESSED': 5
 };
 
-/**
- * Get the Monday 00:00 UTC for the week containing a given date.
- */
-function getWeekStart(date) {
-  const d = new Date(date);
-  d.setUTCHours(0, 0, 0, 0);
-  const day = d.getUTCDay(); // 0=Sun, 1=Mon, ...
-  const diff = day === 0 ? -6 : 1 - day; // shift to Monday
-  d.setUTCDate(d.getUTCDate() + diff);
-  return d;
-}
-
-/**
- * Get Sunday 00:00 UTC for the week containing a given date.
- */
-function getWeekEnd(date) {
-  const start = getWeekStart(date);
-  const end = new Date(start);
-  end.setUTCDate(end.getUTCDate() + 6);
-  return end;
-}
-
-/**
- * Parse TSDATA hours_logged (HH:MM:SS or HH:MM) into decimal hours.
- */
-function parseHoursLogged(hoursStr) {
-  if (!hoursStr) return 0;
-  const parts = hoursStr.split(':').map(Number);
-  const h = parts[0] || 0;
-  const m = parts[1] || 0;
-  const s = parts[2] || 0;
-  return h + m / 60 + s / 3600;
-}
+// Week start/end and time parsing now handled by dateUtils.js
 
 class TsDataSyncService {
   constructor() {
@@ -180,9 +149,23 @@ class TsDataSyncService {
     if (tsRows.length === 0) return results;
 
     // Group rows by week (Mon–Sun based on entry_date)
+    // Also filter out weekend entries early to avoid processing them
     const weekMap = new Map(); // weekStartISO → { weekStarting, weekEnding, rows[] }
+    let weekendSkipped = 0;
+
     for (const row of tsRows) {
-      const entryDate = new Date(row.entry_date);
+      // Check for weekend entries early and skip them
+      let dateStr = row.entry_date;
+      if (dateStr.includes('T')) {
+        dateStr = dateStr.split('T')[0];
+      }
+
+      if (isWeekend(dateStr)) {
+        weekendSkipped++;
+        continue; // Skip weekend entries entirely
+      }
+
+      const entryDate = parseLocalDate(row.entry_date);
       const weekStarting = getWeekStart(entryDate);
       const weekEnding = getWeekEnd(entryDate);
       const key = weekStarting.toISOString();
@@ -191,6 +174,10 @@ class TsDataSyncService {
         weekMap.set(key, { weekStarting, weekEnding, rows: [] });
       }
       weekMap.get(key).rows.push(row);
+    }
+
+    if (weekendSkipped > 0) {
+      console.log(`[TSDATA Sync] ⏭️  Filtered out ${weekendSkipped} weekend entries before processing`);
     }
 
     // Process each week
@@ -216,6 +203,9 @@ class TsDataSyncService {
             console.error(`[TSDATA Sync] Error syncing entry ${row.id}:`, error.message);
           }
         }
+
+        // Check if all entries are verified and update timesheet verification status
+        await this.updateTimesheetVerification(timesheet.id);
       } catch (error) {
         console.error(`[TSDATA Sync] Error syncing week for worker ${worker.id}:`, error.message);
       }
@@ -266,34 +256,77 @@ class TsDataSyncService {
   /**
    * Upsert a single TSDATA row as a local TimesheetEntry.
    *
+   * Smart matching strategy:
+   * 1. If tsDataEntryId already exists, update it
+   * 2. Otherwise, try to match existing entry by date + hours (±0.25h tolerance)
+   * 3. If match found, mark as verified (don't overwrite data)
+   * 4. If no match, create new TSDATA entry
+   *
+   * Weekend filter: Skip entries on Saturday (6) or Sunday (0) to avoid importing
+   * weekend work that typically shouldn't exist.
+   *
    * TSDATA row shape:
    *   { id, worker_id, period_id, assignment_id, school_id, school_name,
    *     entry_date, hours_worked, hours_logged ("HH:MM:SS"), status, notes, ... }
    */
   async syncEntry(localTimesheet, worker, tsRow) {
+    // Extract date string - handle both ISO format and plain YYYY-MM-DD
+    let dateStr = tsRow.entry_date;
+    if (dateStr.includes('T')) {
+      dateStr = dateStr.split('T')[0];
+    }
+
+    // Skip weekend entries (Saturday & Sunday) using dateUtils
+    if (isWeekend(dateStr)) {
+      const dayName = parseLocalDate(dateStr).toLocaleDateString('en-US', { weekday: 'long' });
+      console.log(`[TSDATA Sync] ⏭️  SKIPPING weekend entry: ${dateStr} (${dayName}) - TSDATA ID: ${tsRow.id}`);
+      return { created: false, updated: false, skipped: true };
+    }
     const tsEntryId = String(tsRow.id);
     const entryStatus = tsDataService.mapStatus(tsRow.status);
 
     // Map fields
     const entryData = this.mapEntryData(worker, tsRow);
 
-    // Check if entry already exists
-    const existing = await prisma.timesheetEntry.findUnique({
+    // Check if entry already exists by tsDataEntryId
+    const existingById = await prisma.timesheetEntry.findUnique({
       where: { tsDataEntryId: tsEntryId }
     });
 
-    if (existing) {
+    if (existingById) {
+      // Update existing TSDATA entry
+      console.log(`[TSDATA Sync] Updating existing entry ${existingById.id} for ${dateStr} (TSDATA ID: ${tsEntryId})`);
       await prisma.timesheetEntry.update({
-        where: { id: existing.id },
+        where: { id: existingById.id },
         data: {
           ...entryData,
-          status: this.shouldUpdateStatus(existing.status, entryStatus) ? entryStatus : existing.status,
-          tsDataSyncedAt: new Date()
+          status: this.shouldUpdateStatus(existingById.status, entryStatus) ? entryStatus : existingById.status,
+          tsDataSyncedAt: new Date(),
+          verified: true
         }
       });
       return { created: false, updated: true };
     }
 
+    // Try to match existing local entry by date + hours (reuse dateStr from above)
+    const matchingEntry = await this.findMatchingLocalEntry(localTimesheet.id, dateStr, entryData.hours);
+
+    if (matchingEntry) {
+      // Found a match! Mark it as verified and link to TSDATA
+      await prisma.timesheetEntry.update({
+        where: { id: matchingEntry.id },
+        data: {
+          verified: true,
+          tsDataEntryId: tsEntryId,
+          tsDataSyncedAt: new Date()
+        }
+      });
+      console.log(`[TSDATA Sync] Verified entry ${matchingEntry.id} matches TSDATA entry ${tsEntryId}`);
+      return { created: false, updated: true };
+    }
+
+    // No match found — create new TSDATA entry
+    console.log(`[TSDATA Sync] ✨ Creating NEW TSDATA entry for ${dateStr} (TSDATA ID: ${tsEntryId})`);
     await prisma.timesheetEntry.create({
       data: {
         timesheetId: localTimesheet.id,
@@ -301,10 +334,79 @@ class TsDataSyncService {
         status: entryStatus,
         tsDataSource: true,
         tsDataEntryId: tsEntryId,
-        tsDataSyncedAt: new Date()
+        tsDataSyncedAt: new Date(),
+        verified: true // TSDATA entries are verified by definition
       }
     });
+    console.log(`[TSDATA Sync] ✅ Created new TSDATA entry ${tsEntryId} (no local match)`);
     return { created: true, updated: false };
+  }
+
+  /**
+   * Find a local entry that matches by date + hours (±0.25h tolerance).
+   * Returns first match or null.
+   */
+  async findMatchingLocalEntry(timesheetId, dateStr, hours) {
+    // Get all entries for this timesheet on this date (use local timezone)
+    const dateStart = parseLocalDate(dateStr);
+    const dateEnd = new Date(dateStart);
+    dateEnd.setHours(23, 59, 59, 999);
+
+    const entries = await prisma.timesheetEntry.findMany({
+      where: {
+        timesheetId,
+        date: {
+          gte: dateStart,
+          lte: dateEnd
+        },
+        tsDataSource: false, // Only match local entries, not TSDATA entries
+        verified: false // Don't re-match already verified entries
+      }
+    });
+
+    // Find entry with matching hours (±15 minutes = 0.25h)
+    const TOLERANCE = 0.25;
+    for (const entry of entries) {
+      if (Math.abs(entry.hours - hours) <= TOLERANCE) {
+        return entry;
+      }
+    }
+
+    return null;
+  }
+
+  /**
+   * Check if all entries in a timesheet are verified.
+   * If so, mark the timesheet as verified.
+   */
+  async updateTimesheetVerification(timesheetId) {
+    const entries = await prisma.timesheetEntry.findMany({
+      where: { timesheetId },
+      select: { verified: true }
+    });
+
+    if (entries.length === 0) {
+      // No entries, timesheet not verified
+      await prisma.timesheet.update({
+        where: { id: timesheetId },
+        data: { verified: false }
+      });
+      return;
+    }
+
+    const allVerified = entries.every(e => e.verified);
+
+    await prisma.timesheet.update({
+      where: { id: timesheetId },
+      data: { verified: allVerified }
+    });
+
+    if (allVerified) {
+      console.log(`[TSDATA Sync] Timesheet ${timesheetId} fully verified (${entries.length}/${entries.length} entries)`);
+    } else {
+      const verifiedCount = entries.filter(e => e.verified).length;
+      console.log(`[TSDATA Sync] Timesheet ${timesheetId} partially verified (${verifiedCount}/${entries.length} entries)`);
+    }
   }
 
   /**
@@ -331,20 +433,64 @@ class TsDataSyncService {
       }
     }
 
-    const date = new Date(tsRow.entry_date);
-    const hours = parseHoursLogged(tsRow.hours_logged);
+    // Parse date using dateUtils to handle timezone correctly
+    const date = parseLocalDate(tsRow.entry_date);
+    const hours = parseTimeToHours(tsRow.hours_logged);
+
+    // Calculate start/end times from employee's default schedule + hours_logged
+    const { startTime, endTime } = this.calculateTimesFromSchedule(worker, hours);
 
     return {
       entryType: 'GENERAL',
       date,
-      startTime: null,  // TSDATA doesn't provide start/end times, only hours_logged
-      endTime: null,
+      startTime,
+      endTime,
       hours,
       roleId,
       companyId,
       notes: tsRow.notes || null,
       startingLocation: tsRow.school_name || null
     };
+  }
+
+  /**
+   * Calculate start/end times from employee's default schedule and hours duration.
+   * If hours <= 4, use morning session. If > 4, use full day starting from morningStart.
+   */
+  calculateTimesFromSchedule(worker, hours) {
+    const morningStart = worker.morningStart || '08:30';
+    const morningEnd = worker.morningEnd || '12:30';
+    const afternoonStart = worker.afternoonStart || '13:00';
+    const afternoonEnd = worker.afternoonEnd || '17:00';
+
+    // If 4 hours or less, assume morning session
+    if (hours <= 4) {
+      return { startTime: morningStart, endTime: morningEnd };
+    }
+
+    // If 4-8 hours, start from morning and calculate end time
+    const startMinutes = this.timeToMinutes(morningStart);
+    const endMinutes = startMinutes + Math.round(hours * 60);
+    const endTime = this.minutesToTime(endMinutes);
+
+    return { startTime: morningStart, endTime };
+  }
+
+  /**
+   * Convert HH:MM to minutes since midnight
+   */
+  timeToMinutes(timeStr) {
+    const [h, m] = timeStr.split(':').map(Number);
+    return h * 60 + m;
+  }
+
+  /**
+   * Convert minutes since midnight to HH:MM
+   */
+  minutesToTime(minutes) {
+    const h = Math.floor(minutes / 60);
+    const m = minutes % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
   }
 
   /**
@@ -378,6 +524,294 @@ class TsDataSyncService {
       });
     } catch (error) {
       console.error('[TSDATA Sync] Failed to log sync:', error.message);
+    }
+  }
+
+  /**
+   * One-time cleanup: Remove duplicate TSDATA entries and verify matching local entries.
+   *
+   * This fixes entries imported before smart matching was implemented.
+   * Groups TSDATA entries by matching local entry, keeps one link, deletes all duplicates.
+   */
+  /**
+   * Merge duplicate timesheets that have the same employee + week.
+   * This can happen when timezone handling changes or TSDATA creates duplicates.
+   */
+  async mergeDuplicateTimesheets() {
+    console.log('[TSDATA Cleanup] Merging duplicate timesheets...');
+
+    try {
+      // Get all timesheets grouped by employee
+      const employees = await prisma.employee.findMany({
+        include: {
+          timesheets: {
+            orderBy: { id: 'asc' },
+            include: {
+              entries: true
+            }
+          }
+        }
+      });
+
+      let timesheetsMerged = 0;
+      let timesheetsDeleted = 0;
+      let entriesMoved = 0;
+
+      for (const employee of employees) {
+        // Group timesheets by week (using formatLocalDate for consistent comparison)
+        const weekMap = new Map(); // weekKey -> [timesheets]
+
+        for (const ts of employee.timesheets) {
+          const weekStart = getWeekStart(ts.weekStarting);
+          const weekKey = formatLocalDate(weekStart);
+
+          if (!weekMap.has(weekKey)) {
+            weekMap.set(weekKey, []);
+          }
+          weekMap.get(weekKey).push(ts);
+        }
+
+        // For each week with duplicates, merge them
+        for (const [weekKey, timesheets] of weekMap) {
+          if (timesheets.length <= 1) continue; // No duplicates
+
+          console.log(`[TSDATA Cleanup] Employee ${employee.id}: ${timesheets.length} timesheets for week ${weekKey}`);
+
+          // Sort: keep the one with most entries, or oldest if tied
+          timesheets.sort((a, b) => {
+            if (b.entries.length !== a.entries.length) {
+              return b.entries.length - a.entries.length; // Most entries first
+            }
+            return a.id - b.id; // Oldest first
+          });
+
+          const keepTimesheet = timesheets[0];
+          const duplicates = timesheets.slice(1);
+
+          console.log(`[TSDATA Cleanup] Keeping timesheet ${keepTimesheet.id} (${keepTimesheet.entries.length} entries)`);
+
+          // Move entries from duplicates to the kept timesheet
+          for (const duplicate of duplicates) {
+            if (duplicate.entries.length > 0) {
+              await prisma.timesheetEntry.updateMany({
+                where: { timesheetId: duplicate.id },
+                data: { timesheetId: keepTimesheet.id }
+              });
+              entriesMoved += duplicate.entries.length;
+              console.log(`[TSDATA Cleanup] Moved ${duplicate.entries.length} entries from timesheet ${duplicate.id}`);
+            }
+
+            // Delete the duplicate timesheet
+            await prisma.timesheet.delete({
+              where: { id: duplicate.id }
+            });
+            timesheetsDeleted++;
+            console.log(`[TSDATA Cleanup] Deleted duplicate timesheet ${duplicate.id}`);
+          }
+
+          timesheetsMerged++;
+        }
+      }
+
+      const result = {
+        timesheetsMerged,
+        timesheetsDeleted,
+        entriesMoved
+      };
+
+      console.log('[TSDATA Cleanup] Merge completed:', result);
+      return result;
+    } catch (error) {
+      console.error('[TSDATA Cleanup] Merge error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * Remove all weekend TSDATA entries (Saturday & Sunday).
+   * These are typically data quality issues from TSDATA.
+   */
+  async removeWeekendTsDataEntries() {
+    console.log('[TSDATA Cleanup] Removing weekend TSDATA entries...');
+
+    try {
+      // Get all TSDATA entries
+      const tsDataEntries = await prisma.timesheetEntry.findMany({
+        where: { tsDataSource: true },
+        select: { id: true, date: true }
+      });
+
+      let removed = 0;
+      const toDelete = [];
+
+      for (const entry of tsDataEntries) {
+        // Use formatLocalDate to get YYYY-MM-DD string, then check if weekend
+        const dateStr = formatLocalDate(entry.date);
+        if (isWeekend(dateStr)) {
+          toDelete.push(entry.id);
+        }
+      }
+
+      console.log(`[TSDATA Cleanup] Found ${toDelete.length} weekend entries to remove`);
+
+      // Delete in batches
+      if (toDelete.length > 0) {
+        await prisma.timesheetEntry.deleteMany({
+          where: { id: { in: toDelete } }
+        });
+        removed = toDelete.length;
+      }
+
+      // Update verification for affected timesheets
+      const affectedTimesheets = await prisma.timesheet.findMany({
+        where: { verified: true },
+        select: { id: true }
+      });
+
+      for (const ts of affectedTimesheets) {
+        await this.updateTimesheetVerification(ts.id);
+      }
+
+      const result = {
+        weekendEntriesRemoved: removed,
+        timesheetsUpdated: affectedTimesheets.length
+      };
+
+      console.log('[TSDATA Cleanup] Weekend removal completed:', result);
+      return result;
+    } catch (error) {
+      console.error('[TSDATA Cleanup] Weekend removal error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  async cleanupDuplicateTsDataEntries() {
+    console.log('[TSDATA Cleanup] Starting duplicate entry cleanup...');
+
+    let duplicatesRemoved = 0;
+    let entriesVerified = 0;
+    let errors = [];
+
+    try {
+      // Get all timesheets with entries
+      const timesheets = await prisma.timesheet.findMany({
+        include: {
+          entries: {
+            orderBy: { id: 'asc' }
+          }
+        }
+      });
+
+      console.log(`[TSDATA Cleanup] Checking ${timesheets.length} timesheets...`);
+
+      // Track deleted entry IDs to avoid double-deletion
+      const deletedEntryIds = new Set();
+
+      for (const timesheet of timesheets) {
+        try {
+          // Separate TSDATA and local entries
+          const tsDataEntries = timesheet.entries.filter(e => e.tsDataSource === true);
+          const localEntries = timesheet.entries.filter(e => e.tsDataSource === false);
+
+          if (tsDataEntries.length === 0 || localEntries.length === 0) continue;
+
+          console.log(`[TSDATA Cleanup] Timesheet ${timesheet.id}: ${tsDataEntries.length} TSDATA, ${localEntries.length} local`);
+
+          // For each local entry, find matching TSDATA duplicates
+          for (const localEntry of localEntries) {
+            const dateStr = formatLocalDate(localEntry.date);
+            const TOLERANCE = 0.25;
+
+            // Find all TSDATA entries that match this local entry (and haven't been deleted yet)
+            const matchingTsDataEntries = tsDataEntries.filter(tsEntry => {
+              if (deletedEntryIds.has(tsEntry.id)) return false; // Skip already deleted
+              const tsDateStr = formatLocalDate(tsEntry.date);
+              return tsDateStr === dateStr && Math.abs(tsEntry.hours - localEntry.hours) <= TOLERANCE;
+            });
+
+            if (matchingTsDataEntries.length > 0) {
+              console.log(`[TSDATA Cleanup] Local entry ${localEntry.id}: found ${matchingTsDataEntries.length} TSDATA duplicates`);
+
+              // Pick the first TSDATA entry to link (or the one with most recent sync)
+              const linkEntry = matchingTsDataEntries.reduce((latest, curr) =>
+                !latest || (curr.tsDataSyncedAt && curr.tsDataSyncedAt > latest.tsDataSyncedAt) ? curr : latest
+              );
+
+              // IMPORTANT: Delete ALL TSDATA duplicates FIRST (to free up the tsDataEntryId unique constraint)
+              for (const tsEntry of matchingTsDataEntries) {
+                if (!deletedEntryIds.has(tsEntry.id)) {
+                  await prisma.timesheetEntry.delete({
+                    where: { id: tsEntry.id }
+                  });
+                  deletedEntryIds.add(tsEntry.id); // Track deletion
+                  duplicatesRemoved++;
+                  console.log(`[TSDATA Cleanup] ✓ Deleted TSDATA duplicate ${tsEntry.id}`);
+                }
+              }
+
+              // THEN mark local entry as verified and link to chosen TSDATA entry
+              // (now safe because tsDataEntryId is freed from the deleted entries)
+              await prisma.timesheetEntry.update({
+                where: { id: localEntry.id },
+                data: {
+                  verified: true,
+                  tsDataEntryId: linkEntry.tsDataEntryId,
+                  tsDataSyncedAt: linkEntry.tsDataSyncedAt || new Date()
+                }
+              });
+              entriesVerified++;
+              console.log(`[TSDATA Cleanup] ✓ Verified local entry ${localEntry.id}, linked to TSDATA ${linkEntry.tsDataEntryId}`);
+            }
+          }
+        } catch (error) {
+          console.error(`[TSDATA Cleanup] Error processing timesheet ${timesheet.id}:`, error.message);
+          errors.push({ timesheetId: timesheet.id, error: error.message });
+        }
+      }
+
+      // Update timesheet verification status for affected timesheets
+      const affectedTimesheets = await prisma.timesheet.findMany({
+        where: {
+          entries: {
+            some: { verified: true }
+          }
+        },
+        select: { id: true }
+      });
+
+      for (const ts of affectedTimesheets) {
+        await this.updateTimesheetVerification(ts.id);
+      }
+
+      const results = {
+        duplicatesRemoved,
+        entriesVerified,
+        timesheetsUpdated: affectedTimesheets.length,
+        errors: errors.length,
+        errorDetails: errors
+      };
+
+      await this.logSync({
+        syncType: 'CLEANUP_DUPLICATES',
+        status: errors.length > 0 ? 'PARTIAL' : 'SUCCESS',
+        recordsProcessed: timesheets.length,
+        recordsCreated: 0,
+        recordsUpdated: entriesVerified,
+        recordsSkipped: duplicatesRemoved,
+        errorMessage: errors.length > 0 ? `${errors.length} errors occurred` : null,
+        syncDetails: JSON.stringify(results)
+      });
+
+      console.log('[TSDATA Cleanup] Completed:', results);
+      return results;
+    } catch (error) {
+      console.error('[TSDATA Cleanup] Fatal error:', error);
+      await this.logSync({
+        syncType: 'CLEANUP_DUPLICATES',
+        status: 'ERROR',
+        errorMessage: error.message
+      });
+      return { success: false, error: error.message };
     }
   }
 }

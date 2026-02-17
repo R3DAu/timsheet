@@ -148,9 +148,16 @@ const createEntry = async (req, res) => {
       privateNotes,
       locationNotes,
       startingLocation,
+      startingLocationLat,
+      startingLocationLng,
       reasonForDeviation,
       travelFrom,
-      travelTo
+      travelFromLat,
+      travelFromLng,
+      travelTo,
+      travelToLat,
+      travelToLng,
+      isBillable
     } = req.body;
 
     if (!timesheetId || !entryType || !date || !roleId || !companyId) {
@@ -187,9 +194,29 @@ const createEntry = async (req, res) => {
     }
 
     let distance = null;
-    if (entryType === 'TRAVEL') {
+    if (entryType === 'TRAVEL' && travelFromLat && travelFromLng && travelToLat && travelToLng) {
       try {
-        distance = await mapsService.calculateDistance(travelFrom, travelTo);
+        // Build waypoint list: from → location notes → to
+        const waypoints = [{ lat: parseFloat(travelFromLat), lng: parseFloat(travelFromLng) }];
+
+        // Add location notes as waypoints
+        if (locationNotes) {
+          const lnotes = typeof locationNotes === 'string' ? JSON.parse(locationNotes) : locationNotes;
+          for (const ln of lnotes) {
+            if (ln.location) {
+              const geocoded = await mapsService.geocodeAddress(ln.location);
+              if (geocoded) {
+                waypoints.push({ lat: geocoded.latitude, lng: geocoded.longitude });
+              }
+            }
+          }
+        }
+
+        waypoints.push({ lat: parseFloat(travelToLat), lng: parseFloat(travelToLng) });
+
+        // Calculate route with all waypoints
+        const route = await mapsService.calculateDrivingRoute(waypoints);
+        distance = route ? route.distance : null;
       } catch (error) {
         console.error('Failed to calculate distance:', error);
       }
@@ -206,13 +233,20 @@ const createEntry = async (req, res) => {
         roleId: parseInt(roleId),
         companyId: parseInt(companyId),
         startingLocation: startingLocation || null,
+        startingLocationLat: startingLocationLat ? parseFloat(startingLocationLat) : null,
+        startingLocationLng: startingLocationLng ? parseFloat(startingLocationLng) : null,
         reasonForDeviation: reasonForDeviation || null,
         notes: notes || null,
         privateNotes: privateNotes || null,
         locationNotes: locationNotes ? (typeof locationNotes === 'string' ? locationNotes : JSON.stringify(locationNotes)) : null,
+        isBillable: isBillable !== undefined ? isBillable : true,
         ...(entryType === 'TRAVEL' && {
           travelFrom,
+          travelFromLat: travelFromLat ? parseFloat(travelFromLat) : null,
+          travelFromLng: travelFromLng ? parseFloat(travelFromLng) : null,
           travelTo,
+          travelToLat: travelToLat ? parseFloat(travelToLat) : null,
+          travelToLng: travelToLng ? parseFloat(travelToLng) : null,
           distance
         })
       },
@@ -244,9 +278,16 @@ const updateEntry = async (req, res) => {
       privateNotes,
       locationNotes,
       startingLocation,
+      startingLocationLat,
+      startingLocationLng,
       reasonForDeviation,
       travelFrom,
+      travelFromLat,
+      travelFromLng,
       travelTo,
+      travelToLat,
+      travelToLng,
+      isBillable,
       status
     } = req.body;
 
@@ -267,6 +308,33 @@ const updateEntry = async (req, res) => {
       });
     }
 
+    // For TSDATA entries, only allow editing notes/descriptions, not core fields
+    const isTsDataEntry = existingEntry.tsDataSource === true;
+    if (isTsDataEntry) {
+      // Check if any readonly fields are being modified
+      const readonlyFields = ['date', 'startTime', 'endTime', 'hours', 'roleId', 'companyId', 'entryType'];
+      const attemptedReadonlyChanges = readonlyFields.filter(field => {
+        if (req.body[field] === undefined) return false; // Field not in request
+        // Check if value actually changed
+        const newValue = req.body[field];
+        const existingValue = existingEntry[field];
+        if (field === 'date') {
+          // Compare dates
+          const newDate = new Date(newValue).toISOString().split('T')[0];
+          const existingDate = new Date(existingValue).toISOString().split('T')[0];
+          return newDate !== existingDate;
+        }
+        return String(newValue) !== String(existingValue);
+      });
+
+      if (attemptedReadonlyChanges.length > 0) {
+        return res.status(403).json({
+          error: 'TSDATA entry fields are readonly',
+          reason: `This entry was imported from TSDATA. You can only edit notes, descriptions, and location details. The following fields cannot be modified: ${attemptedReadonlyChanges.join(', ')}`
+        });
+      }
+    }
+
     // Block edits if timesheet's TSDATA status is read-only
     if (existingEntry.timesheet.tsDataStatus &&
         ['SUBMITTED', 'APPROVED', 'LOCKED', 'PROCESSED'].includes(existingEntry.timesheet.tsDataStatus)) {
@@ -276,11 +344,11 @@ const updateEntry = async (req, res) => {
       });
     }
 
-    // Recalculate hours if times are provided
+    // Recalculate hours if times are provided (skip for TSDATA entries - readonly)
     let calculatedHours = hours;
     const newStartTime = startTime !== undefined ? startTime : existingEntry.startTime;
     const newEndTime = endTime !== undefined ? endTime : existingEntry.endTime;
-    if (newStartTime && newEndTime && (startTime !== undefined || endTime !== undefined)) {
+    if (!isTsDataEntry && newStartTime && newEndTime && (startTime !== undefined || endTime !== undefined)) {
       calculatedHours = calculateHoursFromTimes(newStartTime, newEndTime);
       if (calculatedHours === null) {
         return res.status(400).json({
@@ -289,9 +357,9 @@ const updateEntry = async (req, res) => {
       }
     }
 
-    // Validate entry times against existing entries (exclude self)
+    // Validate entry times against existing entries (skip for TSDATA entries - readonly)
     const newDate = date || existingEntry.date;
-    if (newStartTime && newEndTime && (startTime !== undefined || endTime !== undefined || date !== undefined)) {
+    if (!isTsDataEntry && newStartTime && newEndTime && (startTime !== undefined || endTime !== undefined || date !== undefined)) {
       const timeErrors = await validateEntryTimes(
         existingEntry.timesheetId, newDate, newStartTime, newEndTime, id
       );
@@ -301,19 +369,72 @@ const updateEntry = async (req, res) => {
     }
 
     let distance = existingEntry.distance;
-    if (existingEntry.entryType === 'TRAVEL' && (travelFrom || travelTo)) {
-      const from = travelFrom || existingEntry.travelFrom;
-      const to = travelTo || existingEntry.travelTo;
-      try {
-        distance = await mapsService.calculateDistance(from, to);
-      } catch (error) {
-        console.error('Failed to calculate distance:', error);
+    // Recalculate distance if travel entry and any location data changed
+    if (existingEntry.entryType === 'TRAVEL' &&
+        (travelFromLat !== undefined || travelFromLng !== undefined ||
+         travelToLat !== undefined || travelToLng !== undefined ||
+         locationNotes !== undefined)) {
+
+      const fromLat = travelFromLat !== undefined ? parseFloat(travelFromLat) : existingEntry.travelFromLat;
+      const fromLng = travelFromLng !== undefined ? parseFloat(travelFromLng) : existingEntry.travelFromLng;
+      const toLat = travelToLat !== undefined ? parseFloat(travelToLat) : existingEntry.travelToLat;
+      const toLng = travelToLng !== undefined ? parseFloat(travelToLng) : existingEntry.travelToLng;
+
+      if (fromLat && fromLng && toLat && toLng) {
+        try {
+          // Build waypoint list: from → location notes → to
+          const waypoints = [{ lat: fromLat, lng: fromLng }];
+
+          // Add location notes as waypoints
+          const lnotes = locationNotes !== undefined
+            ? (typeof locationNotes === 'string' ? JSON.parse(locationNotes) : locationNotes)
+            : (existingEntry.locationNotes ? JSON.parse(existingEntry.locationNotes) : []);
+
+          if (lnotes && Array.isArray(lnotes)) {
+            for (const ln of lnotes) {
+              if (ln.location) {
+                const geocoded = await mapsService.geocodeAddress(ln.location);
+                if (geocoded) {
+                  waypoints.push({ lat: geocoded.latitude, lng: geocoded.longitude });
+                }
+              }
+            }
+          }
+
+          waypoints.push({ lat: toLat, lng: toLng });
+
+          // Calculate route with all waypoints
+          const route = await mapsService.calculateDrivingRoute(waypoints);
+          distance = route ? route.distance : null;
+        } catch (error) {
+          console.error('Failed to calculate distance:', error);
+        }
       }
     }
 
-    const entry = await prisma.timesheetEntry.update({
-      where: { id: parseInt(id) },
-      data: {
+    // Build update data based on whether this is a TSDATA entry
+    let updateData;
+    if (isTsDataEntry) {
+      // TSDATA entries: only allow editing notes/descriptions/locations, not core time/role fields
+      updateData = {
+        ...(notes !== undefined && { notes }),
+        ...(privateNotes !== undefined && { privateNotes }),
+        ...(locationNotes !== undefined && { locationNotes: locationNotes ? (typeof locationNotes === 'string' ? locationNotes : JSON.stringify(locationNotes)) : null }),
+        ...(reasonForDeviation !== undefined && { reasonForDeviation: reasonForDeviation || null }),
+        ...(startingLocation !== undefined && { startingLocation: startingLocation || null }),
+        ...(startingLocationLat !== undefined && { startingLocationLat: startingLocationLat ? parseFloat(startingLocationLat) : null }),
+        ...(startingLocationLng !== undefined && { startingLocationLng: startingLocationLng ? parseFloat(startingLocationLng) : null }),
+        ...(travelFrom !== undefined && { travelFrom }),
+        ...(travelFromLat !== undefined && { travelFromLat: travelFromLat ? parseFloat(travelFromLat) : null }),
+        ...(travelFromLng !== undefined && { travelFromLng: travelFromLng ? parseFloat(travelFromLng) : null }),
+        ...(travelTo !== undefined && { travelTo }),
+        ...(travelToLat !== undefined && { travelToLat: travelToLat ? parseFloat(travelToLat) : null }),
+        ...(travelToLng !== undefined && { travelToLng: travelToLng ? parseFloat(travelToLng) : null }),
+        ...(isBillable !== undefined && { isBillable })
+      };
+    } else {
+      // Regular entries: allow all fields
+      updateData = {
         ...(date && { date: new Date(date) }),
         ...(startTime !== undefined && { startTime }),
         ...(endTime !== undefined && { endTime }),
@@ -321,15 +442,27 @@ const updateEntry = async (req, res) => {
         ...(roleId && { roleId: parseInt(roleId) }),
         ...(companyId && { companyId: parseInt(companyId) }),
         ...(startingLocation !== undefined && { startingLocation: startingLocation || null }),
+        ...(startingLocationLat !== undefined && { startingLocationLat: startingLocationLat ? parseFloat(startingLocationLat) : null }),
+        ...(startingLocationLng !== undefined && { startingLocationLng: startingLocationLng ? parseFloat(startingLocationLng) : null }),
         ...(reasonForDeviation !== undefined && { reasonForDeviation: reasonForDeviation || null }),
         ...(notes !== undefined && { notes }),
         ...(privateNotes !== undefined && { privateNotes }),
         ...(locationNotes !== undefined && { locationNotes: locationNotes ? (typeof locationNotes === 'string' ? locationNotes : JSON.stringify(locationNotes)) : null }),
-        ...(travelFrom && { travelFrom }),
-        ...(travelTo && { travelTo }),
+        ...(travelFrom !== undefined && { travelFrom }),
+        ...(travelFromLat !== undefined && { travelFromLat: travelFromLat ? parseFloat(travelFromLat) : null }),
+        ...(travelFromLng !== undefined && { travelFromLng: travelFromLng ? parseFloat(travelFromLng) : null }),
+        ...(travelTo !== undefined && { travelTo }),
+        ...(travelToLat !== undefined && { travelToLat: travelToLat ? parseFloat(travelToLat) : null }),
+        ...(travelToLng !== undefined && { travelToLng: travelToLng ? parseFloat(travelToLng) : null }),
+        ...(isBillable !== undefined && { isBillable }),
         ...(distance !== null && { distance }),
         ...(status && { status })
-      },
+      };
+    }
+
+    const entry = await prisma.timesheetEntry.update({
+      where: { id: parseInt(id) },
+      data: updateData,
       include: {
         timesheet: true,
         role: true,
@@ -357,16 +490,24 @@ const deleteEntry = async (req, res) => {
       return res.status(404).json({ error: 'Entry not found' });
     }
 
-    // Block deletes on non-OPEN entries
-    if (entry.status !== 'OPEN') {
+    // Get current user to check if admin
+    const currentUser = await prisma.user.findUnique({
+      where: { id: req.session.userId },
+      select: { isAdmin: true }
+    });
+
+    const isAdmin = currentUser && currentUser.isAdmin;
+
+    // Block deletes on non-OPEN entries (unless admin)
+    if (!isAdmin && entry.status !== 'OPEN') {
       return res.status(403).json({
         error: 'Entry cannot be deleted',
         reason: `Entry status is ${entry.status}. Only OPEN entries can be deleted.`
       });
     }
 
-    // Block deletes if timesheet's TSDATA status is read-only
-    if (entry.timesheet.tsDataStatus &&
+    // Block deletes if timesheet's TSDATA status is read-only (unless admin)
+    if (!isAdmin && entry.timesheet.tsDataStatus &&
         ['SUBMITTED', 'APPROVED', 'LOCKED', 'PROCESSED'].includes(entry.timesheet.tsDataStatus)) {
       return res.status(403).json({
         error: 'Timesheet is locked by TSDATA',
