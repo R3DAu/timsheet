@@ -11,6 +11,7 @@ import { showAlert, showConfirmation } from './core/alerts.js';
 import { showModalWithHTML, showModalWithForm, hideModal } from './core/modal.js';
 import { initQuillEditor, destroyQuillEditors, quillGetHtml, getQuillEditor } from './core/quill.js';
 import { initNavigation, activateTab, getRequestedTab, isTabAvailable } from './core/navigation.js';
+import { initSlidePanel, showSlidePanel, hideSlidePanel } from './core/slide-panel.js';
 
 // Components
 import {
@@ -28,20 +29,20 @@ import * as auth from './features/auth/auth.js';
 import * as employees from './features/employees/employees.js';
 import * as users from './features/users/users.js';
 import * as timesheets from './features/timesheets/timesheets.js';
+import * as entries from './features/entries/entries.js';
+import * as profile from './features/profile/profile.js';
+import * as apiKeys from './features/api-keys/api-keys.js';
 import * as wmsSync from './features/wms/wms-sync.js';
 import * as wmsComparison from './features/wms/wms-comparison.js';
 
 // Validation
 import { validateEntry, getTimesheetById, getTimesheetEntries, formatTime } from './features/entries/entry-validation.js';
 
-//  ==================== TEMPORARY: Load remaining functions from original app.js ====================
-// These will be migrated to feature modules in subsequent steps
-// For now, we expose core functionality to allow the app to partially function
-
 // Expose to window for onclick handlers (Phase 1 bridge)
 Object.assign(window, {
   // Modal functions
   hideModal,
+  hideSlidePanel,
 
   // Auth
   login: auth.login,
@@ -74,11 +75,34 @@ Object.assign(window, {
 
   // Timesheets
   createTimesheet: timesheets.createTimesheet,
-  viewTimesheet: timesheets.viewTimesheet,
   submitTimesheet: timesheets.submitTimesheet,
   approveTimesheet: timesheets.approveTimesheet,
   lockTimesheet: timesheets.lockTimesheet,
   deleteTimesheet: timesheets.deleteTimesheet,
+  refreshTimesheets: timesheets.refreshTimesheets,
+  toggleAccordion: timesheets.toggleAccordion,
+  toggleDateAccordion: timesheets.toggleDateAccordion,
+  selectEmployee: timesheets.selectEmployee,
+
+  // Entries
+  createEntry: entries.createEntry,
+  editEntry: entries.editEntry,
+  deleteEntry: entries.deleteEntry,
+  loadEntries: entries.loadEntries,
+  createEntryForTimesheet: entries.createEntryForTimesheet,
+  createEntryForDate: entries.createEntryForDate,
+  viewEntrySlideIn: entries.viewEntrySlideIn,
+  editEntrySlideIn: entries.editEntrySlideIn,
+  deleteEntryFromCard: entries.deleteEntryFromCard,
+
+  // Profile
+  showMyProfile: profile.showMyProfile,
+
+  // API Keys
+  createApiKey: apiKeys.createApiKey,
+  copyApiKey: apiKeys.copyApiKey,
+  revokeApiKey: apiKeys.revokeApiKey,
+  loadApiKeys: apiKeys.loadApiKeys,
 
   // WMS
   syncToWms: wmsSync.syncToWms,
@@ -97,19 +121,30 @@ async function init() {
   // Initialize navigation system
   initNavigation();
 
+  // Initialize slide-in panel
+  initSlidePanel();
+
+  // Set up navigation button click handlers
+  document.querySelectorAll('.sidebar .nav-item[data-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      const tabName = btn.dataset.tab;
+      activateTab(tabName);
+    });
+  });
+
   // Set up modal close button
   const closeBtn = document.querySelector('.modal .close');
   if (closeBtn) {
     closeBtn.addEventListener('click', hideModal);
   }
 
-  // Close modal when clicking outside
-  const modal = document.getElementById('modal');
-  if (modal) {
-    modal.addEventListener('click', (e) => {
-      if (e.target === modal) hideModal();
-    });
-  }
+  // Removed: Don't close modal when clicking outside - user must use close button
+  // const modal = document.getElementById('modal');
+  // if (modal) {
+  //   modal.addEventListener('click', (e) => {
+  //     if (e.target === modal) hideModal();
+  //   });
+  // }
 
   // Set up company creation button
   const createCompanyBtn = document.getElementById('createCompanyBtn');
@@ -155,14 +190,45 @@ async function init() {
   // Set up My Profile button
   const myProfileBtn = document.getElementById('myProfileBtn');
   if (myProfileBtn) {
-    myProfileBtn.addEventListener('click', () => {
-      // TODO: implement when profile module is ready
-      showAlert('Profile functionality coming soon');
+    myProfileBtn.addEventListener('click', () => profile.showMyProfile());
+  }
+
+  // Set up Entry create button
+  const createEntryBtn = document.getElementById('createEntryBtn');
+  if (createEntryBtn) {
+    createEntryBtn.addEventListener('click', () => entries.createEntry());
+  }
+
+  // Set up API Key create button
+  const createApiKeyBtn = document.getElementById('createApiKeyBtn');
+  if (createApiKeyBtn) {
+    createApiKeyBtn.addEventListener('click', () => apiKeys.createApiKey());
+  }
+
+  // Set up timesheet select for entries tab
+  const timesheetSelect = document.getElementById('timesheetSelect');
+  if (timesheetSelect) {
+    timesheetSelect.addEventListener('change', (e) => {
+      if (e.target.value) {
+        entries.loadEntries(e.target.value);
+      }
     });
+  }
+
+  // Set up timesheet creation button
+  const createTimesheetBtn = document.getElementById('createTimesheetBtn');
+  if (createTimesheetBtn) {
+    createTimesheetBtn.addEventListener('click', () => timesheets.createTimesheet());
   }
 
   // Check authentication status
   await auth.checkAuth();
+
+  // Initialize employee selector (for admins)
+  const currentUser = state.get('currentUser');
+  if (currentUser && currentUser.isAdmin) {
+    timesheets.initEmployeeSelector();
+  }
 
   console.log('Application initialized');
 }

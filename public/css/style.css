@@ -440,6 +440,27 @@ table tr:hover {
   color: white;
 }
 
+/* Billable badges */
+.billable-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background-color: #27ae60;
+  color: white;
+}
+
+.non-billable-badge {
+  display: inline-block;
+  padding: 2px 6px;
+  border-radius: 3px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background-color: #95a5a6;
+  color: white;
+}
+
 /* Modal */
 .modal {
   display: none;
@@ -814,4 +835,526 @@ table tr:hover {
   background: #f8fafc;
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+
+/* ==================== ACCORDION STYLES ==================== */
+.accordion-container { margin-top: 1rem; }
+
+.accordion-item {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 0.75rem;
+  overflow: hidden;
+  background: var(--surface);
+  transition: box-shadow 0.2s ease;
+}
+
+.accordion-item:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+}
+
+.accordion-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  background: #f8fafc;
+  border-bottom: 1px solid transparent;
+  transition: background 0.15s ease;
+}
+
+.accordion-header:hover { background: #f1f5f9; }
+.accordion-item.open .accordion-header {
+  border-bottom-color: var(--border);
+  background: #eef2ff;
+}
+
+.accordion-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.accordion-chevron {
+  transition: transform 0.2s ease;
+  font-size: 0.75rem;
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.accordion-item.open .accordion-chevron { transform: rotate(90deg); }
+
+.accordion-week {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text);
+  white-space: nowrap;
+}
+
+.accordion-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+  flex-wrap: wrap;
+}
+
+.accordion-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.accordion-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.accordion-item.open .accordion-body { max-height: 5000px; }
+
+.accordion-body-inner {
+  padding: 1rem;
+}
+
+/* ==================== ENTRY CARDS ==================== */
+.entry-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+  background: white;
+  transition: box-shadow 0.15s ease, border-color 0.15s ease;
+  cursor: pointer;
+}
+
+.entry-card:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  border-color: #cbd5e1;
+}
+
+.entry-card-main {
+  flex: 1;
+  min-width: 0;
+  pointer-events: none; /* Prevent child elements from interfering with card click */
+}
+
+.entry-card-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.entry-card-time {
+  font-weight: 600;
+  font-size: 0.95rem;
+  color: var(--text);
+}
+
+.entry-hours {
+  color: var(--muted);
+  font-weight: 400;
+  font-size: 0.85rem;
+  margin-left: 0.5rem;
+}
+
+.entry-card-role {
+  font-size: 0.9rem;
+  margin-top: 0.15rem;
+  color: var(--text);
+}
+
+.entry-card-company {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 0.1rem;
+}
+
+.entry-card-badges {
+  display: flex;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-top: 0.35rem;
+}
+
+.entry-card-location {
+  font-size: 0.8rem;
+  color: #4b5563;
+  margin-top: 0.25rem;
+}
+
+.entry-card-description {
+  font-size: 0.8rem;
+  color: #6b7280;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 500px;
+  margin-top: 0.25rem;
+}
+
+.entry-card-actions {
+  display: flex;
+  gap: 0.35rem;
+  flex-shrink: 0;
+  margin-left: 0.75rem;
+}
+
+.entry-card-actions .btn-icon {
+  padding: 0.25rem 0.5rem;
+  font-size: 0.8rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 6px;
+  background: white;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.entry-card-actions .btn-icon:hover {
+  background: #f3f4f6;
+  border-color: #d1d5db;
+}
+
+.entry-card-actions .btn-delete:hover {
+  background: #fee2e2;
+  border-color: #fca5a5;
+  color: var(--danger);
+}
+
+/* ==================== DATE GROUPS (Nested Accordions) ==================== */
+.date-group {
+  margin-bottom: 0.75rem;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fafbfc;
+}
+
+.date-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.65rem 0.75rem;
+  cursor: pointer;
+  background: #f8fafc;
+  transition: background 0.15s ease;
+}
+
+.date-group-header:hover {
+  background: #f1f5f9;
+}
+
+.date-group.open .date-group-header {
+  background: #eef2ff;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.date-group-header-left {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.date-chevron {
+  transition: transform 0.2s ease;
+  font-size: 0.7rem;
+  color: #64748b;
+}
+
+.date-group.open .date-chevron {
+  transform: rotate(90deg);
+}
+
+.date-group-header h4 {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.date-hours {
+  font-size: 0.8rem;
+  color: var(--muted);
+  font-weight: 500;
+  background: #e5e7eb;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+.date-group-body {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+
+.date-group.open .date-group-body {
+  max-height: 3000px;
+}
+
+.date-group-body-inner {
+  padding: 0.75rem;
+}
+
+.add-entry-btn {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px dashed #cbd5e1;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.add-entry-btn:hover {
+  background: #eef2ff;
+  border-color: var(--primary);
+  border-style: solid;
+}
+
+/* ==================== SLIDE-IN PANEL ==================== */
+.slide-panel-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  display: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.slide-panel-overlay.active {
+  display: block;
+  opacity: 1;
+}
+
+.slide-panel {
+  position: fixed;
+  top: 0;
+  right: -500px;
+  width: min(500px, 90vw);
+  height: 100%;
+  background: white;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.15);
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  transition: right 0.3s ease;
+}
+
+.slide-panel-overlay.active .slide-panel { right: 0; }
+
+.slide-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1.25rem 1.5rem;
+  border-bottom: 1px solid var(--border);
+  background: #f8fafc;
+}
+
+.slide-panel-header h3 {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+}
+
+.slide-panel-close {
+  background: transparent;
+  border: none;
+  font-size: 2rem;
+  color: #9ca3af;
+  cursor: pointer;
+  padding: 0;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: background 0.15s ease;
+}
+
+.slide-panel-close:hover {
+  background: #e5e7eb;
+  color: var(--text);
+}
+
+.slide-panel-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 1.5rem;
+}
+
+/* Read-only view in slide panel */
+.entry-detail-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid #f3f4f6;
+}
+
+.entry-detail-row:last-child {
+  border-bottom: none;
+}
+
+.entry-detail-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+
+.entry-detail-value {
+  font-size: 0.95rem;
+  color: var(--text);
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  max-width: 100%;
+}
+
+.entry-detail-rich-content {
+  background: #f8fafc;
+  padding: 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  margin-top: 0.25rem;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+.entry-detail-rich-content * {
+  max-width: 100%;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.entry-detail-rich-content ol,
+.entry-detail-rich-content ul {
+  padding-left: 1.5rem;
+  margin: 0.5rem 0;
+}
+
+.entry-detail-rich-content li {
+  margin: 0.25rem 0;
+}
+
+.slide-panel-actions {
+  display: flex;
+  gap: 0.5rem;
+  padding-top: 1rem;
+  border-top: 1px solid #e5e7eb;
+  margin-top: 1rem;
+}
+
+/* ==================== EMPLOYEE SELECTOR ==================== */
+.employee-selector {
+  position: relative;
+  min-width: 280px;
+}
+
+.employee-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+  max-height: 300px;
+  overflow-y: auto;
+  z-index: 100;
+  margin-top: 4px;
+}
+
+.employee-dropdown-item {
+  padding: 0.6rem 0.75rem;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-bottom: 1px solid #f3f4f6;
+  transition: background 0.15s ease;
+}
+
+.employee-dropdown-item:last-child {
+  border-bottom: none;
+}
+
+.employee-dropdown-item:hover { background: #f0f8ff; }
+
+.employee-dropdown-item.selected {
+  background: #eef2ff;
+  font-weight: 600;
+}
+
+.employee-dropdown-item-self {
+  background: #f8fafc;
+  border-bottom: 2px solid var(--border);
+}
+
+.emp-name {
+  flex: 1;
+  font-size: 0.9rem;
+}
+
+.emp-ts-count {
+  font-size: 0.75rem;
+  color: var(--muted);
+  background: #f3f4f6;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.card-header-right {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* ==================== RESPONSIVE ADJUSTMENTS ==================== */
+@media (max-width: 768px) {
+  .accordion-meta {
+    font-size: 0.75rem;
+  }
+
+  .accordion-actions {
+    width: 100%;
+    margin-top: 0.5rem;
+  }
+
+  .entry-card {
+    flex-direction: column;
+  }
+
+  .entry-card-actions {
+    margin-left: 0;
+    margin-top: 0.5rem;
+    width: 100%;
+  }
+
+  .employee-selector {
+    min-width: 200px;
+  }
+
+  .slide-panel {
+    width: 100vw;
+    right: -100vw;
+  }
 }

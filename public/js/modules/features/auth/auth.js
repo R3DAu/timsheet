@@ -40,10 +40,14 @@ export async function logout() {
  */
 export async function checkAuth() {
   try {
+    console.log('🔍 Checking auth...');
     const result = await api.get('/auth/me');
+    console.log('✅ Auth successful, user:', result.user.email);
     state.set('currentUser', result.user);
     await showMainScreen();
+    console.log('✅ Main screen shown successfully');
   } catch (error) {
+    console.log('❌ Auth failed:', error.message);
     showLoginScreen();
   }
 }
@@ -62,6 +66,8 @@ export function showLoginScreen() {
 export async function showMainScreen() {
   const currentUser = state.get('currentUser');
 
+  console.log('📱 Showing main screen for:', currentUser.email);
+
   document.getElementById('loginScreen').style.display = 'none';
   document.getElementById('mainScreen').style.display = 'block';
 
@@ -71,29 +77,12 @@ export async function showMainScreen() {
   const hasProfile = !!currentUser.employeeId;
   const isAdmin = currentUser.isAdmin;
 
-  // Configure tabs visibility
-  const myTimesheetsTabBtn = document.querySelector('[data-tab="myTimesheets"]');
-  const allTimesheetsTabBtn = document.querySelector('[data-tab="allTimesheets"]');
+  // Configure tabs visibility - show unified timesheets tab for all users
+  const timesheetsTabBtn = document.querySelector('[data-tab="timesheets"]');
+  if (timesheetsTabBtn) timesheetsTabBtn.style.display = '';
 
-  // Default tab for this user type
-  let defaultTabName = 'entries';
-
-  if (isAdmin && !hasProfile) {
-    // Admin without profile: All Timesheets only
-    myTimesheetsTabBtn.style.display = 'none';
-    allTimesheetsTabBtn.style.display = '';
-    defaultTabName = 'allTimesheets';
-  } else if (isAdmin && hasProfile) {
-    // Admin with profile: show both, default to My Timesheets
-    myTimesheetsTabBtn.style.display = '';
-    allTimesheetsTabBtn.style.display = '';
-    defaultTabName = 'myTimesheets';
-  } else {
-    // Regular user: My Timesheets only
-    myTimesheetsTabBtn.style.display = '';
-    allTimesheetsTabBtn.style.display = 'none';
-    defaultTabName = 'myTimesheets';
-  }
+  // Default tab - always start with timesheets
+  let defaultTabName = 'timesheets';
 
   // Show/hide admin tabs
   document.querySelectorAll('.admin-only').forEach(el => {
@@ -113,30 +102,44 @@ export async function showMainScreen() {
  */
 export async function loadAllData() {
   const currentUser = state.get('currentUser');
+  console.log('📦 Loading data for user:', currentUser.email);
 
-  // Import and call load functions from feature modules
-  const { loadCompanies } = await import('../companies/companies.js');
-  const { loadRoles } = await import('../roles/roles.js');
-
-  await Promise.all([
-    loadCompanies(),
-    loadRoles()
-  ]);
-
-  // Load user-specific data
-  if (currentUser.employeeId) {
-    // await loadMyTimesheets(); // TODO: implement when timesheets module is ready
-  }
-
-  if (currentUser.isAdmin) {
-    const { loadEmployees } = await import('../employees/employees.js');
-    const { loadUsers } = await import('../users/users.js');
+  try {
+    // Import and call load functions from feature modules
+    const { loadCompanies } = await import('../companies/companies.js');
+    const { loadRoles } = await import('../roles/roles.js');
 
     await Promise.all([
-      // loadAllTimesheets(), // TODO: implement when timesheets module is ready
-      loadEmployees(),
-      loadUsers(),
-      // loadApiKeys() // TODO: implement when api-keys module is ready
+      loadCompanies(),
+      loadRoles()
     ]);
+    console.log('✅ Companies and roles loaded');
+
+    // Load user-specific data
+    if (currentUser.employeeId) {
+      const { loadMyTimesheets } = await import('../timesheets/timesheets.js');
+      await loadMyTimesheets();
+      console.log('✅ My timesheets loaded');
+    }
+
+    if (currentUser.isAdmin) {
+      const { loadEmployees } = await import('../employees/employees.js');
+      const { loadUsers } = await import('../users/users.js');
+      const { loadAllTimesheets } = await import('../timesheets/timesheets.js');
+      const { loadApiKeys } = await import('../api-keys/api-keys.js');
+
+      await Promise.all([
+        loadAllTimesheets(),
+        loadEmployees(),
+        loadUsers(),
+        loadApiKeys()
+      ]);
+      console.log('✅ Admin data loaded');
+    }
+
+    console.log('✅ All data loaded successfully');
+  } catch (error) {
+    console.error('❌ Error loading data:', error);
+    throw error; // Re-throw to be caught by checkAuth
   }
 }

@@ -148,9 +148,16 @@ const createEntry = async (req, res) => {
       privateNotes,
       locationNotes,
       startingLocation,
+      startingLocationLat,
+      startingLocationLng,
       reasonForDeviation,
       travelFrom,
-      travelTo
+      travelFromLat,
+      travelFromLng,
+      travelTo,
+      travelToLat,
+      travelToLng,
+      isBillable
     } = req.body;
 
     if (!timesheetId || !entryType || !date || !roleId || !companyId) {
@@ -187,9 +194,29 @@ const createEntry = async (req, res) => {
     }
 
     let distance = null;
-    if (entryType === 'TRAVEL') {
+    if (entryType === 'TRAVEL' && travelFromLat && travelFromLng && travelToLat && travelToLng) {
       try {
-        distance = await mapsService.calculateDistance(travelFrom, travelTo);
+        // Build waypoint list: from → location notes → to
+        const waypoints = [{ lat: parseFloat(travelFromLat), lng: parseFloat(travelFromLng) }];
+
+        // Add location notes as waypoints
+        if (locationNotes) {
+          const lnotes = typeof locationNotes === 'string' ? JSON.parse(locationNotes) : locationNotes;
+          for (const ln of lnotes) {
+            if (ln.location) {
+              const geocoded = await mapsService.geocodeAddress(ln.location);
+              if (geocoded) {
+                waypoints.push({ lat: geocoded.latitude, lng: geocoded.longitude });
+              }
+            }
+          }
+        }
+
+        waypoints.push({ lat: parseFloat(travelToLat), lng: parseFloat(travelToLng) });
+
+        // Calculate route with all waypoints
+        const route = await mapsService.calculateDrivingRoute(waypoints);
+        distance = route ? route.distance : null;
       } catch (error) {
         console.error('Failed to calculate distance:', error);
       }
@@ -206,13 +233,20 @@ const createEntry = async (req, res) => {
         roleId: parseInt(roleId),
         companyId: parseInt(companyId),
         startingLocation: startingLocation || null,
+        startingLocationLat: startingLocationLat ? parseFloat(startingLocationLat) : null,
+        startingLocationLng: startingLocationLng ? parseFloat(startingLocationLng) : null,
         reasonForDeviation: reasonForDeviation || null,
         notes: notes || null,
         privateNotes: privateNotes || null,
         locationNotes: locationNotes ? (typeof locationNotes === 'string' ? locationNotes : JSON.stringify(locationNotes)) : null,
+        isBillable: isBillable !== undefined ? isBillable : true,
         ...(entryType === 'TRAVEL' && {
           travelFrom,
+          travelFromLat: travelFromLat ? parseFloat(travelFromLat) : null,
+          travelFromLng: travelFromLng ? parseFloat(travelFromLng) : null,
           travelTo,
+          travelToLat: travelToLat ? parseFloat(travelToLat) : null,
+          travelToLng: travelToLng ? parseFloat(travelToLng) : null,
           distance
         })
       },
@@ -244,9 +278,16 @@ const updateEntry = async (req, res) => {
       privateNotes,
       locationNotes,
       startingLocation,
+      startingLocationLat,
+      startingLocationLng,
       reasonForDeviation,
       travelFrom,
+      travelFromLat,
+      travelFromLng,
       travelTo,
+      travelToLat,
+      travelToLng,
+      isBillable,
       status
     } = req.body;
 
@@ -301,13 +342,46 @@ const updateEntry = async (req, res) => {
     }
 
     let distance = existingEntry.distance;
-    if (existingEntry.entryType === 'TRAVEL' && (travelFrom || travelTo)) {
-      const from = travelFrom || existingEntry.travelFrom;
-      const to = travelTo || existingEntry.travelTo;
-      try {
-        distance = await mapsService.calculateDistance(from, to);
-      } catch (error) {
-        console.error('Failed to calculate distance:', error);
+    // Recalculate distance if travel entry and any location data changed
+    if (existingEntry.entryType === 'TRAVEL' &&
+        (travelFromLat !== undefined || travelFromLng !== undefined ||
+         travelToLat !== undefined || travelToLng !== undefined ||
+         locationNotes !== undefined)) {
+
+      const fromLat = travelFromLat !== undefined ? parseFloat(travelFromLat) : existingEntry.travelFromLat;
+      const fromLng = travelFromLng !== undefined ? parseFloat(travelFromLng) : existingEntry.travelFromLng;
+      const toLat = travelToLat !== undefined ? parseFloat(travelToLat) : existingEntry.travelToLat;
+      const toLng = travelToLng !== undefined ? parseFloat(travelToLng) : existingEntry.travelToLng;
+
+      if (fromLat && fromLng && toLat && toLng) {
+        try {
+          // Build waypoint list: from → location notes → to
+          const waypoints = [{ lat: fromLat, lng: fromLng }];
+
+          // Add location notes as waypoints
+          const lnotes = locationNotes !== undefined
+            ? (typeof locationNotes === 'string' ? JSON.parse(locationNotes) : locationNotes)
+            : (existingEntry.locationNotes ? JSON.parse(existingEntry.locationNotes) : []);
+
+          if (lnotes && Array.isArray(lnotes)) {
+            for (const ln of lnotes) {
+              if (ln.location) {
+                const geocoded = await mapsService.geocodeAddress(ln.location);
+                if (geocoded) {
+                  waypoints.push({ lat: geocoded.latitude, lng: geocoded.longitude });
+                }
+              }
+            }
+          }
+
+          waypoints.push({ lat: toLat, lng: toLng });
+
+          // Calculate route with all waypoints
+          const route = await mapsService.calculateDrivingRoute(waypoints);
+          distance = route ? route.distance : null;
+        } catch (error) {
+          console.error('Failed to calculate distance:', error);
+        }
       }
     }
 
@@ -321,12 +395,19 @@ const updateEntry = async (req, res) => {
         ...(roleId && { roleId: parseInt(roleId) }),
         ...(companyId && { companyId: parseInt(companyId) }),
         ...(startingLocation !== undefined && { startingLocation: startingLocation || null }),
+        ...(startingLocationLat !== undefined && { startingLocationLat: startingLocationLat ? parseFloat(startingLocationLat) : null }),
+        ...(startingLocationLng !== undefined && { startingLocationLng: startingLocationLng ? parseFloat(startingLocationLng) : null }),
         ...(reasonForDeviation !== undefined && { reasonForDeviation: reasonForDeviation || null }),
         ...(notes !== undefined && { notes }),
         ...(privateNotes !== undefined && { privateNotes }),
         ...(locationNotes !== undefined && { locationNotes: locationNotes ? (typeof locationNotes === 'string' ? locationNotes : JSON.stringify(locationNotes)) : null }),
-        ...(travelFrom && { travelFrom }),
-        ...(travelTo && { travelTo }),
+        ...(travelFrom !== undefined && { travelFrom }),
+        ...(travelFromLat !== undefined && { travelFromLat: travelFromLat ? parseFloat(travelFromLat) : null }),
+        ...(travelFromLng !== undefined && { travelFromLng: travelFromLng ? parseFloat(travelFromLng) : null }),
+        ...(travelTo !== undefined && { travelTo }),
+        ...(travelToLat !== undefined && { travelToLat: travelToLat ? parseFloat(travelToLat) : null }),
+        ...(travelToLng !== undefined && { travelToLng: travelToLng ? parseFloat(travelToLng) : null }),
+        ...(isBillable !== undefined && { isBillable }),
         ...(distance !== null && { distance }),
         ...(status && { status })
       },

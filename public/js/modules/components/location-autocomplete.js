@@ -29,12 +29,19 @@ registerAutocompleteCleanup(destroyAutocompletes);
 /**
  * Attach autocomplete to a text input. Shows saved locations + search results.
  * Dropdown includes "Use as entered" to accept typed text as-is.
+ * Also manages hidden coordinate fields (lat/lng) if present.
  * @param {HTMLInputElement} input - The input element
  */
 export function attachLocationAutocomplete(input) {
   const id = 'ac_' + Math.random().toString(36).slice(2, 8);
   input.dataset.acId = id;
   activeAutocompletes.push(id);
+
+  // Find associated coordinate fields (if they exist)
+  const fieldName = input.name; // e.g. "startingLocation", "travelFrom", "travelTo"
+  const form = input.closest('form');
+  const latField = form ? form.querySelector(`input[name="${fieldName}Lat"]`) : null;
+  const lngField = form ? form.querySelector(`input[name="${fieldName}Lng"]`) : null;
 
   // Get preset addresses from current user's employee profile
   const currentUser = state.get('currentUser');
@@ -46,7 +53,12 @@ export function attachLocationAutocomplete(input) {
         : currentUser.employee.presetAddresses;
       if (pa && typeof pa === 'object') {
         for (const [label, addr] of Object.entries(pa)) {
-          presets.push({ label, address: addr });
+          // Presets can be string or {address, lat, lng}
+          if (typeof addr === 'string') {
+            presets.push({ label, address: addr });
+          } else if (addr.address) {
+            presets.push({ label, address: addr.address, lat: addr.lat, lng: addr.lng });
+          }
         }
       }
     } catch (e) { /* ignore */ }
@@ -77,7 +89,7 @@ export function attachLocationAutocomplete(input) {
         console.warn('Location search failed:', e.message || e);
       }
 
-      showDropdown(input, id, matchingPresets, places, query);
+      showDropdown(input, id, matchingPresets, places, query, latField, lngField);
     }, 300);
   });
 
@@ -85,7 +97,7 @@ export function attachLocationAutocomplete(input) {
     if (input.value.trim().length >= 2) {
       input.dispatchEvent(new Event('input'));
     } else if (presets.length > 0) {
-      showDropdown(input, id, presets, [], '');
+      showDropdown(input, id, presets, [], '', latField, lngField);
     }
   });
 
@@ -99,7 +111,7 @@ export function attachLocationAutocomplete(input) {
  * Show autocomplete dropdown
  * @private
  */
-function showDropdown(input, id, presets, places, query) {
+function showDropdown(input, id, presets, places, query, latField, lngField) {
   removeDropdown(id);
 
   const dropdown = document.createElement('div');
@@ -116,10 +128,33 @@ function showDropdown(input, id, presets, places, query) {
       const item = document.createElement('div');
       item.className = 'ac-item';
       item.innerHTML = `<strong>${escapeHtml(p.label)}</strong><br><small style="color:var(--text);">${escapeHtml(p.address)}</small>`;
-      item.onmousedown = (e) => {
+      item.onmousedown = async (e) => {
         e.preventDefault();
-        input.value = `${p.label} - ${p.address}`;
+        input.value = p.address; // Store full address
+
+        // Store coordinates if available, otherwise geocode on-the-fly
+        if (p.lat && p.lng) {
+          if (latField && lngField) {
+            latField.value = p.lat;
+            lngField.value = p.lng;
+          }
+        } else if (latField && lngField) {
+          // Preset doesn't have coordinates - geocode it now
+          try {
+            const res = await api.get(`/maps/search?query=${encodeURIComponent(p.address)}`);
+            if (res.results && res.results.length > 0) {
+              latField.value = res.results[0].lat;
+              lngField.value = res.results[0].lon;
+              console.log(`Geocoded preset "${p.label}": ${res.results[0].lat}, ${res.results[0].lon}`);
+            }
+          } catch (err) {
+            console.warn('Failed to geocode preset:', err);
+          }
+        }
+
         removeDropdown(id);
+        // Trigger change event so auto-calc can run
+        input.dispatchEvent(new Event('change', { bubbles: true }));
       };
       item.onmouseenter = () => item.style.background = '#f0f8ff';
       item.onmouseleave = () => item.style.background = '';
@@ -139,8 +174,17 @@ function showDropdown(input, id, presets, places, query) {
       item.innerHTML = `<strong>${escapeHtml(p.mainText)}</strong><br><small style="color:#666;">${escapeHtml(p.secondaryText)}</small>`;
       item.onmousedown = (e) => {
         e.preventDefault();
-        input.value = `${p.mainText} - ${p.secondaryText}`;
+        // Store full display name from Nominatim
+        input.value = p.displayName || `${p.mainText}, ${p.secondaryText}`;
+        // Store coordinates from Nominatim
+        if (latField && lngField && p.lat && p.lon) {
+          latField.value = p.lat;
+          lngField.value = p.lon;
+          console.log(`Selected location: ${p.displayName} (${p.lat}, ${p.lon})`);
+        }
         removeDropdown(id);
+        // Trigger change event so auto-calc can run
+        input.dispatchEvent(new Event('change', { bubbles: true }));
       };
       item.onmouseenter = () => item.style.background = '#f0f8ff';
       item.onmouseleave = () => item.style.background = '';
@@ -198,22 +242,29 @@ function removeDropdown(id) {
  */
 export function attachAllLocationAutocompletes() {
   destroyAutocompletes();
+
+  // Check both modal and slide panel
   const modal = document.getElementById('modalBody');
-  if (!modal) return;
+  const slidePanel = document.getElementById('slidePanelBody');
+  const containers = [modal, slidePanel].filter(Boolean);
 
-  // Starting Location input
-  const startingLoc = modal.querySelector('input[name="startingLocation"]');
-  if (startingLoc) attachLocationAutocomplete(startingLoc);
+  if (containers.length === 0) return;
 
-  // Travel From/To inputs
-  const travelFrom = modal.querySelector('input[name="travelFrom"]');
-  if (travelFrom) attachLocationAutocomplete(travelFrom);
-  const travelTo = modal.querySelector('input[name="travelTo"]');
-  if (travelTo) attachLocationAutocomplete(travelTo);
+  containers.forEach(container => {
+    // Starting Location input
+    const startingLoc = container.querySelector('input[name="startingLocation"]');
+    if (startingLoc) attachLocationAutocomplete(startingLoc);
 
-  // Location note inputs (attach to existing ones)
-  modal.querySelectorAll('.location-name-input').forEach(inp => {
-    if (!inp.dataset.acId) attachLocationAutocomplete(inp);
+    // Travel From/To inputs
+    const travelFrom = container.querySelector('input[name="travelFrom"]');
+    if (travelFrom) attachLocationAutocomplete(travelFrom);
+    const travelTo = container.querySelector('input[name="travelTo"]');
+    if (travelTo) attachLocationAutocomplete(travelTo);
+
+    // Location note inputs (attach to existing ones)
+    container.querySelectorAll('.location-name-input').forEach(inp => {
+      if (!inp.dataset.acId) attachLocationAutocomplete(inp);
+    });
   });
 }
 

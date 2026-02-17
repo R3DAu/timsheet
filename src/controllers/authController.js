@@ -101,6 +101,12 @@ const login = async (req, res) => {
     req.session.isAdmin = user.isAdmin;
     req.session.employeeId = user.employee ? user.employee.id : null;
 
+    console.log('✅ Session set on login:', {
+      sessionId: req.sessionID,
+      userId: req.session.userId,
+      cookieSent: !!res.getHeader('set-cookie')
+    });
+
     // Remove passwordHash from response
     const { passwordHash: _, ...userData } = user;
     userData.employeeId = user.employee ? user.employee.id : null;
@@ -126,6 +132,12 @@ const logout = (req, res) => {
 
 const getCurrentUser = async (req, res) => {
   try {
+    console.log('🔍 getCurrentUser check:', {
+      sessionId: req.sessionID,
+      userId: req.session.userId,
+      hasCookie: !!req.headers.cookie
+    });
+
     if (!req.session.userId) {
       return res.status(401).json({ error: 'Not authenticated' });
     }

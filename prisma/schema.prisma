@@ -150,13 +150,20 @@ model TimesheetEntry {
   tsDataEntryId  String?  @unique         // External ID from TSDATA
   tsDataSyncedAt DateTime?                // Last sync timestamp
   startingLocation String? // School/location where this entry's work began
+  startingLocationLat Float? // Latitude for starting location
+  startingLocationLng Float? // Longitude for starting location
   reasonForDeviation String? // Reason for deviation from approved schedule (for WMS/TSSP)
   notes        String?  // Rich HTML content from WYSIWYG editor
   privateNotes String?  // Internal-only notes, not visible to clients
   locationNotes String? // JSON array of {location, description} pairs with HTML descriptions
   travelFrom   String?
+  travelFromLat Float?  // Latitude for travel from location
+  travelFromLng Float?  // Longitude for travel from location
   travelTo     String?
+  travelToLat  Float?   // Latitude for travel to location
+  travelToLng  Float?   // Longitude for travel to location
   distance     Float?
+  isBillable   Boolean  @default(true) // Whether this entry is billable (important for WMS sync and reporting)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

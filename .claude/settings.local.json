@@ -22,7 +22,8 @@
       "Bash(xxd:*)",
       "Bash(npm run build)",
       "Bash(git restore:*)",
-      "Bash(FINAL_STATUS.md:*)"
+      "Bash(FINAL_STATUS.md:*)",
+      "Bash(sqlite3:*)"
     ]
   }
 }

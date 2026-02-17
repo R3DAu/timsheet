@@ -5,9 +5,10 @@
 const TAB_STORAGE_KEY = 'ts_active_tab';
 
 const TAB_TITLES = {
-  myTimesheets: 'My Timesheets',
-  allTimesheets: 'All Timesheets',
-  entries: 'Timesheet Entries',
+  timesheets: 'Timesheets',        // Unified tab
+  myTimesheets: 'My Timesheets',   // Legacy (will be removed)
+  allTimesheets: 'All Timesheets', // Legacy (will be removed)
+  entries: 'Timesheet Entries',    // Legacy (will be removed)
   employees: 'Employees',
   companies: 'Companies',
   roles: 'Roles',

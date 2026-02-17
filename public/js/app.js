@@ -96,7 +96,13 @@ var App = (() => {
             myTimesheets: [],
             allTimesheets: [],
             users: [],
-            apiKeys: []
+            apiKeys: [],
+            selectedEmployeeId: null,
+            // For admin employee selector
+            accordionOpen: {},
+            // Track open accordion items
+            dateAccordionOpen: {}
+            // Track open date accordion items
           };
           this._listeners = {};
         }
@@ -192,8 +198,32 @@ var App = (() => {
   });
 
   // public/js/modules/core/quill.js
+  function initQuillEditor(containerId, placeholder) {
+    const editor = new Quill(`#${containerId}`, {
+      theme: "snow",
+      placeholder: placeholder || "Enter details...",
+      modules: {
+        toolbar: [
+          ["bold", "italic", "underline"],
+          [{ "list": "ordered" }, { "list": "bullet" }],
+          ["link"],
+          ["clean"]
+        ]
+      }
+    });
+    activeQuillEditors[containerId] = editor;
+    return editor;
+  }
   function destroyQuillEditors() {
     activeQuillEditors = {};
+  }
+  function quillGetHtml(editor) {
+    if (!editor) return "";
+    const html = editor.root.innerHTML || "";
+    return html.trim() === "<p><br></p>" ? "" : html;
+  }
+  function getQuillEditor(containerId) {
+    return activeQuillEditors[containerId];
   }
   var activeQuillEditors;
   var init_quill = __esm({
@@ -298,9 +328,14 @@ var App = (() => {
     "public/js/modules/core/navigation.js"() {
       TAB_STORAGE_KEY = "ts_active_tab";
       TAB_TITLES = {
+        timesheets: "Timesheets",
+        // Unified tab
         myTimesheets: "My Timesheets",
+        // Legacy (will be removed)
         allTimesheets: "All Timesheets",
+        // Legacy (will be removed)
         entries: "Timesheet Entries",
+        // Legacy (will be removed)
         employees: "Employees",
         companies: "Companies",
         roles: "Roles",
@@ -628,6 +663,758 @@ var App = (() => {
       init_dom();
       init_navigation();
       registerTabHook("roles", displayRoles);
+    }
+  });
+
+  // public/js/modules/core/dateTime.js
+  function formatTime(timeStr) {
+    if (!timeStr) return "";
+    const [h, m] = timeStr.split(":");
+    const hour = parseInt(h);
+    const ampm = hour >= 12 ? "PM" : "AM";
+    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+    return `${displayHour}:${m} ${ampm}`;
+  }
+  function calculateHoursPreview(startTime, endTime) {
+    if (!startTime || !endTime) return "";
+    const [sH, sM] = startTime.split(":").map(Number);
+    const [eH, eM] = endTime.split(":").map(Number);
+    let startMins = sH * 60 + sM;
+    let endMins = eH * 60 + eM;
+    if (endMins <= startMins) endMins += 24 * 60;
+    const hours = (endMins - startMins) / 60;
+    return `${hours.toFixed(2)} hrs`;
+  }
+  function todayStr() {
+    return (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+  }
+  function getTimeDefaults(timesheetId) {
+    const myTimesheets = state.get("myTimesheets");
+    const allTimesheets = state.get("allTimesheets");
+    const currentUser2 = state.get("currentUser");
+    const ts = [...myTimesheets, ...allTimesheets].find((t) => t.id === parseInt(timesheetId));
+    const today = todayStr();
+    let todayEntryCount = 0;
+    if (ts && ts.entries) {
+      todayEntryCount = ts.entries.filter((e) => {
+        const d = new Date(e.date).toISOString().split("T")[0];
+        return d === today;
+      }).length;
+    }
+    const emp = currentUser2 && currentUser2.employee;
+    const morning = {
+      start: emp ? emp.morningStart : "08:30",
+      end: emp ? emp.morningEnd : "12:30"
+    };
+    const afternoon = {
+      start: emp ? emp.afternoonStart : "13:00",
+      end: emp ? emp.afternoonEnd : "17:00"
+    };
+    if (todayEntryCount === 0) return morning;
+    if (todayEntryCount === 1) return afternoon;
+    return { start: "", end: "" };
+  }
+  var init_dateTime = __esm({
+    "public/js/modules/core/dateTime.js"() {
+      init_state();
+    }
+  });
+
+  // public/js/modules/features/wms/wms-sync.js
+  function employeeHasWmsSyncRole(employee) {
+    if (!employee || !employee.roles) return false;
+    return employee.roles.some(
+      (r) => r.company && r.company.wmsSyncEnabled
+    );
+  }
+  function timesheetHasWmsSyncEntries(ts) {
+    if (!ts.entries || ts.entries.length === 0) return false;
+    return ts.entries.some(
+      (e) => e.company && e.company.wmsSyncEnabled
+    );
+  }
+  function getWmsSyncButton(ts) {
+    const currentUser2 = state.get("currentUser");
+    const isOwnTimesheet = currentUser2 && currentUser2.employeeId && ts.employee && ts.employee.id === currentUser2.employeeId;
+    if (isOwnTimesheet) {
+      const emp = currentUser2.employee;
+      if (!emp || !employeeHasWmsSyncRole(emp)) {
+        return "";
+      }
+    }
+    const hasWmsEntries = timesheetHasWmsSyncEntries(ts);
+    if (!hasWmsEntries) {
+      if (isOwnTimesheet) {
+        return `<button class="btn btn-sm btn-info" disabled title="No WMS-syncable entries to sync" style="opacity: 0.5; cursor: not-allowed;">Sync to WMS</button>`;
+      }
+      return "";
+    }
+    return `<button class="btn btn-sm btn-info" onclick="syncToWms(${ts.id})">Sync to WMS</button>`;
+  }
+  async function syncToWms(timesheetId) {
+    const html = `
+    <h3>Sync to DE WMS (TSSP)</h3>
+    <div class="alert alert-info">
+      Enter your DE (ADFS) login credentials. These are <strong>not stored</strong> on our servers and are only used for this sync session. Your employee profile must have a <strong>DE Worker ID</strong> identifier configured.
+    </div>
+    <form id="wmsSyncForm">
+      <div class="form-group">
+        <label>ADFS Username (e.g. domain\\username or email)</label>
+        <input type="text" name="wmsUsername" required autocomplete="off" placeholder="EDUCATION\\jsmith or jsmith@education.vic.gov.au">
+      </div>
+      <div class="form-group">
+        <label>ADFS Password</label>
+        <input type="password" name="wmsPassword" required autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="wmsSyncShowPw">
+          <span>Show password</span>
+        </label>
+      </div>
+      <button type="submit" class="btn btn-primary">Start Sync</button>
+      <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+    </form>
+  `;
+    showModalWithHTML(html);
+    document.getElementById("wmsSyncShowPw").onchange = (e) => {
+      const pwInput = document.querySelector('#modalBody input[name="wmsPassword"]');
+      pwInput.type = e.target.checked ? "text" : "password";
+    };
+    document.getElementById("wmsSyncForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const form = e.target;
+      const credentials = {
+        username: form.wmsUsername.value,
+        password: form.wmsPassword.value
+      };
+      form.wmsPassword.value = "";
+      try {
+        const result = await api.post("/wms-sync/start", {
+          timesheetId,
+          credentials
+        });
+        showSyncProgress(result.syncLog.id);
+      } catch (error) {
+        showAlert("Failed to start sync: " + error.message);
+      }
+    };
+  }
+  function showSyncProgress(syncLogId) {
+    const html = `
+    <h3>WMS Sync Progress</h3>
+    <div class="sync-progress">
+      <div class="alert alert-info" id="syncProgressAlert">
+        <div style="display: flex; align-items: center; gap: 0.75rem;">
+          <div class="sync-spinner" id="syncSpinner"></div>
+          <span id="syncProgressMessage">Initialising sync...</span>
+        </div>
+      </div>
+      <div id="syncProgressLog" style="background: #1a1a2e; border-radius: 6px; padding: 0.75rem; margin: 0.75rem 0; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; line-height: 1.6;"></div>
+      <div id="syncResultDetails"></div>
+    </div>
+    <button type="button" class="btn btn-secondary" onclick="hideModal()">Close</button>
+  `;
+    showModalWithHTML(html);
+    pollSyncStatus(syncLogId);
+  }
+  function pollSyncStatus(syncLogId) {
+    let attempts = 0;
+    const maxAttempts = 120;
+    let lastProgressCount = 0;
+    const interval = setInterval(async () => {
+      attempts++;
+      try {
+        const result = await api.get("/wms-sync/status/" + syncLogId);
+        const log = result.syncLog;
+        const alertEl = document.getElementById("syncProgressAlert");
+        const messageEl = document.getElementById("syncProgressMessage");
+        const spinnerEl = document.getElementById("syncSpinner");
+        const logEl = document.getElementById("syncProgressLog");
+        const detailsEl = document.getElementById("syncResultDetails");
+        if (!alertEl) {
+          clearInterval(interval);
+          return;
+        }
+        if (log.progress && log.progress.length > lastProgressCount) {
+          for (let i = lastProgressCount; i < log.progress.length; i++) {
+            const p = log.progress[i];
+            const line = document.createElement("div");
+            const isSaved = p.message.includes("Saved ");
+            const isError = p.message.includes("Error") || p.message.includes("Failed");
+            const isSkipped = p.message.includes("Skipped");
+            const color = isError ? "#ff6b6b" : isSkipped ? "#ffd93d" : isSaved ? "#6bcb77" : "#a8b2d1";
+            line.style.color = color;
+            line.textContent = p.message;
+            logEl.appendChild(line);
+          }
+          logEl.scrollTop = logEl.scrollHeight;
+          lastProgressCount = log.progress.length;
+          const latest = log.progress[log.progress.length - 1];
+          if (latest && messageEl) {
+            messageEl.textContent = latest.message;
+          }
+        }
+        if (log.status === "COMPLETED") {
+          clearInterval(interval);
+          if (spinnerEl) spinnerEl.style.display = "none";
+          if (log.syncDetails) {
+            try {
+              const details = JSON.parse(log.syncDetails);
+              const fillStep = details.steps && details.steps.find((s) => s.step === "fillEntries");
+              const entered = fillStep ? fillStep.entriesEntered || 0 : details.entriesSynced || 0;
+              const failed = fillStep ? fillStep.entriesFailed || 0 : 0;
+              const skipped = fillStep ? fillStep.entriesSkipped || 0 : 0;
+              const entries = fillStep ? fillStep.entries || [] : [];
+              if (failed > 0 && entered === 0) {
+                alertEl.className = "alert alert-danger";
+                alertEl.innerHTML = "<strong>Sync completed with errors \u2014 no entries were saved.</strong>";
+              } else if (failed > 0) {
+                alertEl.className = "alert alert-warning";
+                alertEl.innerHTML = `<strong>Sync completed with ${failed} error(s).</strong>`;
+              } else {
+                alertEl.className = "alert alert-success";
+                alertEl.innerHTML = "<strong>Timesheet synced to DE WMS successfully!</strong>";
+              }
+              let summary = `Entries synced: ${entered}`;
+              if (failed > 0) summary += ` | Failed: ${failed}`;
+              if (skipped > 0) summary += ` | Skipped: ${skipped}`;
+              summary += ` | Total hours: ${(details.totalHours || 0).toFixed(2)}`;
+              let errorDetails = "";
+              const failedEntries = entries.filter((e) => e.status === "failed");
+              if (failedEntries.length > 0) {
+                errorDetails = '<ul style="margin: 0.5rem 0 0; padding-left: 1.25rem; color: #ff6b6b;">';
+                failedEntries.forEach((e) => {
+                  errorDetails += `<li>${escapeHtml(e.date)} ${escapeHtml(e.startTime || "")}-${escapeHtml(e.endTime || "")}: ${escapeHtml(e.error)}</li>`;
+                });
+                errorDetails += "</ul>";
+              }
+              detailsEl.innerHTML = `<p style="margin-top: 0.5rem;">${escapeHtml(summary)}</p>${errorDetails}`;
+            } catch (_) {
+              alertEl.className = "alert alert-success";
+              alertEl.innerHTML = "<strong>Timesheet synced to DE WMS successfully!</strong>";
+            }
+          } else {
+            alertEl.className = "alert alert-success";
+            alertEl.innerHTML = "<strong>Timesheet synced to DE WMS successfully!</strong>";
+          }
+          refreshTimesheets();
+        } else if (log.status === "FAILED") {
+          clearInterval(interval);
+          if (spinnerEl) spinnerEl.style.display = "none";
+          alertEl.className = "alert alert-danger";
+          alertEl.innerHTML = "<strong>Sync failed:</strong> " + escapeHtml(log.errorMessage || "Unknown error");
+        } else if (attempts >= maxAttempts) {
+          clearInterval(interval);
+          if (spinnerEl) spinnerEl.style.display = "none";
+          alertEl.className = "alert alert-warning";
+          alertEl.innerHTML = "Sync is taking longer than expected. Check sync history later.";
+        }
+      } catch (error) {
+        console.error("Poll error:", error);
+      }
+    }, 2e3);
+  }
+  async function viewSyncHistory(timesheetId) {
+    try {
+      const result = await api.get("/wms-sync/timesheet/" + timesheetId);
+      const syncs = result.syncs;
+      if (syncs.length === 0) {
+        showModalWithHTML("<h3>Sync History</h3><p>No sync history for this timesheet.</p>");
+        return;
+      }
+      const rows = syncs.map((sync) => {
+        const started = sync.startedAt ? new Date(sync.startedAt).toLocaleString() : new Date(sync.createdAt).toLocaleString();
+        const duration = sync.startedAt && sync.completedAt ? Math.round((new Date(sync.completedAt) - new Date(sync.startedAt)) / 1e3) + "s" : "-";
+        return `
+        <tr>
+          <td>${started}</td>
+          <td><span class="status-badge status-${sync.status}">${sync.status}</span></td>
+          <td>${escapeHtml(sync.wmsUsername) || "-"}</td>
+          <td>${duration}</td>
+          <td>${sync.errorMessage ? escapeHtml(sync.errorMessage) : sync.status === "COMPLETED" ? "OK" : "-"}</td>
+        </tr>
+      `;
+      }).join("");
+      const html = `
+      <h3>Sync History</h3>
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr><th>Started</th><th>Status</th><th>WMS User</th><th>Duration</th><th>Result</th></tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    `;
+      showModalWithHTML(html);
+    } catch (error) {
+      showAlert("Failed to load sync history: " + error.message);
+    }
+  }
+  async function refreshTimesheets() {
+    const currentUser2 = state.get("currentUser");
+    const { loadMyTimesheets: loadMyTimesheets2 } = await Promise.resolve().then(() => (init_timesheets(), timesheets_exports));
+    if (currentUser2.employeeId) {
+      await loadMyTimesheets2();
+    }
+    if (currentUser2.isAdmin) {
+      const { loadAllTimesheets: loadAllTimesheets2 } = await Promise.resolve().then(() => (init_timesheets(), timesheets_exports));
+      await loadAllTimesheets2();
+    }
+  }
+  var init_wms_sync = __esm({
+    "public/js/modules/features/wms/wms-sync.js"() {
+      init_api();
+      init_state();
+      init_modal();
+      init_alerts();
+      init_dom();
+    }
+  });
+
+  // public/js/modules/features/timesheets/timesheets.js
+  var timesheets_exports = {};
+  __export(timesheets_exports, {
+    approveTimesheet: () => approveTimesheet,
+    autoCreateTimesheets: () => autoCreateTimesheets,
+    combineTimesheetsAndDedupe: () => combineTimesheetsAndDedupe,
+    createTimesheet: () => createTimesheet,
+    deleteTimesheet: () => deleteTimesheet,
+    displayAllTimesheets: () => displayAllTimesheets,
+    displayMyTimesheets: () => displayMyTimesheets,
+    displayUnifiedTimesheets: () => displayUnifiedTimesheets,
+    initEmployeeSelector: () => initEmployeeSelector,
+    loadAllTimesheets: () => loadAllTimesheets,
+    loadMyTimesheets: () => loadMyTimesheets,
+    lockTimesheet: () => lockTimesheet,
+    populateTimeSheetSelect: () => populateTimeSheetSelect,
+    refreshTimesheets: () => refreshTimesheets2,
+    selectEmployee: () => selectEmployee,
+    submitTimesheet: () => submitTimesheet,
+    toggleAccordion: () => toggleAccordion,
+    toggleDateAccordion: () => toggleDateAccordion
+  });
+  async function loadMyTimesheets() {
+    const currentUser2 = state.get("currentUser");
+    const result = await api.get(`/timesheets?employeeId=${currentUser2.employeeId}`);
+    state.set("myTimesheets", result.timesheets);
+    await combineTimesheetsAndDedupe();
+    await autoCreateTimesheets();
+    const updatedResult = await api.get(`/timesheets?employeeId=${currentUser2.employeeId}`);
+    state.set("myTimesheets", updatedResult.timesheets);
+    await combineTimesheetsAndDedupe();
+    displayUnifiedTimesheets();
+  }
+  async function loadAllTimesheets() {
+    const result = await api.get("/timesheets");
+    state.set("allTimesheets", result.timesheets);
+    await combineTimesheetsAndDedupe();
+    displayAllTimesheets();
+  }
+  async function populateTimeSheetSelect() {
+    const select = document.getElementById("timesheetSelect");
+    let timesheets = state.get("timesheets");
+    select.innerHTML = '<option value="">Select a timesheet...</option>' + timesheets.map((ts) => {
+      const label = currentUser.isAdmin ? `${escapeHtml(ts.employee.user.name)} - Week ${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}` : `Week ${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}`;
+      return `<option value="${ts.id}">${label}</option>`;
+    }).join("");
+  }
+  async function createTimesheet() {
+    const currentUser2 = state.get("currentUser");
+    let employeeSelectHtml = "";
+    if (currentUser2.isAdmin) {
+      const employees = await api.get("/employees");
+      employeeSelectHtml = `
+            <div class="form-group">
+                <label>Employee</label>
+                <select name="employeeId" required>
+                    <option value="">Select employee...</option>
+                    ${employees.filter((e) => e.id !== currentUser2.employeeId).map((e) => `<option value="${e.id}">${escapeHtml(e.user.name)}</option>`).join("")}
+                </select>
+            </div>
+        `;
+    }
+    const html = `
+        <form id="timesheetForm"> 
+            ${employeeSelectHtml}
+            <div class="form-group">
+                <label>Week Starting</label>
+                <input type="date" name="weekStarting" required>
+            </div>
+            <div class="form-group">
+                <label>Week Ending</label>
+                <input type="date" name="weekEnding" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Create Timesheet</button>
+        </form>
+    `;
+    showModalWithForm("Create Timesheet", html);
+    const timesheetModal = document.getElementById("timesheetForm");
+    timesheetModal.onsubmit = async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const employeeId = formData.get("employeeId") ? parseInt(formData.get("employeeId")) : currentUser2.employeeId;
+      if (!employeeId) {
+        showAlert("No employee profile found. An admin must create an employee profile for your account first.");
+      }
+      try {
+        await api.post("/timesheets", {
+          employeeId,
+          weekStarting: formData.get("weekStarting"),
+          weekEnding: formData.get("weekEnding")
+        });
+        hideModal();
+        await refreshTimesheets2();
+      } catch (error) {
+        showAlert(error.message);
+      }
+    };
+  }
+  async function refreshTimesheets2() {
+    const currentUser2 = state.get("currentUser");
+    if (currentUser2.isAdmin) await loadAllTimesheets();
+    if (currentUser2.employeeId) await loadMyTimesheets();
+  }
+  function displayMyTimesheets() {
+    displayUnifiedTimesheets();
+  }
+  async function displayAllTimesheets() {
+    displayUnifiedTimesheets();
+  }
+  async function submitTimesheet(id) {
+    if (!showConfirmation("Are you sure you want to submit this timesheet?")) return;
+    try {
+      await api.post(`/timesheets/${id}/submit`);
+      await refreshTimesheets2();
+      showAlert("Timesheet submitted successfully");
+    } catch (error) {
+      showAlert(error.message);
+    }
+  }
+  async function approveTimesheet(id) {
+    if (!showConfirmation("Approve this timesheet?")) return;
+    try {
+      await api.post(`/timesheets/${id}/approve`);
+      await refreshTimesheets2();
+      showAlert("Timesheet approved");
+    } catch (error) {
+      showAlert(error.message);
+    }
+  }
+  async function lockTimesheet(id) {
+    if (!showConfirmation("Lock this timesheet? No further edits will be allowed.")) return;
+    try {
+      await api.post(`/timesheets/${id}/lock`);
+      await refreshTimesheets2();
+      showAlert("Timesheet locked");
+    } catch (error) {
+      showAlert(error.message);
+    }
+  }
+  async function deleteTimesheet(id) {
+    if (!showConfirmation("Are you sure you want to delete this timesheet?")) return;
+    try {
+      await api.delete(`/timesheets/${id}`);
+      await refreshTimesheets2();
+    } catch (error) {
+      showAlert(error.message);
+    }
+  }
+  function combineTimesheetsAndDedupe() {
+    const myTimesheets = state.get("myTimesheets");
+    const allTimesheets = state.get("allTimesheets");
+    const timesheets = [...myTimesheets];
+    allTimesheets.forEach((ts) => {
+      if (!timesheets.find((t) => t.id === ts.id)) timesheets.push(ts);
+    });
+    timesheets.sort((a, b) => new Date(b.weekStarting) - new Date(a.weekStarting));
+    state.set("timesheets", timesheets);
+    return timesheets;
+  }
+  function displayUnifiedTimesheets() {
+    const currentUser2 = state.get("currentUser");
+    const selectedEmployeeId = state.get("selectedEmployeeId");
+    const container = document.getElementById("timesheetsAccordion");
+    if (!container) return;
+    let timesheetsToShow;
+    if (currentUser2.isAdmin && selectedEmployeeId && selectedEmployeeId !== currentUser2.employeeId) {
+      timesheetsToShow = state.get("allTimesheets").filter((ts) => ts.employeeId === selectedEmployeeId);
+    } else {
+      timesheetsToShow = state.get("myTimesheets");
+    }
+    timesheetsToShow.sort((a, b) => {
+      if (a.status === "OPEN" && b.status !== "OPEN") return -1;
+      if (b.status === "OPEN" && a.status !== "OPEN") return 1;
+      return new Date(b.weekStarting) - new Date(a.weekStarting);
+    });
+    if (timesheetsToShow.length === 0) {
+      container.innerHTML = '<p style="padding: 1rem; color: var(--muted);">No timesheets found.</p>';
+      return;
+    }
+    const accordionOpen = state.get("accordionOpen") || {};
+    container.innerHTML = timesheetsToShow.map((ts) => {
+      const isOpen = accordionOpen[ts.id] || ts.status === "OPEN";
+      const totalHours = ts.entries.reduce((sum, e) => sum + e.hours, 0);
+      const weekLabel = `${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}`;
+      return `
+      <div class="accordion-item ${isOpen ? "open" : ""}" data-ts-id="${ts.id}">
+        <div class="accordion-header" onclick="toggleAccordion(${ts.id})">
+          <div class="accordion-header-left">
+            <span class="accordion-chevron">&#9654;</span>
+            <span class="accordion-week">${weekLabel}</span>
+            <span class="status-badge status-${ts.status}">${ts.status}</span>
+            ${ts.autoCreated ? '<span class="source-badge tsdata-badge">TSDATA</span>' : ""}
+          </div>
+          <div class="accordion-meta">
+            <span>${ts.entries.length} entries</span>
+            <span>&middot;</span>
+            <span>${totalHours.toFixed(1)} hrs</span>
+            <div class="accordion-actions" onclick="event.stopPropagation();">
+              ${ts.status === "OPEN" ? `<button class="btn btn-sm btn-success" onclick="submitTimesheet(${ts.id})">Submit</button>` : ""}
+              ${ts.status === "SUBMITTED" && currentUser2.isAdmin ? `<button class="btn btn-sm btn-success" onclick="approveTimesheet(${ts.id})">Approve</button>` : ""}
+              ${ts.status === "APPROVED" && currentUser2.isAdmin ? `<button class="btn btn-sm btn-secondary" onclick="lockTimesheet(${ts.id})">Lock</button>` : ""}
+              ${getWmsSyncButton(ts)}
+              <button class="btn btn-sm btn-danger" onclick="deleteTimesheet(${ts.id})">Delete</button>
+            </div>
+          </div>
+        </div>
+        <div class="accordion-body">
+          <div class="accordion-body-inner">
+            ${renderEntriesByDate(ts)}
+          </div>
+        </div>
+      </div>
+    `;
+    }).join("");
+  }
+  function toggleAccordion(timesheetId) {
+    const accordionOpen = state.get("accordionOpen") || {};
+    accordionOpen[timesheetId] = !accordionOpen[timesheetId];
+    state.set("accordionOpen", accordionOpen);
+    const item = document.querySelector(`.accordion-item[data-ts-id="${timesheetId}"]`);
+    if (item) item.classList.toggle("open");
+  }
+  function renderEntriesByDate(ts) {
+    if (ts.entries.length === 0) {
+      return `
+      <p style="color: var(--muted); font-size: 0.9rem;">No entries yet.</p>
+      <button class="add-entry-btn" onclick="createEntryForTimesheet(${ts.id})">
+        + Add Entry
+      </button>
+    `;
+    }
+    const grouped = {};
+    ts.entries.forEach((entry) => {
+      const dateKey = new Date(entry.date).toISOString().split("T")[0];
+      if (!grouped[dateKey]) grouped[dateKey] = [];
+      grouped[dateKey].push(entry);
+    });
+    const sortedDates = Object.keys(grouped).sort().reverse();
+    const isEditable = ts.status === "OPEN";
+    const dateAccordionOpen = state.get("dateAccordionOpen") || {};
+    return sortedDates.map((dateKey) => {
+      const dateEntries = grouped[dateKey].sort((a, b) => {
+        if (!a.startTime || !b.startTime) return 0;
+        return a.startTime.localeCompare(b.startTime);
+      });
+      const dayTotal = dateEntries.reduce((sum, e) => sum + e.hours, 0);
+      const dateLabel = (/* @__PURE__ */ new Date(dateKey + "T00:00:00")).toLocaleDateString("en-US", {
+        weekday: "short",
+        month: "short",
+        day: "numeric"
+      });
+      const dateId = `${ts.id}-${dateKey}`;
+      const isOpen = dateAccordionOpen[dateId] !== false;
+      return `
+      <div class="date-group ${isOpen ? "open" : ""}" data-date-id="${dateId}">
+        <div class="date-group-header" onclick="toggleDateAccordion('${dateId}')">
+          <div class="date-group-header-left">
+            <span class="date-chevron">&#9654;</span>
+            <h4>${dateLabel}</h4>
+          </div>
+          <span class="date-hours">${dayTotal.toFixed(2)} hrs \xB7 ${dateEntries.length} entries</span>
+        </div>
+        <div class="date-group-body">
+          <div class="date-group-body-inner">
+            ${dateEntries.map((entry) => renderEntryCard(entry, ts.id, isEditable)).join("")}
+            ${isEditable ? `
+              <button class="add-entry-btn" onclick="createEntryForDate(${ts.id}, '${dateKey}'); event.stopPropagation();">
+                + Add Entry for ${dateLabel}
+              </button>
+            ` : ""}
+          </div>
+        </div>
+      </div>
+    `;
+    }).join("") + (isEditable ? `
+    <button class="add-entry-btn" style="margin-top: 0.5rem;" onclick="createEntryForTimesheet(${ts.id})">
+      + Add Entry
+    </button>
+  ` : "");
+  }
+  function toggleDateAccordion(dateId) {
+    const dateAccordionOpen = state.get("dateAccordionOpen") || {};
+    dateAccordionOpen[dateId] = !dateAccordionOpen[dateId];
+    state.set("dateAccordionOpen", dateAccordionOpen);
+    const item = document.querySelector(`.date-group[data-date-id="${dateId}"]`);
+    if (item) item.classList.toggle("open");
+  }
+  function renderEntryCard(entry, timesheetId, isEditable) {
+    const timeRange = entry.startTime && entry.endTime ? `${formatTime(entry.startTime)} - ${formatTime(entry.endTime)}` : "No time set";
+    const plainNotes = entry.notes ? entry.notes.replace(/<[^>]*>/g, "").substring(0, 100) : "";
+    return `
+    <div class="entry-card" onclick="viewEntrySlideIn(${entry.id}, ${timesheetId}, ${isEditable})">
+      <div class="entry-card-main">
+        <div class="entry-card-time">
+          ${timeRange}
+          <span class="entry-hours">${entry.hours.toFixed(2)} hrs &middot; ${entry.entryType}</span>
+        </div>
+        <div class="entry-card-role">${escapeHtml(entry.role.name)}</div>
+        <div class="entry-card-company">${escapeHtml(entry.company.name)}</div>
+        <div class="entry-card-badges">
+          <span class="status-badge status-${entry.status}">${entry.status}</span>
+          ${entry.tsDataSource ? '<span class="source-badge tsdata-badge">TSDATA</span>' : ""}
+          ${entry.privateNotes ? '<span class="private-notes-badge">Private</span>' : ""}
+        </div>
+        ${entry.startingLocation ? `<div class="entry-card-location">\u{1F4CD} ${escapeHtml(entry.startingLocation)}</div>` : ""}
+        ${plainNotes ? `<div class="entry-card-description">${escapeHtml(plainNotes)}</div>` : ""}
+      </div>
+      <div class="entry-card-actions" onclick="event.stopPropagation();">
+        ${isEditable ? `
+          <button class="btn-icon" onclick="editEntrySlideIn(${entry.id}, ${timesheetId})" title="Edit">&#9998;</button>
+          <button class="btn-icon btn-delete" onclick="deleteEntryFromCard(${entry.id}, ${timesheetId})" title="Delete">&times;</button>
+        ` : '<span style="color:#999; font-size:0.75rem;">Locked</span>'}
+      </div>
+    </div>
+  `;
+  }
+  function initEmployeeSelector() {
+    const currentUser2 = state.get("currentUser");
+    if (!currentUser2.isAdmin) return;
+    const wrapper = document.getElementById("employeeSelectorWrapper");
+    const input = document.getElementById("employeeSearchInput");
+    const dropdown = document.getElementById("employeeDropdown");
+    if (!wrapper || !input || !dropdown) return;
+    wrapper.style.display = "";
+    input.placeholder = "My Timesheets - Search to switch employee...";
+    input.addEventListener("focus", () => {
+      renderEmployeeDropdown("");
+      dropdown.style.display = "block";
+    });
+    input.addEventListener("input", (e) => {
+      renderEmployeeDropdown(e.target.value);
+    });
+    document.addEventListener("click", (e) => {
+      if (!wrapper.contains(e.target)) {
+        dropdown.style.display = "none";
+      }
+    });
+  }
+  function renderEmployeeDropdown(searchTerm) {
+    const employees = state.get("employees");
+    const currentUser2 = state.get("currentUser");
+    const dropdown = document.getElementById("employeeDropdown");
+    const selectedId = state.get("selectedEmployeeId");
+    if (!dropdown) return;
+    const filtered = employees.filter((emp) => {
+      const name = emp.user.name.toLowerCase();
+      const email = emp.user.email.toLowerCase();
+      const term = searchTerm.toLowerCase();
+      return name.includes(term) || email.includes(term);
+    });
+    let html = `
+    <div class="employee-dropdown-item employee-dropdown-item-self ${!selectedId || selectedId === currentUser2.employeeId ? "selected" : ""}"
+         onclick="selectEmployee(null)">
+      <span class="emp-name">My Timesheets</span>
+    </div>
+  `;
+    html += filtered.map((emp) => {
+      const allTs = state.get("allTimesheets");
+      const tsCount = allTs.filter((ts) => ts.employeeId === emp.id).length;
+      return `
+      <div class="employee-dropdown-item ${selectedId === emp.id ? "selected" : ""}"
+           onclick="selectEmployee(${emp.id})">
+        <span class="emp-name">${escapeHtml(emp.user.name)}</span>
+        <span class="emp-ts-count">${tsCount} timesheets</span>
+      </div>
+    `;
+    }).join("");
+    dropdown.innerHTML = html;
+  }
+  async function selectEmployee(employeeId) {
+    const currentUser2 = state.get("currentUser");
+    const input = document.getElementById("employeeSearchInput");
+    const dropdown = document.getElementById("employeeDropdown");
+    const heading = document.getElementById("timesheetsHeading");
+    if (!employeeId || employeeId === currentUser2.employeeId) {
+      state.set("selectedEmployeeId", null);
+      if (input) input.value = "";
+      if (input) input.placeholder = "My Timesheets - Search to switch employee...";
+      if (heading) heading.textContent = "My Timesheets";
+    } else {
+      state.set("selectedEmployeeId", employeeId);
+      const employees = state.get("employees");
+      const emp = employees.find((e) => e.id === employeeId);
+      if (input) input.value = emp ? emp.user.name : "";
+      if (heading) heading.textContent = `Timesheets: ${emp ? emp.user.name : ""}`;
+    }
+    if (dropdown) dropdown.style.display = "none";
+    displayUnifiedTimesheets();
+  }
+  async function autoCreateTimesheets() {
+    const currentUser2 = state.get("currentUser");
+    if (!currentUser2.employeeId) return;
+    const now = /* @__PURE__ */ new Date();
+    const dayOfWeek = now.getDay();
+    const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+    const currentMonday = new Date(now);
+    currentMonday.setDate(now.getDate() + mondayOffset);
+    currentMonday.setHours(0, 0, 0, 0);
+    const currentSunday = new Date(currentMonday);
+    currentSunday.setDate(currentMonday.getDate() + 6);
+    const nextMonday = new Date(currentMonday);
+    nextMonday.setDate(currentMonday.getDate() + 7);
+    const nextSunday = new Date(nextMonday);
+    nextSunday.setDate(nextMonday.getDate() + 6);
+    const weeks = [
+      { start: currentMonday, end: currentSunday },
+      { start: nextMonday, end: nextSunday }
+    ];
+    const myTimesheets = state.get("myTimesheets") || [];
+    for (const week of weeks) {
+      const weekStartStr = week.start.toISOString().split("T")[0];
+      const weekEndStr = week.end.toISOString().split("T")[0];
+      const exists = myTimesheets.some((ts) => {
+        const tsStart = new Date(ts.weekStarting).toISOString().split("T")[0];
+        return tsStart === weekStartStr;
+      });
+      if (!exists) {
+        try {
+          await api.post("/timesheets", {
+            employeeId: currentUser2.employeeId,
+            weekStarting: weekStartStr,
+            weekEnding: weekEndStr
+          });
+        } catch (error) {
+          console.log("Auto-create timesheet skipped:", error.message);
+        }
+      }
+    }
+  }
+  var init_timesheets = __esm({
+    "public/js/modules/features/timesheets/timesheets.js"() {
+      init_api();
+      init_state();
+      init_dom();
+      init_navigation();
+      init_modal();
+      init_alerts();
+      init_dateTime();
+      init_wms_sync();
+      registerTabHook("timesheets", displayUnifiedTimesheets);
+      registerTabHook("myTimesheets", displayMyTimesheets);
+      registerTabHook("allTimesheets", displayAllTimesheets);
     }
   });
 
@@ -1353,555 +2140,137 @@ var App = (() => {
     }
   });
 
-  // public/js/modules/core/dateTime.js
-  function formatTime(timeStr) {
-    if (!timeStr) return "";
-    const [h, m] = timeStr.split(":");
-    const hour = parseInt(h);
-    const ampm = hour >= 12 ? "PM" : "AM";
-    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
-    return `${displayHour}:${m} ${ampm}`;
-  }
-  var init_dateTime = __esm({
-    "public/js/modules/core/dateTime.js"() {
-    }
+  // public/js/modules/features/api-keys/api-keys.js
+  var api_keys_exports = {};
+  __export(api_keys_exports, {
+    copyApiKey: () => copyApiKey,
+    createApiKey: () => createApiKey,
+    displayApiKeys: () => displayApiKeys,
+    loadApiKeys: () => loadApiKeys,
+    revokeApiKey: () => revokeApiKey
   });
-
-  // public/js/modules/features/wms/wms-sync.js
-  function employeeHasWmsSyncRole(employee) {
-    if (!employee || !employee.roles) return false;
-    return employee.roles.some(
-      (r) => r.company && r.company.wmsSyncEnabled
-    );
-  }
-  function timesheetHasWmsSyncEntries(ts) {
-    if (!ts.entries || ts.entries.length === 0) return false;
-    return ts.entries.some(
-      (e) => e.company && e.company.wmsSyncEnabled
-    );
-  }
-  function getWmsSyncButton(ts) {
-    const currentUser2 = state.get("currentUser");
-    const isOwnTimesheet = currentUser2 && currentUser2.employeeId && ts.employee && ts.employee.id === currentUser2.employeeId;
-    if (isOwnTimesheet) {
-      const emp = currentUser2.employee;
-      if (!emp || !employeeHasWmsSyncRole(emp)) {
-        return "";
-      }
-    }
-    const hasWmsEntries = timesheetHasWmsSyncEntries(ts);
-    if (!hasWmsEntries) {
-      if (isOwnTimesheet) {
-        return `<button class="btn btn-sm btn-info" disabled title="No WMS-syncable entries to sync" style="opacity: 0.5; cursor: not-allowed;">Sync to WMS</button>`;
-      }
-      return "";
-    }
-    return `<button class="btn btn-sm btn-info" onclick="syncToWms(${ts.id})">Sync to WMS</button>`;
-  }
-  async function syncToWms(timesheetId) {
-    const html = `
-    <h3>Sync to DE WMS (TSSP)</h3>
-    <div class="alert alert-info">
-      Enter your DE (ADFS) login credentials. These are <strong>not stored</strong> on our servers and are only used for this sync session. Your employee profile must have a <strong>DE Worker ID</strong> identifier configured.
-    </div>
-    <form id="wmsSyncForm">
-      <div class="form-group">
-        <label>ADFS Username (e.g. domain\\username or email)</label>
-        <input type="text" name="wmsUsername" required autocomplete="off" placeholder="EDUCATION\\jsmith or jsmith@education.vic.gov.au">
-      </div>
-      <div class="form-group">
-        <label>ADFS Password</label>
-        <input type="password" name="wmsPassword" required autocomplete="off">
-      </div>
-      <div class="form-group">
-        <label class="checkbox-label">
-          <input type="checkbox" id="wmsSyncShowPw">
-          <span>Show password</span>
-        </label>
-      </div>
-      <button type="submit" class="btn btn-primary">Start Sync</button>
-      <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
-    </form>
-  `;
-    showModalWithHTML(html);
-    document.getElementById("wmsSyncShowPw").onchange = (e) => {
-      const pwInput = document.querySelector('#modalBody input[name="wmsPassword"]');
-      pwInput.type = e.target.checked ? "text" : "password";
-    };
-    document.getElementById("wmsSyncForm").onsubmit = async (e) => {
-      e.preventDefault();
-      const form = e.target;
-      const credentials = {
-        username: form.wmsUsername.value,
-        password: form.wmsPassword.value
-      };
-      form.wmsPassword.value = "";
-      try {
-        const result = await api.post("/wms-sync/start", {
-          timesheetId,
-          credentials
-        });
-        showSyncProgress(result.syncLog.id);
-      } catch (error) {
-        showAlert("Failed to start sync: " + error.message);
-      }
-    };
-  }
-  function showSyncProgress(syncLogId) {
-    const html = `
-    <h3>WMS Sync Progress</h3>
-    <div class="sync-progress">
-      <div class="alert alert-info" id="syncProgressAlert">
-        <div style="display: flex; align-items: center; gap: 0.75rem;">
-          <div class="sync-spinner" id="syncSpinner"></div>
-          <span id="syncProgressMessage">Initialising sync...</span>
-        </div>
-      </div>
-      <div id="syncProgressLog" style="background: #1a1a2e; border-radius: 6px; padding: 0.75rem; margin: 0.75rem 0; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; line-height: 1.6;"></div>
-      <div id="syncResultDetails"></div>
-    </div>
-    <button type="button" class="btn btn-secondary" onclick="hideModal()">Close</button>
-  `;
-    showModalWithHTML(html);
-    pollSyncStatus(syncLogId);
-  }
-  function pollSyncStatus(syncLogId) {
-    let attempts = 0;
-    const maxAttempts = 120;
-    let lastProgressCount = 0;
-    const interval = setInterval(async () => {
-      attempts++;
-      try {
-        const result = await api.get("/wms-sync/status/" + syncLogId);
-        const log = result.syncLog;
-        const alertEl = document.getElementById("syncProgressAlert");
-        const messageEl = document.getElementById("syncProgressMessage");
-        const spinnerEl = document.getElementById("syncSpinner");
-        const logEl = document.getElementById("syncProgressLog");
-        const detailsEl = document.getElementById("syncResultDetails");
-        if (!alertEl) {
-          clearInterval(interval);
-          return;
-        }
-        if (log.progress && log.progress.length > lastProgressCount) {
-          for (let i = lastProgressCount; i < log.progress.length; i++) {
-            const p = log.progress[i];
-            const line = document.createElement("div");
-            const isSaved = p.message.includes("Saved ");
-            const isError = p.message.includes("Error") || p.message.includes("Failed");
-            const isSkipped = p.message.includes("Skipped");
-            const color = isError ? "#ff6b6b" : isSkipped ? "#ffd93d" : isSaved ? "#6bcb77" : "#a8b2d1";
-            line.style.color = color;
-            line.textContent = p.message;
-            logEl.appendChild(line);
-          }
-          logEl.scrollTop = logEl.scrollHeight;
-          lastProgressCount = log.progress.length;
-          const latest = log.progress[log.progress.length - 1];
-          if (latest && messageEl) {
-            messageEl.textContent = latest.message;
-          }
-        }
-        if (log.status === "COMPLETED") {
-          clearInterval(interval);
-          if (spinnerEl) spinnerEl.style.display = "none";
-          if (log.syncDetails) {
-            try {
-              const details = JSON.parse(log.syncDetails);
-              const fillStep = details.steps && details.steps.find((s) => s.step === "fillEntries");
-              const entered = fillStep ? fillStep.entriesEntered || 0 : details.entriesSynced || 0;
-              const failed = fillStep ? fillStep.entriesFailed || 0 : 0;
-              const skipped = fillStep ? fillStep.entriesSkipped || 0 : 0;
-              const entries = fillStep ? fillStep.entries || [] : [];
-              if (failed > 0 && entered === 0) {
-                alertEl.className = "alert alert-danger";
-                alertEl.innerHTML = "<strong>Sync completed with errors \u2014 no entries were saved.</strong>";
-              } else if (failed > 0) {
-                alertEl.className = "alert alert-warning";
-                alertEl.innerHTML = `<strong>Sync completed with ${failed} error(s).</strong>`;
-              } else {
-                alertEl.className = "alert alert-success";
-                alertEl.innerHTML = "<strong>Timesheet synced to DE WMS successfully!</strong>";
-              }
-              let summary = `Entries synced: ${entered}`;
-              if (failed > 0) summary += ` | Failed: ${failed}`;
-              if (skipped > 0) summary += ` | Skipped: ${skipped}`;
-              summary += ` | Total hours: ${(details.totalHours || 0).toFixed(2)}`;
-              let errorDetails = "";
-              const failedEntries = entries.filter((e) => e.status === "failed");
-              if (failedEntries.length > 0) {
-                errorDetails = '<ul style="margin: 0.5rem 0 0; padding-left: 1.25rem; color: #ff6b6b;">';
-                failedEntries.forEach((e) => {
-                  errorDetails += `<li>${escapeHtml(e.date)} ${escapeHtml(e.startTime || "")}-${escapeHtml(e.endTime || "")}: ${escapeHtml(e.error)}</li>`;
-                });
-                errorDetails += "</ul>";
-              }
-              detailsEl.innerHTML = `<p style="margin-top: 0.5rem;">${escapeHtml(summary)}</p>${errorDetails}`;
-            } catch (_) {
-              alertEl.className = "alert alert-success";
-              alertEl.innerHTML = "<strong>Timesheet synced to DE WMS successfully!</strong>";
-            }
-          } else {
-            alertEl.className = "alert alert-success";
-            alertEl.innerHTML = "<strong>Timesheet synced to DE WMS successfully!</strong>";
-          }
-          refreshTimesheets();
-        } else if (log.status === "FAILED") {
-          clearInterval(interval);
-          if (spinnerEl) spinnerEl.style.display = "none";
-          alertEl.className = "alert alert-danger";
-          alertEl.innerHTML = "<strong>Sync failed:</strong> " + escapeHtml(log.errorMessage || "Unknown error");
-        } else if (attempts >= maxAttempts) {
-          clearInterval(interval);
-          if (spinnerEl) spinnerEl.style.display = "none";
-          alertEl.className = "alert alert-warning";
-          alertEl.innerHTML = "Sync is taking longer than expected. Check sync history later.";
-        }
-      } catch (error) {
-        console.error("Poll error:", error);
-      }
-    }, 2e3);
-  }
-  async function viewSyncHistory(timesheetId) {
+  async function loadApiKeys() {
     try {
-      const result = await api.get("/wms-sync/timesheet/" + timesheetId);
-      const syncs = result.syncs;
-      if (syncs.length === 0) {
-        showModalWithHTML("<h3>Sync History</h3><p>No sync history for this timesheet.</p>");
-        return;
+      const result = await api.get("/api-keys");
+      state.set("apiKeys", result.apiKeys);
+      if (document.getElementById("apiKeysTab").classList.contains("active")) {
+        displayApiKeys();
       }
-      const rows = syncs.map((sync) => {
-        const started = sync.startedAt ? new Date(sync.startedAt).toLocaleString() : new Date(sync.createdAt).toLocaleString();
-        const duration = sync.startedAt && sync.completedAt ? Math.round((new Date(sync.completedAt) - new Date(sync.startedAt)) / 1e3) + "s" : "-";
-        return `
-        <tr>
-          <td>${started}</td>
-          <td><span class="status-badge status-${sync.status}">${sync.status}</span></td>
-          <td>${escapeHtml(sync.wmsUsername) || "-"}</td>
-          <td>${duration}</td>
-          <td>${sync.errorMessage ? escapeHtml(sync.errorMessage) : sync.status === "COMPLETED" ? "OK" : "-"}</td>
-        </tr>
-      `;
-      }).join("");
-      const html = `
-      <h3>Sync History</h3>
-      <div class="table-responsive">
-        <table>
-          <thead>
-            <tr><th>Started</th><th>Status</th><th>WMS User</th><th>Duration</th><th>Result</th></tr>
-          </thead>
-          <tbody>${rows}</tbody>
-        </table>
-      </div>
-    `;
-      showModalWithHTML(html);
     } catch (error) {
-      showAlert("Failed to load sync history: " + error.message);
+      console.error("Load API keys error:", error);
     }
   }
-  async function refreshTimesheets() {
-    const currentUser2 = state.get("currentUser");
-    const { loadMyTimesheets: loadMyTimesheets2 } = await Promise.resolve().then(() => (init_timesheets(), timesheets_exports));
-    if (currentUser2.employeeId) {
-      await loadMyTimesheets2();
-    }
-    if (currentUser2.isAdmin) {
-      const { loadAllTimesheets: loadAllTimesheets2 } = await Promise.resolve().then(() => (init_timesheets(), timesheets_exports));
-      await loadAllTimesheets2();
-    }
-  }
-  var init_wms_sync = __esm({
-    "public/js/modules/features/wms/wms-sync.js"() {
-      init_api();
-      init_state();
-      init_modal();
-      init_alerts();
-      init_dom();
-    }
-  });
-
-  // public/js/modules/features/timesheets/timesheets.js
-  var timesheets_exports = {};
-  __export(timesheets_exports, {
-    approveTimesheet: () => approveTimesheet,
-    combineTimesheetsAndDedupe: () => combineTimesheetsAndDedupe,
-    createTimesheet: () => createTimesheet,
-    deleteTimesheet: () => deleteTimesheet,
-    displayAllTimesheets: () => displayAllTimesheets,
-    displayMyTimesheets: () => displayMyTimesheets,
-    loadAllTimesheets: () => loadAllTimesheets,
-    loadMyTimesheets: () => loadMyTimesheets,
-    lockTimesheet: () => lockTimesheet,
-    populateTimeSheetSelect: () => populateTimeSheetSelect,
-    refreshTimesheets: () => refreshTimesheets2,
-    submitTimesheet: () => submitTimesheet,
-    viewTimesheet: () => viewTimesheet
-  });
-  async function loadMyTimesheets() {
-    const currentUser2 = state.get("currentUser");
-    const result = await api.get(`/timesheets?employeeId=${currentUser2.employeeId}`);
-    state.set("myTimesheets", result.timesheets);
-    await combineTimesheetsAndDedupe();
-    displayMyTimesheets();
-    populateTimesheetSelect();
-  }
-  async function loadAllTimesheets() {
-    const result = await api.get("/timesheets");
-    state.set("allTimesheets", result.timesheets);
-    await combineTimesheetsAndDedupe();
-    displayAllTimesheets();
-  }
-  function displayTimesheetsTable(tsArray, containerId, showEmployee) {
-    const container = document.getElementById(containerId);
-    const currentUser2 = state.get("currentUser");
-    if (tsArray.length === 0) {
-      container.innerHTML = "<p>No timesheets found.</p>";
+  function displayApiKeys() {
+    const apiKeys = state.get("apiKeys");
+    const container = document.getElementById("apiKeysList");
+    if (apiKeys.length === 0) {
+      container.innerHTML = "<p>No API keys created yet.</p>";
       return;
     }
-    const isAdmin = currentUser2.isAdmin;
-    container.innerHTML = `
-        <table>
-            <thead>
-                <tr>
-                    ${showEmployee ? "<th>Employee</th>" : ""}
-                    <th>Week</th>
-                    <th>Status</th>
-                    <th>Entries</th>
-                    <th>Submitted</th>
-                    <th>Actions</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${tsArray.map((ts) => `
-                <tr>
-                    ${showEmployee ? `<td>${escapeHtml(ts.employee.user.name)}</td>` : ""}
-                    <td>${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}</td>
-                    <td>
-                        <span class="status-badge status-${ts.status}">${ts.status}</span>
-                        ${ts.autoCreated ? ' <span class="source-badge tsdata-badge" title="Auto-created from TSDATA sync">TSDATA</span>' : ""}
-                        ${ts.tsDataStatus && ts.tsDataStatus !== ts.status ? `<br><small style="color:#666;">TSDATA: ${ts.tsDataStatus}</small>` : ""}
-                    </td>
-                    <td>${ts.entries.length}</td>
-                    <td>${ts.submittedAt ? new Date(ts.submittedAt).toLocaleString() : ts.tsDataSyncedAt ? `<small>Synced ${new Date(ts.tsDataSyncedAt).toLocaleString()}</small>` : "-"}</td>
-                    <td>
-                      <button class="btn btn-sm btn-primary" onclick="viewTimesheet(${ts.id})">View</button>
-                      ${ts.status === "SUBMITTED" && isAdmin ? `
-                        <button class="btn btn-sm btn-success" onclick="approveTimesheet(${ts.id})">Approve</button>
-                      ` : ""}
-                      ${ts.status === "APPROVED" && isAdmin ? `
-                        <button class="btn btn-sm btn-secondary" onclick="lockTimesheet(${ts.id})">Lock</button>
-                      ` : ""}
-                      ${getWmsSyncButton(ts)}
-                      ${ts.status === "OPEN" ? `
-                        <button class="btn btn-sm btn-success" onclick="submitTimesheet(${ts.id})">Submit</button>
-                      ` : ""}
-                      <button class="btn btn-sm btn-danger" onclick="deleteTimesheet(${ts.id})">Delete</button>
-                    </td>
-                </tr>
-                `).join("")}
-            </tbody>
-        </table>
-    `;
-  }
-  async function populateTimeSheetSelect() {
-    const select = document.getElementById("timesheetSelect");
-    let timesheets = state.get("timesheets");
-    select.innerHTML = '<option value="">Select a timesheet...</option>' + timesheets.map((ts) => {
-      const label = currentUser.isAdmin ? `${escapeHtml(ts.employee.user.name)} - Week ${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}` : `Week ${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}`;
-      return `<option value="${ts.id}">${label}</option>`;
-    }).join("");
-  }
-  async function createTimesheet() {
-    const currentUser2 = state.get("currentUser");
-    let employeeSelectHtml = "";
-    if (currentUser2.isAdmin) {
-      const employees = await api.get("/employees");
-      employeeSelectHtml = `
-            <div class="form-group">
-                <label>Employee</label>
-                <select name="employeeId" required>
-                    <option value="">Select employee...</option>
-                    ${employees.filter((e) => e.id !== currentUser2.employeeId).map((e) => `<option value="${e.id}">${escapeHtml(e.user.name)}</option>`).join("")}
-                </select>
-            </div>
-        `;
-    }
     const html = `
-        <form id="timesheetForm"> 
-            ${employeeSelectHtml}
-            <div class="form-group">
-                <label>Week Starting</label>
-                <input type="date" name="weekStarting" required>
-            </div>
-            <div class="form-group">
-                <label>Week Ending</label>
-                <input type="date" name="weekEnding" required>
-            </div>
-            <button type="submit" class="btn btn-primary">Create Timesheet</button>
-        </form>
-    `;
-    showModalWithForm("Create Timesheet", html);
-    const timesheetModal = document.getElementById("timesheetForm");
-    timesheetModal.onsubmit = async (e) => {
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Key Prefix</th>
+          <th>Created By</th>
+          <th>Last Used</th>
+          <th>Expires</th>
+          <th>Status</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${apiKeys.map((k) => `
+          <tr>
+            <td>${escapeHtml(k.name)}</td>
+            <td><code>${escapeHtml(k.keyPrefix)}...</code></td>
+            <td>${escapeHtml(k.user.name)}</td>
+            <td>${k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : "Never"}</td>
+            <td>${k.expiresAt ? new Date(k.expiresAt).toLocaleDateString() : "Never"}</td>
+            <td>
+              <span class="status-badge ${k.isActive ? "status-APPROVED" : "status-LOCKED"}">${k.isActive ? "Active" : "Revoked"}</span>
+            </td>
+            <td>
+              ${k.isActive ? `<button class="btn btn-sm btn-danger" onclick="revokeApiKey(${k.id})">Revoke</button>` : ""}
+            </td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+    container.innerHTML = html;
+  }
+  async function createApiKey() {
+    const form = `
+    <form id="apiKeyForm">
+      <div class="form-group">
+        <label>Key Name</label>
+        <input type="text" name="name" required placeholder="e.g., CI/CD Pipeline">
+      </div>
+      <div class="form-group">
+        <label>Expires (optional)</label>
+        <input type="date" name="expiresAt">
+      </div>
+      <button type="submit" class="btn btn-primary">Create API Key</button>
+    </form>
+  `;
+    showModalWithForm("Create API Key", form);
+    document.getElementById("apiKeyForm").onsubmit = async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);
-      const employeeId = formData.get("employeeId") ? parseInt(formData.get("employeeId")) : currentUser2.employeeId;
-      if (!employeeId) {
-        showAlert("No employee profile found. An admin must create an employee profile for your account first.");
-      }
       try {
-        await api.post("/timesheets", {
-          employeeId,
-          weekStarting: formData.get("weekStarting"),
-          weekEnding: formData.get("weekEnding")
+        const result = await api.post("/api-keys", {
+          name: formData.get("name"),
+          expiresAt: formData.get("expiresAt") || null
         });
-        hideModal();
-        await refreshTimesheets2();
+        const keyDisplay = `
+        <div style="margin-bottom: 1rem;">
+          <p style="color: #27ae60; font-weight: 600;">API Key created successfully!</p>
+          <p><strong>Copy this key now - it will not be shown again:</strong></p>
+          <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem;">
+            <input type="text" id="newApiKeyValue" value="${escapeHtml(result.apiKey.key)}" readonly
+              style="font-family: monospace; flex: 1; padding: 0.5rem; background: #f8f9fa; border: 1px solid #dee2e6;">
+            <button type="button" class="btn btn-primary" onclick="copyApiKey()">Copy</button>
+          </div>
+        </div>
+        <button type="button" class="btn btn-secondary" onclick="hideModal(); loadApiKeys();">Done</button>
+      `;
+        document.getElementById("modalBody").innerHTML = `<h2>API Key Created</h2>${keyDisplay}`;
       } catch (error) {
         showAlert(error.message);
       }
     };
   }
-  async function refreshTimesheets2() {
-    const currentUser2 = state.get("currentUser");
-    if (currentUser2.isAdmin) await loadAllTimesheets();
-    if (currentUser2.employeeId) await loadMyTimesheets();
-  }
-  function displayMyTimesheets() {
-    displayTimesheetsTable(state.get("myTimesheets"), "myTimesheetsList", false);
-  }
-  async function displayAllTimesheets() {
-    displayTimesheetsTable(state.get("allTimesheets"), "allTimesheetsList", true);
-  }
-  async function viewTimesheet(id) {
-    const ts = state.get("timesheets").find((ts2) => ts2.id === id);
-    if (!ts) {
-      showAlert("Timesheet not found.");
-      return;
-    }
-    const html = `
-    <h3>${escapeHtml(ts.employee.user.name)}</h3>
-      <p>Week ${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}</p>
-      <p><strong>Status:</strong> <span class="status-badge status-${ts.status}">${ts.status}</span></p>
-      ${ts.approvedBy ? `<p><strong>Approved by:</strong> ${escapeHtml(ts.approvedBy.name)}</p>` : ""}
-      ${ts.entries.length > 0 ? `
-        <div class="table-responsive">
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Type</th>
-              <th>Time</th>
-              <th>Hours</th>
-              <th>Company</th>
-              <th>Role</th>
-              <th>Location</th>
-              <th>Details</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${ts.entries.map((entry) => `
-              <tr>
-                <td>${new Date(entry.date).toLocaleDateString()}</td>
-                <td>${entry.entryType}</td>
-                <td style="white-space:nowrap;">${entry.startTime && entry.endTime ? `${formatTime(entry.startTime)} - ${formatTime(entry.endTime)}` : "-"}</td>
-                <td>${entry.hours.toFixed(2)}</td>
-                <td>${escapeHtml(entry.company.name)}</td>
-                <td>${escapeHtml(entry.role.name)}</td>
-                <td>${escapeHtml(entry.startingLocation) || "-"}</td>
-                <td>
-                  <div class="rich-text-content">${sanitizeRichText(entry.notes) || "-"}</div>
-                  ${entry.reasonForDeviation ? `<div style="margin-top:0.25rem;padding:0.25rem 0.5rem;background:#fff3cd;border-radius:4px;border-left:3px solid #ffc107;"><small><strong>Deviation:</strong> ${sanitizeRichText(entry.reasonForDeviation)}</small></div>` : ""}
-                  ${entry.entryType === "TRAVEL" ? `<br><small>${escapeHtml(entry.travelFrom)} &rarr; ${escapeHtml(entry.travelTo)}${entry.distance ? ` (${entry.distance.toFixed(1)} km)` : ""}</small>` : ""}
-                  ${entry.locationNotes ? (() => {
-      try {
-        const lnotes = typeof entry.locationNotes === "string" ? JSON.parse(entry.locationNotes) : entry.locationNotes;
-        return lnotes.map((ln) => `<div style="margin-top:0.5rem;padding:0.25rem 0.5rem;background:#e8f4fd;border-radius:4px;border-left:3px solid #3498db;"><strong>${escapeHtml(ln.location)}</strong><div class="rich-text-content">${sanitizeRichText(ln.description)}</div></div>`).join("");
-      } catch (e) {
-        return "";
-      }
-    })() : ""}
-                  ${entry.privateNotes ? `<br><span class="private-notes-badge">Private notes</span>` : ""}
-                </td>
-              </tr>
-            `).join("")}
-          </tbody>
-        </table>
-        </div>
-        <p><strong>Total Hours:</strong> ${ts.entries.reduce((sum, e) => sum + e.hours, 0).toFixed(2)}</p>
-      ` : "<p>No entries yet</p>"}
-      <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
-        <button class="btn btn-secondary" onclick="hideModal(); showDeWmsEntries(${id});">DE WMS Entries</button>
-      </div>
-    `;
-    try {
-      showModalWithForm("Timesheet Details", html);
-    } catch (e) {
-      showAlert(e);
-    }
-  }
-  async function submitTimesheet(id) {
-    if (!showConfirmation("Are you sure you want to submit this timesheet?")) return;
-    try {
-      await api.post(`/timesheets/${id}/submit`);
-      await refreshTimesheets2();
-      showAlert("Timesheet submitted successfully");
-    } catch (error) {
-      showAlert(error.message);
-    }
-  }
-  async function approveTimesheet(id) {
-    if (!showConfirmation("Approve this timesheet?")) return;
-    try {
-      await api.post(`/timesheets/${id}/approve`);
-      await refreshTimesheets2();
-      showAlert("Timesheet approved");
-    } catch (error) {
-      showAlert(error.message);
-    }
-  }
-  async function lockTimesheet(id) {
-    if (!showConfirmation("Lock this timesheet? No further edits will be allowed.")) return;
-    try {
-      await api.post(`/timesheets/${id}/lock`);
-      await refreshTimesheets2();
-      showAlert("Timesheet locked");
-    } catch (error) {
-      showAlert(error.message);
-    }
-  }
-  async function deleteTimesheet(id) {
-    if (!showConfirmation("Are you sure you want to delete this timesheet?")) return;
-    try {
-      await api.delete(`/timesheets/${id}`);
-      await refreshTimesheets2();
-    } catch (error) {
-      showAlert(error.message);
-    }
-  }
-  function combineTimesheetsAndDedupe() {
-    const myTimesheets = state.get("myTimesheets");
-    const allTimesheets = state.get("allTimesheets");
-    const timesheets = [...myTimesheets];
-    allTimesheets.forEach((ts) => {
-      if (!timesheets.find((t) => t.id === ts.id)) timesheets.push(ts);
+  function copyApiKey() {
+    const input = document.getElementById("newApiKeyValue");
+    input.select();
+    navigator.clipboard.writeText(input.value).then(() => {
+      const btn = input.nextElementSibling;
+      btn.textContent = "Copied!";
+      setTimeout(() => {
+        btn.textContent = "Copy";
+      }, 2e3);
     });
-    timesheets.sort((a, b) => new Date(b.weekStarting) - new Date(a.weekStarting));
-    state.set("timesheets", timesheets);
-    return timesheets;
   }
-  var init_timesheets = __esm({
-    "public/js/modules/features/timesheets/timesheets.js"() {
+  async function revokeApiKey(id) {
+    if (!showConfirmation("Are you sure you want to revoke this API key? This cannot be undone.")) return;
+    try {
+      await api.delete(`/api-keys/${id}`);
+      loadApiKeys();
+    } catch (error) {
+      showAlert(error.message);
+    }
+  }
+  var init_api_keys = __esm({
+    "public/js/modules/features/api-keys/api-keys.js"() {
       init_api();
       init_state();
-      init_dom();
-      init_navigation();
       init_modal();
       init_alerts();
-      init_dateTime();
-      init_wms_sync();
-      registerTabHook("myTimesheets", displayMyTimesheets);
-      registerTabHook("allTimesheets", displayAllTimesheets);
+      init_dom();
+      init_navigation();
+      registerTabHook("apiKeys", loadApiKeys);
     }
   });
 
@@ -1914,6 +2283,39 @@ var App = (() => {
   init_quill();
   init_navigation();
 
+  // public/js/modules/core/slide-panel.js
+  init_quill();
+  var destroyAutocompletes2 = null;
+  function showSlidePanel(title, bodyHtml) {
+    const overlay = document.getElementById("slidePanel");
+    const titleEl = document.getElementById("slidePanelTitle");
+    const bodyEl = document.getElementById("slidePanelBody");
+    titleEl.textContent = title;
+    bodyEl.innerHTML = bodyHtml;
+    overlay.style.display = "block";
+    requestAnimationFrame(() => {
+      overlay.classList.add("active");
+    });
+  }
+  function hideSlidePanel() {
+    const overlay = document.getElementById("slidePanel");
+    overlay.classList.remove("active");
+    setTimeout(() => {
+      overlay.style.display = "none";
+      document.getElementById("slidePanelBody").innerHTML = "";
+      destroyQuillEditors();
+      if (destroyAutocompletes2) destroyAutocompletes2();
+    }, 300);
+  }
+  function initSlidePanel() {
+    const closeBtn = document.getElementById("slidePanelClose");
+    const overlay = document.getElementById("slidePanel");
+    if (closeBtn) {
+      closeBtn.addEventListener("click", hideSlidePanel);
+    }
+    console.log("Slide-in panel initialized");
+  }
+
   // public/js/modules/components/location-autocomplete.js
   init_dom();
   init_state();
@@ -1922,18 +2324,237 @@ var App = (() => {
   init_modal();
   var activeAutocompletes = [];
   var autocompleteDebounceTimers = {};
-  function destroyAutocompletes2() {
+  var locationNoteCounter = 0;
+  function destroyAutocompletes3() {
     document.querySelectorAll(".location-autocomplete-dropdown").forEach((el) => el.remove());
     activeAutocompletes = [];
     autocompleteDebounceTimers = {};
   }
-  registerAutocompleteCleanup(destroyAutocompletes2);
+  registerAutocompleteCleanup(destroyAutocompletes3);
+  function attachLocationAutocomplete(input) {
+    const id = "ac_" + Math.random().toString(36).slice(2, 8);
+    input.dataset.acId = id;
+    activeAutocompletes.push(id);
+    const fieldName = input.name;
+    const form = input.closest("form");
+    const latField = form ? form.querySelector(`input[name="${fieldName}Lat"]`) : null;
+    const lngField = form ? form.querySelector(`input[name="${fieldName}Lng"]`) : null;
+    const currentUser2 = state.get("currentUser");
+    const presets = [];
+    if (currentUser2 && currentUser2.employee && currentUser2.employee.presetAddresses) {
+      try {
+        const pa = typeof currentUser2.employee.presetAddresses === "string" ? JSON.parse(currentUser2.employee.presetAddresses) : currentUser2.employee.presetAddresses;
+        if (pa && typeof pa === "object") {
+          for (const [label, addr] of Object.entries(pa)) {
+            if (typeof addr === "string") {
+              presets.push({ label, address: addr });
+            } else if (addr.address) {
+              presets.push({ label, address: addr.address, lat: addr.lat, lng: addr.lng });
+            }
+          }
+        }
+      } catch (e) {
+      }
+    }
+    input.addEventListener("input", () => {
+      const query = input.value.trim();
+      clearTimeout(autocompleteDebounceTimers[id]);
+      if (query.length < 2) {
+        removeDropdown(id);
+        return;
+      }
+      autocompleteDebounceTimers[id] = setTimeout(async () => {
+        const matchingPresets = presets.filter(
+          (p) => p.label.toLowerCase().includes(query.toLowerCase()) || p.address.toLowerCase().includes(query.toLowerCase())
+        );
+        let places = [];
+        try {
+          const res = await api.get(`/maps/search?query=${encodeURIComponent(query)}`);
+          places = res.results || [];
+        } catch (e) {
+          console.warn("Location search failed:", e.message || e);
+        }
+        showDropdown(input, id, matchingPresets, places, query, latField, lngField);
+      }, 300);
+    });
+    input.addEventListener("focus", () => {
+      if (input.value.trim().length >= 2) {
+        input.dispatchEvent(new Event("input"));
+      } else if (presets.length > 0) {
+        showDropdown(input, id, presets, [], "", latField, lngField);
+      }
+    });
+    input.addEventListener("blur", () => {
+      setTimeout(() => removeDropdown(id), 200);
+    });
+  }
+  function showDropdown(input, id, presets, places, query, latField, lngField) {
+    removeDropdown(id);
+    const dropdown = document.createElement("div");
+    dropdown.className = "location-autocomplete-dropdown";
+    dropdown.id = "dropdown_" + id;
+    if (presets.length > 0) {
+      const header = document.createElement("div");
+      header.className = "ac-header";
+      header.textContent = "Saved Locations";
+      dropdown.appendChild(header);
+      for (const p of presets) {
+        const item = document.createElement("div");
+        item.className = "ac-item";
+        item.innerHTML = `<strong>${escapeHtml(p.label)}</strong><br><small style="color:var(--text);">${escapeHtml(p.address)}</small>`;
+        item.onmousedown = async (e) => {
+          e.preventDefault();
+          input.value = p.address;
+          if (p.lat && p.lng) {
+            if (latField && lngField) {
+              latField.value = p.lat;
+              lngField.value = p.lng;
+            }
+          } else if (latField && lngField) {
+            try {
+              const res = await api.get(`/maps/search?query=${encodeURIComponent(p.address)}`);
+              if (res.results && res.results.length > 0) {
+                latField.value = res.results[0].lat;
+                lngField.value = res.results[0].lon;
+                console.log(`Geocoded preset "${p.label}": ${res.results[0].lat}, ${res.results[0].lon}`);
+              }
+            } catch (err) {
+              console.warn("Failed to geocode preset:", err);
+            }
+          }
+          removeDropdown(id);
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        };
+        item.onmouseenter = () => item.style.background = "#f0f8ff";
+        item.onmouseleave = () => item.style.background = "";
+        dropdown.appendChild(item);
+      }
+    }
+    if (places.length > 0) {
+      const header = document.createElement("div");
+      header.className = "ac-header";
+      header.textContent = "Search Results";
+      dropdown.appendChild(header);
+      for (const p of places.slice(0, 5)) {
+        const item = document.createElement("div");
+        item.className = "ac-item";
+        item.innerHTML = `<strong>${escapeHtml(p.mainText)}</strong><br><small style="color:#666;">${escapeHtml(p.secondaryText)}</small>`;
+        item.onmousedown = (e) => {
+          e.preventDefault();
+          input.value = p.displayName || `${p.mainText}, ${p.secondaryText}`;
+          if (latField && lngField && p.lat && p.lon) {
+            latField.value = p.lat;
+            lngField.value = p.lon;
+            console.log(`Selected location: ${p.displayName} (${p.lat}, ${p.lon})`);
+          }
+          removeDropdown(id);
+          input.dispatchEvent(new Event("change", { bubbles: true }));
+        };
+        item.onmouseenter = () => item.style.background = "#f0f8ff";
+        item.onmouseleave = () => item.style.background = "";
+        dropdown.appendChild(item);
+      }
+    }
+    if (query && query.length >= 1) {
+      const useAsIs = document.createElement("div");
+      useAsIs.className = "ac-use-as-is";
+      useAsIs.innerHTML = `Use "<strong>${escapeHtml(query)}</strong>" as entered`;
+      useAsIs.onmousedown = (e) => {
+        e.preventDefault();
+        removeDropdown(id);
+      };
+      dropdown.appendChild(useAsIs);
+    }
+    if (dropdown.children.length === 0) return;
+    const position = () => {
+      const rect = input.getBoundingClientRect();
+      dropdown.style.position = "fixed";
+      dropdown.style.top = rect.bottom + 2 + "px";
+      dropdown.style.left = rect.left + "px";
+      dropdown.style.width = rect.width + "px";
+    };
+    position();
+    window.addEventListener("scroll", position, true);
+    window.addEventListener("resize", position);
+    dropdown.addEventListener("remove", () => {
+      window.removeEventListener("scroll", position, true);
+      window.removeEventListener("resize", position);
+    });
+    document.body.appendChild(dropdown);
+  }
+  function removeDropdown(id) {
+    const el = document.getElementById("dropdown_" + id);
+    if (el) el.remove();
+  }
+  function attachAllLocationAutocompletes() {
+    destroyAutocompletes3();
+    const modal = document.getElementById("modalBody");
+    const slidePanel = document.getElementById("slidePanelBody");
+    const containers = [modal, slidePanel].filter(Boolean);
+    if (containers.length === 0) return;
+    containers.forEach((container) => {
+      const startingLoc = container.querySelector('input[name="startingLocation"]');
+      if (startingLoc) attachLocationAutocomplete(startingLoc);
+      const travelFrom = container.querySelector('input[name="travelFrom"]');
+      if (travelFrom) attachLocationAutocomplete(travelFrom);
+      const travelTo = container.querySelector('input[name="travelTo"]');
+      if (travelTo) attachLocationAutocomplete(travelTo);
+      container.querySelectorAll(".location-name-input").forEach((inp) => {
+        if (!inp.dataset.acId) attachLocationAutocomplete(inp);
+      });
+    });
+  }
+  function addLocationNoteField(containerId, location, description) {
+    const container = document.getElementById(containerId);
+    const index = locationNoteCounter++;
+    const editorId = `locationEditor_${index}`;
+    const div = document.createElement("div");
+    div.className = "location-note-item";
+    div.id = `locationNote_${index}`;
+    div.innerHTML = `
+    <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem;">
+      <input type="text" class="form-control location-name-input" placeholder="School / Location name" value="${(location || "").replace(/"/g, "&quot;")}" style="flex: 1;">
+      <button type="button" class="btn btn-sm btn-danger" onclick="removeLocationNote(${index})">Remove</button>
+    </div>
+    <div class="quill-wrapper">
+      <div id="${editorId}"></div>
+    </div>
+  `;
+    container.appendChild(div);
+    const editor = initQuillEditor(editorId, "What was done at this location...");
+    if (description) {
+      editor.root.innerHTML = description;
+    }
+    const locInput = div.querySelector(".location-name-input");
+    if (locInput) attachLocationAutocomplete(locInput);
+    return { index, editorId };
+  }
   function removeLocationNote(index) {
     const el = document.getElementById(`locationNote_${index}`);
     if (el) {
       const editorId = `locationEditor_${index}`;
       el.remove();
     }
+  }
+  function collectLocationNotes(containerId) {
+    const container = document.getElementById(containerId);
+    const items = container.querySelectorAll(".location-note-item");
+    const notes = [];
+    items.forEach((item) => {
+      const location = item.querySelector(".location-name-input").value.trim();
+      const editorDiv = item.querySelector('[id^="locationEditor_"]');
+      if (editorDiv) {
+        const editor = getQuillEditor(editorDiv.id);
+        if (editor) {
+          const html = editor.root.innerHTML;
+          const description = html === "<p><br></p>" ? "" : html;
+          if (location || description) {
+            notes.push({ location, description });
+          }
+        }
+      }
+    });
+    return notes.length > 0 ? JSON.stringify(notes) : null;
   }
 
   // public/js/modules/main.js
@@ -1965,10 +2586,14 @@ var App = (() => {
   }
   async function checkAuth() {
     try {
+      console.log("\u{1F50D} Checking auth...");
       const result = await api.get("/auth/me");
+      console.log("\u2705 Auth successful, user:", result.user.email);
       state.set("currentUser", result.user);
       await showMainScreen();
+      console.log("\u2705 Main screen shown successfully");
     } catch (error) {
+      console.log("\u274C Auth failed:", error.message);
       showLoginScreen();
     }
   }
@@ -1978,27 +2603,15 @@ var App = (() => {
   }
   async function showMainScreen() {
     const currentUser2 = state.get("currentUser");
+    console.log("\u{1F4F1} Showing main screen for:", currentUser2.email);
     document.getElementById("loginScreen").style.display = "none";
     document.getElementById("mainScreen").style.display = "block";
     document.getElementById("userDisplay").textContent = currentUser2.name;
     const hasProfile = !!currentUser2.employeeId;
     const isAdmin = currentUser2.isAdmin;
-    const myTimesheetsTabBtn = document.querySelector('[data-tab="myTimesheets"]');
-    const allTimesheetsTabBtn = document.querySelector('[data-tab="allTimesheets"]');
-    let defaultTabName = "entries";
-    if (isAdmin && !hasProfile) {
-      myTimesheetsTabBtn.style.display = "none";
-      allTimesheetsTabBtn.style.display = "";
-      defaultTabName = "allTimesheets";
-    } else if (isAdmin && hasProfile) {
-      myTimesheetsTabBtn.style.display = "";
-      allTimesheetsTabBtn.style.display = "";
-      defaultTabName = "myTimesheets";
-    } else {
-      myTimesheetsTabBtn.style.display = "";
-      allTimesheetsTabBtn.style.display = "none";
-      defaultTabName = "myTimesheets";
-    }
+    const timesheetsTabBtn = document.querySelector('[data-tab="timesheets"]');
+    if (timesheetsTabBtn) timesheetsTabBtn.style.display = "";
+    let defaultTabName = "timesheets";
     document.querySelectorAll(".admin-only").forEach((el) => {
       el.style.display = isAdmin ? "" : "none";
     });
@@ -2009,23 +2622,37 @@ var App = (() => {
   }
   async function loadAllData() {
     const currentUser2 = state.get("currentUser");
-    const { loadCompanies: loadCompanies2 } = await Promise.resolve().then(() => (init_companies(), companies_exports));
-    const { loadRoles: loadRoles2 } = await Promise.resolve().then(() => (init_roles(), roles_exports));
-    await Promise.all([
-      loadCompanies2(),
-      loadRoles2()
-    ]);
-    if (currentUser2.employeeId) {
-    }
-    if (currentUser2.isAdmin) {
-      const { loadEmployees: loadEmployees2 } = await Promise.resolve().then(() => (init_employees(), employees_exports));
-      const { loadUsers: loadUsers2 } = await Promise.resolve().then(() => (init_users(), users_exports));
+    console.log("\u{1F4E6} Loading data for user:", currentUser2.email);
+    try {
+      const { loadCompanies: loadCompanies2 } = await Promise.resolve().then(() => (init_companies(), companies_exports));
+      const { loadRoles: loadRoles2 } = await Promise.resolve().then(() => (init_roles(), roles_exports));
       await Promise.all([
-        // loadAllTimesheets(), // TODO: implement when timesheets module is ready
-        loadEmployees2(),
-        loadUsers2()
-        // loadApiKeys() // TODO: implement when api-keys module is ready
+        loadCompanies2(),
+        loadRoles2()
       ]);
+      console.log("\u2705 Companies and roles loaded");
+      if (currentUser2.employeeId) {
+        const { loadMyTimesheets: loadMyTimesheets2 } = await Promise.resolve().then(() => (init_timesheets(), timesheets_exports));
+        await loadMyTimesheets2();
+        console.log("\u2705 My timesheets loaded");
+      }
+      if (currentUser2.isAdmin) {
+        const { loadEmployees: loadEmployees2 } = await Promise.resolve().then(() => (init_employees(), employees_exports));
+        const { loadUsers: loadUsers2 } = await Promise.resolve().then(() => (init_users(), users_exports));
+        const { loadAllTimesheets: loadAllTimesheets2 } = await Promise.resolve().then(() => (init_timesheets(), timesheets_exports));
+        const { loadApiKeys: loadApiKeys2 } = await Promise.resolve().then(() => (init_api_keys(), api_keys_exports));
+        await Promise.all([
+          loadAllTimesheets2(),
+          loadEmployees2(),
+          loadUsers2(),
+          loadApiKeys2()
+        ]);
+        console.log("\u2705 Admin data loaded");
+      }
+      console.log("\u2705 All data loaded successfully");
+    } catch (error) {
+      console.error("\u274C Error loading data:", error);
+      throw error;
     }
   }
 
@@ -2033,6 +2660,1620 @@ var App = (() => {
   init_employees();
   init_users();
   init_timesheets();
+
+  // public/js/modules/features/entries/entries.js
+  init_api();
+  init_state();
+  init_dom();
+  init_modal();
+  init_alerts();
+  init_quill();
+  init_dateTime();
+
+  // public/js/modules/features/entries/entry-validation.js
+  init_state();
+  function timeToMinutes(timeStr) {
+    if (!timeStr) return null;
+    const [h, m] = timeStr.split(":").map(Number);
+    return h * 60 + m;
+  }
+  function formatTime2(timeStr) {
+    if (!timeStr) return "";
+    const [h, m] = timeStr.split(":");
+    const hour = parseInt(h);
+    const ampm = hour >= 12 ? "PM" : "AM";
+    const displayHour = hour === 0 ? 12 : hour > 12 ? hour - 12 : hour;
+    return `${displayHour}:${m} ${ampm}`;
+  }
+  function validateEntry(entry, existingEntries, excludeEntryId, timesheetId) {
+    const errors = [];
+    const warnings = [];
+    const startMins = timeToMinutes(entry.startTime);
+    const endMins = timeToMinutes(entry.endTime);
+    if (startMins === null || endMins === null) {
+      errors.push("Start time and end time are required.");
+      return { valid: false, errors, warnings };
+    }
+    if (endMins <= startMins) {
+      errors.push("End time must be after start time.");
+    }
+    if (startMins >= 23 * 60) {
+      errors.push("Start time cannot be 11:00 PM or later.");
+    }
+    if (errors.length > 0) {
+      return { valid: false, errors, warnings };
+    }
+    const entryHours = (endMins - startMins) / 60;
+    if (entryHours > 12) {
+      errors.push(`Entry duration of ${entryHours.toFixed(1)} hours exceeds the 12-hour maximum per entry.`);
+    }
+    const ts = getTimesheetById(timesheetId);
+    if (ts) {
+      const entryDate2 = new Date(entry.date);
+      const weekStart = new Date(ts.weekStarting);
+      const weekEnd = new Date(ts.weekEnding);
+      weekStart.setHours(0, 0, 0, 0);
+      weekEnd.setHours(23, 59, 59, 999);
+      if (entryDate2 < weekStart || entryDate2 > weekEnd) {
+        errors.push(`Entry date must be within the timesheet week (${weekStart.toLocaleDateString()} - ${weekEnd.toLocaleDateString()}).`);
+      }
+    }
+    const dayOfWeek = new Date(entry.date).getDay();
+    if (dayOfWeek === 0 || dayOfWeek === 6) {
+      warnings.push("This entry is on a weekend. A reason for deviation may be required by DE WMS.");
+    }
+    const entryDate = entry.date;
+    const sameDayEntries = existingEntries.filter((e) => {
+      const eDate = new Date(e.date).toISOString().split("T")[0];
+      const matchesDate = eDate === entryDate;
+      const notSelf = excludeEntryId ? e.id !== excludeEntryId : true;
+      return matchesDate && notSelf && e.startTime && e.endTime;
+    });
+    for (const other of sameDayEntries) {
+      const otherStart = timeToMinutes(other.startTime);
+      const otherEnd = timeToMinutes(other.endTime);
+      if (otherStart === null || otherEnd === null) continue;
+      if (startMins < otherEnd && endMins > otherStart) {
+        errors.push(`Overlaps with existing entry ${formatTime2(other.startTime)} - ${formatTime2(other.endTime)} (${other.company ? other.company.name : "unknown"}).`);
+      }
+    }
+    if (sameDayEntries.length > 0) {
+      const allDayEntries = [...sameDayEntries.map((e) => ({
+        start: timeToMinutes(e.startTime),
+        end: timeToMinutes(e.endTime)
+      })), { start: startMins, end: endMins }].filter((e) => e.start !== null && e.end !== null);
+      allDayEntries.sort((a, b) => a.start - b.start);
+      let hasRequiredBreak = false;
+      for (let i = 0; i < allDayEntries.length - 1; i++) {
+        const gap = allDayEntries[i + 1].start - allDayEntries[i].end;
+        if (gap >= 30) {
+          hasRequiredBreak = true;
+          break;
+        }
+      }
+      if (!hasRequiredBreak) {
+        errors.push("At least one 30-minute unpaid break is required when there are multiple entries in a day.");
+      }
+    }
+    const currentUser2 = state.get("currentUser");
+    const maxDaily = currentUser2 && currentUser2.employee ? currentUser2.employee.maxDailyHours || 16 : 16;
+    const existingDayHours = sameDayEntries.reduce((sum, e) => sum + (e.hours || 0), 0);
+    if (existingDayHours + entryHours > maxDaily) {
+      errors.push(`Total hours for this day would be ${(existingDayHours + entryHours).toFixed(1)}h, exceeding your ${maxDaily}h daily limit.`);
+    }
+    return { valid: errors.length === 0, errors, warnings };
+  }
+  function getTimesheetById(timesheetId) {
+    const myTimesheets = state.get("myTimesheets");
+    const allTimesheets = state.get("allTimesheets");
+    return [...myTimesheets, ...allTimesheets].find((t) => t.id === parseInt(timesheetId)) || null;
+  }
+  function getTimesheetEntries(timesheetId) {
+    const ts = getTimesheetById(timesheetId);
+    return ts && ts.entries ? ts.entries : [];
+  }
+
+  // public/js/modules/features/entries/entries.js
+  init_dom();
+  function getEntryCompanyOptions(selectedId) {
+    const currentUser2 = state.get("currentUser");
+    const companies = state.get("companies");
+    const emp = currentUser2 && currentUser2.employee;
+    let companyList;
+    if (currentUser2 && currentUser2.isAdmin) {
+      companyList = companies;
+    } else if (emp && emp.roles && emp.roles.length > 0) {
+      const assignedCompanyIds = new Set(emp.roles.map((er) => er.company.id));
+      companyList = companies.filter((c) => assignedCompanyIds.has(c.id));
+    } else {
+      companyList = [];
+    }
+    return companyList.map(
+      (c) => `<option value="${c.id}" ${c.id === selectedId ? "selected" : ""}>${escapeHtml(c.name)}</option>`
+    );
+  }
+  function getEntryRolesForCompany(companyId) {
+    const currentUser2 = state.get("currentUser");
+    const roles = state.get("roles");
+    const emp = currentUser2 && currentUser2.employee;
+    if (currentUser2 && currentUser2.isAdmin) {
+      return roles.filter((r) => r.company.id === companyId);
+    } else if (emp && emp.roles && emp.roles.length > 0) {
+      return emp.roles.filter((er) => er.company.id === companyId).map((er) => er.role);
+    }
+    return [];
+  }
+  async function loadEntries(timesheetId) {
+    if (!timesheetId) {
+      document.getElementById("entriesList").innerHTML = "<p>Please select a timesheet</p>";
+      return;
+    }
+    try {
+      const result = await api.get(`/entries/timesheet/${timesheetId}`);
+      displayEntries(result.entries, timesheetId);
+    } catch (error) {
+      console.error("Load entries error:", error);
+    }
+  }
+  function displayEntries(entries, timesheetId) {
+    const container = document.getElementById("entriesList");
+    if (entries.length === 0) {
+      container.innerHTML = "<p>No entries found</p>";
+      return;
+    }
+    const html = `
+    <table>
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Type</th>
+          <th>Time</th>
+          <th>Hours</th>
+          <th>Company</th>
+          <th>Role</th>
+          <th>Status</th>
+          <th>Source</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${entries.map((entry) => {
+      const isEditable = entry.status === "OPEN";
+      const isTsData = entry.tsDataSource || false;
+      return `
+          <tr>
+            <td>${new Date(entry.date).toLocaleDateString()}</td>
+            <td>${entry.entryType}${entry.entryType === "TRAVEL" ? `<br><small>${escapeHtml(entry.travelFrom)} &rarr; ${escapeHtml(entry.travelTo)}</small>` : ""}</td>
+            <td>${entry.startTime && entry.endTime ? `${formatTime(entry.startTime)}<br>${formatTime(entry.endTime)}` : "-"}</td>
+            <td>${entry.hours.toFixed(2)}</td>
+            <td>${escapeHtml(entry.company.name)}</td>
+            <td>${escapeHtml(entry.role.name)}</td>
+            <td>
+              <span class="status-badge status-${entry.status}">${entry.status}</span>
+              ${entry.privateNotes ? `<br><span class="private-notes-badge">Private</span>` : ""}
+            </td>
+            <td>
+              ${isTsData ? `<span class="source-badge tsdata-badge" title="Synced from TSDATA${entry.tsDataSyncedAt ? " on " + new Date(entry.tsDataSyncedAt).toLocaleString() : ""}">TSDATA</span>` : '<span class="source-badge local-badge">Local</span>'}
+            </td>
+            <td>
+              ${isEditable ? `
+                <button class="btn btn-sm btn-primary" onclick="editEntry(${entry.id}, ${timesheetId})">Edit</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteEntry(${entry.id})">Delete</button>
+              ` : `<span style="color:#999; font-size:0.85rem;">Locked</span>`}
+            </td>
+          </tr>
+        `;
+    }).join("")}
+      </tbody>
+    </table>
+  `;
+    container.innerHTML = html;
+  }
+  async function createEntry() {
+    const timesheetId = document.getElementById("timesheetSelect").value;
+    if (!timesheetId) {
+      showAlert("Please select a timesheet first");
+      return;
+    }
+    const defaults = getTimeDefaults(timesheetId);
+    const form = `
+    <form id="entryForm">
+      <div class="form-group">
+        <label>Entry Type</label>
+        <select name="entryType" id="entryTypeSelect" required>
+          <option value="GENERAL">General</option>
+          <option value="TRAVEL">Travel</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" name="date" value="${todayStr()}" required>
+      </div>
+      <div class="time-row">
+        <div class="form-group">
+          <label>Start Time</label>
+          <input type="time" name="startTime" id="createStartTime" value="${defaults.start}" required>
+        </div>
+        <div class="form-group">
+          <label>End Time</label>
+          <input type="time" name="endTime" id="createEndTime" value="${defaults.end}" required>
+        </div>
+        <div class="calculated-hours" id="createHoursPreview">${defaults.start && defaults.end ? calculateHoursPreview(defaults.start, defaults.end) : "0.00 hrs"}</div>
+      </div>
+      <div class="form-group">
+        <label>Company</label>
+        <select name="companyId" id="entryCompanySelect" required>
+          <option value="">Select company...</option>
+          ${getEntryCompanyOptions().join("")}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Role</label>
+        <select name="roleId" id="entryRoleSelect" required>
+          <option value="">Select company first...</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Starting Location</label>
+        <input type="text" name="startingLocation" placeholder="e.g. School name, Home, Office">
+        <small style="color: #666;">Where you started from for this entry</small>
+      </div>
+      <div id="travelFields" style="display:none;">
+        <div class="form-group">
+          <label>Travel From</label>
+          <input type="text" name="travelFrom" placeholder="e.g. Home, Work Place 1, or full address">
+        </div>
+        <div class="form-group">
+          <label>Travel To</label>
+          <input type="text" name="travelTo" placeholder="e.g. School 1, or full address">
+        </div>
+      </div>
+      <div class="quill-wrapper">
+        <label>Notes / Details</label>
+        <div id="createNotesEditor"></div>
+      </div>
+      <div class="location-notes-section" style="border: 2px solid #3498db; border-radius: 4px; padding: 1rem; margin-bottom: 1rem; background: #f0f8ff;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+          <label style="font-weight: 600; color: #2c3e50; margin: 0;">Location Notes</label>
+          <button type="button" class="btn btn-sm btn-primary" id="addLocationNoteBtn">+ Add Location</button>
+        </div>
+        <small style="color: #666; display: block; margin-bottom: 0.5rem;">Add notes for each school/location visited</small>
+        <div id="createLocationNotesContainer"></div>
+      </div>
+      <div class="form-group">
+        <label>Reason for Deviation</label>
+        <textarea name="reasonForDeviation" rows="2" placeholder="If your times differ from your approved schedule, explain why" maxlength="256" style="resize: vertical;"></textarea>
+        <small style="color: #666;">Required by DE WMS if entry times deviate from your default schedule</small>
+      </div>
+      <div class="private-notes-wrapper">
+        <label>Private Notes (internal only - not visible to clients)</label>
+        <div id="createPrivateNotesEditor"></div>
+      </div>
+      <button type="submit" class="btn btn-primary">Create Entry</button>
+    </form>
+  `;
+    showModalWithForm("Create Entry", form);
+    destroyQuillEditors();
+    const notesEditor = initQuillEditor("createNotesEditor", "Enter notes or details...");
+    const privateNotesEditor = initQuillEditor("createPrivateNotesEditor", "Internal notes...");
+    document.getElementById("addLocationNoteBtn").onclick = () => {
+      addLocationNoteField("createLocationNotesContainer");
+    };
+    const updateHoursPreview = () => {
+      const start = document.getElementById("createStartTime").value;
+      const end = document.getElementById("createEndTime").value;
+      document.getElementById("createHoursPreview").textContent = calculateHoursPreview(start, end) || "0.00 hrs";
+    };
+    document.getElementById("createStartTime").onchange = updateHoursPreview;
+    document.getElementById("createEndTime").onchange = updateHoursPreview;
+    document.getElementById("entryTypeSelect").onchange = (e) => {
+      document.getElementById("travelFields").style.display = e.target.value === "TRAVEL" ? "block" : "none";
+    };
+    document.getElementById("entryCompanySelect").onchange = (e) => {
+      const companyId = parseInt(e.target.value);
+      const roleSelect = document.getElementById("entryRoleSelect");
+      if (!companyId) {
+        roleSelect.innerHTML = '<option value="">Select company first...</option>';
+        return;
+      }
+      const filteredRoles = getEntryRolesForCompany(companyId);
+      roleSelect.innerHTML = '<option value="">Select role...</option>' + filteredRoles.map((r) => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join("");
+    };
+    attachAllLocationAutocompletes();
+    document.getElementById("entryForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const existingEntries = getTimesheetEntries(timesheetId);
+      const validation = validateEntry({
+        date: formData.get("date"),
+        startTime: formData.get("startTime"),
+        endTime: formData.get("endTime")
+      }, existingEntries, null, timesheetId);
+      if (!validation.valid) {
+        showAlert("Entry validation failed:\n\n" + validation.errors.join("\n"));
+        return;
+      }
+      if (validation.warnings && validation.warnings.length > 0) {
+        if (!showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
+          return;
+        }
+      }
+      const notesHtml = quillGetHtml(notesEditor) || null;
+      const privateNotesHtml = quillGetHtml(privateNotesEditor) || null;
+      const locationNotesJson = collectLocationNotes("createLocationNotesContainer");
+      try {
+        await api.post("/entries", {
+          timesheetId: parseInt(timesheetId),
+          entryType: formData.get("entryType"),
+          date: formData.get("date"),
+          startTime: formData.get("startTime"),
+          endTime: formData.get("endTime"),
+          companyId: parseInt(formData.get("companyId")),
+          roleId: parseInt(formData.get("roleId")),
+          startingLocation: formData.get("startingLocation") || null,
+          startingLocationLat: formData.get("startingLocationLat") ? parseFloat(formData.get("startingLocationLat")) : null,
+          startingLocationLng: formData.get("startingLocationLng") ? parseFloat(formData.get("startingLocationLng")) : null,
+          reasonForDeviation: formData.get("reasonForDeviation") || null,
+          notes: notesHtml || null,
+          privateNotes: privateNotesHtml || null,
+          locationNotes: locationNotesJson,
+          travelFrom: formData.get("travelFrom") || null,
+          travelFromLat: formData.get("travelFromLat") ? parseFloat(formData.get("travelFromLat")) : null,
+          travelFromLng: formData.get("travelFromLng") ? parseFloat(formData.get("travelFromLng")) : null,
+          travelTo: formData.get("travelTo") || null,
+          travelToLat: formData.get("travelToLat") ? parseFloat(formData.get("travelToLat")) : null,
+          travelToLng: formData.get("travelToLng") ? parseFloat(formData.get("travelToLng")) : null,
+          isBillable: formData.get("isBillable") === "on"
+        });
+        hideModal();
+        if (window.refreshTimesheets) await window.refreshTimesheets();
+        loadEntries(timesheetId);
+      } catch (error) {
+        showAlert(error.message);
+      }
+    };
+  }
+  async function editEntry(id, timesheetIdParam) {
+    const timesheetId = timesheetIdParam || document.getElementById("timesheetSelect").value;
+    let entry;
+    try {
+      const result = await api.get(`/entries/timesheet/${timesheetId}`);
+      entry = result.entries.find((e) => e.id === id);
+    } catch (error) {
+      showAlert("Failed to load entry");
+      return;
+    }
+    if (!entry) {
+      showAlert("Entry not found");
+      return;
+    }
+    const dateStr = new Date(entry.date).toISOString().split("T")[0];
+    const form = `
+    <form id="editEntryForm">
+      <div class="form-group">
+        <label>Entry Type</label>
+        <select name="entryType" id="editEntryTypeSelect" required>
+          <option value="GENERAL" ${entry.entryType === "GENERAL" ? "selected" : ""}>General</option>
+          <option value="TRAVEL" ${entry.entryType === "TRAVEL" ? "selected" : ""}>Travel</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" name="date" value="${dateStr}" required>
+      </div>
+      <div class="time-row">
+        <div class="form-group">
+          <label>Start Time</label>
+          <input type="time" name="startTime" id="editStartTime" value="${entry.startTime || ""}" required>
+        </div>
+        <div class="form-group">
+          <label>End Time</label>
+          <input type="time" name="endTime" id="editEndTime" value="${entry.endTime || ""}" required>
+        </div>
+        <div class="calculated-hours" id="editHoursPreview">${entry.hours.toFixed(2)} hrs</div>
+      </div>
+      <div class="form-group">
+        <label>Company</label>
+        <select name="companyId" id="editEntryCompanySelect" required>
+          <option value="">Select company...</option>
+          ${getEntryCompanyOptions(entry.companyId).join("")}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Role</label>
+        <select name="roleId" id="editEntryRoleSelect" required>
+          <option value="">Select role...</option>
+          ${getEntryRolesForCompany(entry.companyId).map((r) => `<option value="${r.id}" ${r.id === entry.roleId ? "selected" : ""}>${escapeHtml(r.name)}</option>`).join("")}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Starting Location</label>
+        <input type="text" name="startingLocation" value="${escapeHtml(entry.startingLocation || "")}" placeholder="e.g. School name, Home, Office">
+        <small style="color: #666;">Where you started from for this entry</small>
+      </div>
+      <div id="editTravelFields" style="display:${entry.entryType === "TRAVEL" ? "block" : "none"};">
+        <div class="form-group">
+          <label>Travel From</label>
+          <input type="text" name="travelFrom" value="${escapeHtml(entry.travelFrom || "")}">
+        </div>
+        <div class="form-group">
+          <label>Travel To</label>
+          <input type="text" name="travelTo" value="${escapeHtml(entry.travelTo || "")}">
+        </div>
+      </div>
+      <div class="quill-wrapper">
+        <label>Notes / Details</label>
+        <div id="editNotesEditor"></div>
+      </div>
+      <div class="location-notes-section" style="border: 2px solid #3498db; border-radius: 4px; padding: 1rem; margin-bottom: 1rem; background: #f0f8ff;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+          <label style="font-weight: 600; color: #2c3e50; margin: 0;">Location Notes</label>
+          <button type="button" class="btn btn-sm btn-primary" id="editAddLocationNoteBtn">+ Add Location</button>
+        </div>
+        <small style="color: #666; display: block; margin-bottom: 0.5rem;">Add notes for each school/location visited</small>
+        <div id="editLocationNotesContainer"></div>
+      </div>
+      <div class="form-group">
+        <label>Reason for Deviation</label>
+        <textarea name="reasonForDeviation" rows="2" maxlength="256" style="resize: vertical;" placeholder="If your times differ from your approved schedule, explain why">${escapeHtml(entry.reasonForDeviation || "")}</textarea>
+        <small style="color: #666;">Required by DE WMS if entry times deviate from your default schedule</small>
+      </div>
+      <div class="private-notes-wrapper">
+        <label>Private Notes (internal only - not visible to clients)</label>
+        <div id="editPrivateNotesEditor"></div>
+      </div>
+      <button type="submit" class="btn btn-primary">Save Changes</button>
+    </form>
+  `;
+    showModalWithForm("Edit Entry", form);
+    destroyQuillEditors();
+    const notesEditor = initQuillEditor("editNotesEditor", "Enter notes or details...");
+    const privateNotesEditor = initQuillEditor("editPrivateNotesEditor", "Internal notes...");
+    if (entry.notes) {
+      notesEditor.root.innerHTML = entry.notes;
+    }
+    if (entry.privateNotes) {
+      privateNotesEditor.root.innerHTML = entry.privateNotes;
+    }
+    if (entry.locationNotes) {
+      try {
+        const locNotes = typeof entry.locationNotes === "string" ? JSON.parse(entry.locationNotes) : entry.locationNotes;
+        locNotes.forEach((ln) => {
+          addLocationNoteField("editLocationNotesContainer", ln.location, ln.description);
+        });
+      } catch (e) {
+      }
+    }
+    document.getElementById("editAddLocationNoteBtn").onclick = () => {
+      addLocationNoteField("editLocationNotesContainer");
+    };
+    const updateHoursPreview = () => {
+      const start = document.getElementById("editStartTime").value;
+      const end = document.getElementById("editEndTime").value;
+      document.getElementById("editHoursPreview").textContent = calculateHoursPreview(start, end) || `${entry.hours.toFixed(2)} hrs`;
+    };
+    document.getElementById("editStartTime").onchange = updateHoursPreview;
+    document.getElementById("editEndTime").onchange = updateHoursPreview;
+    document.getElementById("editEntryTypeSelect").onchange = (e) => {
+      document.getElementById("editTravelFields").style.display = e.target.value === "TRAVEL" ? "block" : "none";
+    };
+    document.getElementById("editEntryCompanySelect").onchange = (e) => {
+      const companyId = parseInt(e.target.value);
+      const roleSelect = document.getElementById("editEntryRoleSelect");
+      if (!companyId) {
+        roleSelect.innerHTML = '<option value="">Select company first...</option>';
+        return;
+      }
+      const filteredRoles = getEntryRolesForCompany(companyId);
+      roleSelect.innerHTML = '<option value="">Select role...</option>' + filteredRoles.map((r) => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join("");
+    };
+    attachAllLocationAutocompletes();
+    document.getElementById("editEntryForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const existingEntries = getTimesheetEntries(timesheetId);
+      const validation = validateEntry({
+        date: formData.get("date"),
+        startTime: formData.get("startTime"),
+        endTime: formData.get("endTime")
+      }, existingEntries, id, timesheetId);
+      if (!validation.valid) {
+        showAlert("Entry validation failed:\n\n" + validation.errors.join("\n"));
+        return;
+      }
+      if (validation.warnings && validation.warnings.length > 0) {
+        if (!showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
+          return;
+        }
+      }
+      const notesHtml = quillGetHtml(notesEditor) || null;
+      const privateNotesHtml = quillGetHtml(privateNotesEditor) || null;
+      const locationNotesJson = collectLocationNotes("editLocationNotesContainer");
+      try {
+        await api.put(`/entries/${id}`, {
+          entryType: formData.get("entryType"),
+          date: formData.get("date"),
+          startTime: formData.get("startTime"),
+          endTime: formData.get("endTime"),
+          companyId: parseInt(formData.get("companyId")),
+          roleId: parseInt(formData.get("roleId")),
+          startingLocation: formData.get("startingLocation") || null,
+          reasonForDeviation: formData.get("reasonForDeviation") || null,
+          notes: notesHtml || null,
+          privateNotes: privateNotesHtml || null,
+          locationNotes: locationNotesJson,
+          travelFrom: formData.get("travelFrom"),
+          travelTo: formData.get("travelTo")
+        });
+        hideModal();
+        if (window.refreshTimesheets) await window.refreshTimesheets();
+        loadEntries(timesheetId);
+      } catch (error) {
+        showAlert(error.message);
+      }
+    };
+  }
+  async function deleteEntry(id) {
+    if (!showConfirmation("Delete this entry?")) return;
+    try {
+      await api.delete(`/entries/${id}`);
+      const timesheetId = document.getElementById("timesheetSelect").value;
+      if (window.refreshTimesheets) await window.refreshTimesheets();
+      loadEntries(timesheetId);
+    } catch (error) {
+      showAlert(error.message);
+    }
+  }
+  async function renderTravelRoute(map, entry) {
+    const markers = [];
+    const waypoints = [];
+    const waypointNames = [];
+    waypoints.push({ lat: entry.travelFromLat, lng: entry.travelFromLng });
+    waypointNames.push(entry.travelFrom);
+    const fromMarker = L.marker([entry.travelFromLat, entry.travelFromLng]).addTo(map).bindPopup(`<strong>From</strong><br>${escapeHtml(entry.travelFrom || "N/A")}`);
+    markers.push(fromMarker);
+    const locationNotes = [];
+    if (entry.locationNotes) {
+      try {
+        const lnotes = typeof entry.locationNotes === "string" ? JSON.parse(entry.locationNotes) : entry.locationNotes;
+        locationNotes.push(...lnotes);
+      } catch (e) {
+      }
+    }
+    for (let i = 0; i < locationNotes.length; i++) {
+      const ln = locationNotes[i];
+      if (ln.location) {
+        try {
+          const result = await api.get(`/maps/search?query=${encodeURIComponent(ln.location)}`);
+          if (result.results && result.results.length > 0) {
+            const loc = result.results[0];
+            waypoints.push({ lat: loc.lat, lng: loc.lon });
+            waypointNames.push(ln.location);
+            const marker = L.marker([loc.lat, loc.lon], {
+              icon: L.divIcon({
+                className: "waypoint-marker",
+                html: `<div style="background: #e74c3c; color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">${i + 1}</div>`,
+                iconSize: [30, 30]
+              })
+            }).addTo(map).bindPopup(`<strong>Stop ${i + 1}</strong><br>${escapeHtml(ln.location)}`);
+            markers.push(marker);
+          }
+        } catch (e) {
+          console.warn("Failed to geocode location note:", ln.location);
+        }
+      }
+    }
+    waypoints.push({ lat: entry.travelToLat, lng: entry.travelToLng });
+    waypointNames.push(entry.travelTo);
+    const toMarker = L.marker([entry.travelToLat, entry.travelToLng]).addTo(map).bindPopup(`<strong>To</strong><br>${escapeHtml(entry.travelTo || "N/A")}`);
+    markers.push(toMarker);
+    const routeDistanceEl = document.getElementById("routeDistance");
+    if (routeDistanceEl && waypointNames.length > 2) {
+      const routeText = waypointNames.map((name, i) => {
+        if (i === 0) return escapeHtml(name);
+        if (i === waypointNames.length - 1) return `\u2192 ${escapeHtml(name)}`;
+        return `\u2192 <span style="color: #e74c3c; font-weight: 600;">Stop ${i}</span>`;
+      }).join(" ");
+      routeDistanceEl.previousElementSibling.innerHTML = routeText;
+    }
+    const coords = waypoints.map((w) => `${w.lng},${w.lat}`).join(";");
+    try {
+      const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`);
+      const data = await response.json();
+      if (data.routes && data.routes.length > 0) {
+        const route = data.routes[0];
+        const routeCoords = route.geometry.coordinates.map((c) => [c[1], c[0]]);
+        const totalDistanceKm = (route.distance / 1e3).toFixed(1);
+        const durationMin = Math.round(route.duration / 60);
+        const routeLine = L.polyline(routeCoords, {
+          color: "#3498db",
+          weight: 4,
+          opacity: 0.7
+        }).addTo(map);
+        if (routeDistanceEl) {
+          routeDistanceEl.innerHTML = `<strong>Total Distance:</strong> ${totalDistanceKm} km \xB7 <strong>Duration:</strong> ~${durationMin} min${entry.distance && Math.abs(parseFloat(totalDistanceKm) - entry.distance) > 0.5 ? ` <span style="color: #e67e22;">(Stored: ${entry.distance.toFixed(1)} km - needs update)</span>` : ""}`;
+        }
+        const group = L.featureGroup([...markers, routeLine]);
+        map.fitBounds(group.getBounds().pad(0.1));
+      }
+    } catch (err) {
+      console.warn("OSRM routing failed, using straight line:", err);
+      const routeLine = L.polyline(waypoints.map((w) => [w.lat, w.lng]), {
+        color: "#3498db",
+        weight: 4,
+        opacity: 0.7,
+        dashArray: "5, 5"
+      }).addTo(map);
+      if (routeDistanceEl) {
+        routeDistanceEl.innerHTML = `<span style="color: #e74c3c;">Route calculation failed - showing straight line</span>`;
+      }
+      const group = L.featureGroup([...markers, routeLine]);
+      map.fitBounds(group.getBounds().pad(0.1));
+    }
+  }
+  async function viewEntrySlideIn(entryId, timesheetId, isEditable) {
+    let entry;
+    try {
+      const result = await api.get(`/entries/timesheet/${timesheetId}`);
+      entry = result.entries.find((e) => e.id === entryId);
+    } catch (error) {
+      showAlert("Failed to load entry");
+      return;
+    }
+    if (!entry) {
+      showAlert("Entry not found");
+      return;
+    }
+    const dateStr = new Date(entry.date).toLocaleDateString("en-US", {
+      weekday: "long",
+      month: "long",
+      day: "numeric",
+      year: "numeric"
+    });
+    const timeRange = entry.startTime && entry.endTime ? `${formatTime(entry.startTime)} - ${formatTime(entry.endTime)}` : "Not set";
+    let locationNotesHtml = "";
+    if (entry.locationNotes) {
+      try {
+        const locNotes = typeof entry.locationNotes === "string" ? JSON.parse(entry.locationNotes) : entry.locationNotes;
+        locationNotesHtml = locNotes.map((ln) => `
+        <div style="background: #e8f4fd; padding: 0.75rem; border-radius: 6px; border-left: 3px solid #3498db; margin-bottom: 0.5rem;">
+          <strong>${escapeHtml(ln.location)}</strong>
+          <div class="rich-text-content">${sanitizeRichText(ln.description)}</div>
+        </div>
+      `).join("");
+      } catch (e) {
+      }
+    }
+    const html = `
+    <div class="entry-detail-view">
+      <div class="entry-detail-row">
+        <div class="entry-detail-label">Date</div>
+        <div class="entry-detail-value">${dateStr}</div>
+      </div>
+
+      <div class="entry-detail-row">
+        <div class="entry-detail-label">Entry Type</div>
+        <div class="entry-detail-value">
+          <span class="status-badge status-${entry.status}">${entry.entryType}</span>
+          ${entry.tsDataSource ? ' <span class="source-badge tsdata-badge">TSDATA</span>' : ""}
+        </div>
+      </div>
+
+      <div class="entry-detail-row">
+        <div class="entry-detail-label">Time</div>
+        <div class="entry-detail-value">${timeRange} <span style="color: var(--muted);">(${entry.hours.toFixed(2)} hours)</span></div>
+      </div>
+
+      <div class="entry-detail-row">
+        <div class="entry-detail-label">Company</div>
+        <div class="entry-detail-value">${escapeHtml(entry.company.name)}</div>
+      </div>
+
+      <div class="entry-detail-row">
+        <div class="entry-detail-label">Role</div>
+        <div class="entry-detail-value">${escapeHtml(entry.role.name)}</div>
+      </div>
+
+      ${entry.startingLocation ? `
+        <div class="entry-detail-row">
+          <div class="entry-detail-label">Starting Location</div>
+          <div class="entry-detail-value">\u{1F4CD} ${escapeHtml(entry.startingLocation)}</div>
+        </div>
+      ` : ""}
+
+      ${entry.entryType === "TRAVEL" && (entry.travelFrom || entry.travelTo) ? `
+        <div class="entry-detail-row">
+          <div class="entry-detail-label">Travel Route</div>
+          <div class="entry-detail-value">
+            <div>${escapeHtml(entry.travelFrom || "N/A")} \u2192 ${escapeHtml(entry.travelTo || "N/A")}</div>
+            <div id="routeDistance" style="color: var(--muted); font-size: 0.9rem; margin-top: 0.25rem;">
+              ${entry.distance ? `Stored: ${entry.distance.toFixed(1)} km \xB7 ` : ""}Calculating route...
+            </div>
+            <div style="margin-top: 0.25rem;">
+              ${entry.isBillable !== false ? '<span class="billable-badge">Billable</span>' : '<span class="non-billable-badge">Non-billable</span>'}
+            </div>
+          </div>
+        </div>
+      ` : ""}
+
+      ${entry.startingLocationLat && entry.startingLocationLng || entry.travelFromLat && entry.travelFromLng && entry.travelToLat && entry.travelToLng ? `
+        <div class="entry-detail-row">
+          <div class="entry-detail-label">Map</div>
+          <div class="entry-detail-value">
+            <div id="entryMapContainer" style="width: 100%; height: 300px; border-radius: 8px; overflow: hidden; border: 1px solid var(--border);"></div>
+          </div>
+        </div>
+      ` : ""}
+
+      ${entry.notes ? `
+        <div class="entry-detail-row">
+          <div class="entry-detail-label">Notes / Details</div>
+          <div class="entry-detail-rich-content rich-text-content">
+            ${sanitizeRichText(entry.notes)}
+          </div>
+        </div>
+      ` : ""}
+
+      ${locationNotesHtml ? `
+        <div class="entry-detail-row">
+          <div class="entry-detail-label">Location Notes</div>
+          <div>${locationNotesHtml}</div>
+        </div>
+      ` : ""}
+
+      ${entry.reasonForDeviation ? `
+        <div class="entry-detail-row">
+          <div class="entry-detail-label">Reason for Deviation</div>
+          <div class="entry-detail-value" style="background: #fff3cd; padding: 0.5rem; border-radius: 4px; border-left: 3px solid #ffc107;">
+            ${escapeHtml(entry.reasonForDeviation)}
+          </div>
+        </div>
+      ` : ""}
+
+      ${entry.privateNotes ? `
+        <div class="entry-detail-row">
+          <div class="entry-detail-label">
+            Private Notes
+            <span class="private-notes-badge" style="margin-left: 0.5rem;">Internal Only</span>
+          </div>
+          <div class="entry-detail-rich-content rich-text-content" style="background: #fffbf0; border-color: #f0ad4e;">
+            ${sanitizeRichText(entry.privateNotes)}
+          </div>
+        </div>
+      ` : ""}
+
+      <div class="entry-detail-row">
+        <div class="entry-detail-label">Status</div>
+        <div class="entry-detail-value">
+          <span class="status-badge status-${entry.status}">${entry.status}</span>
+        </div>
+      </div>
+
+      ${isEditable ? `
+        <div class="slide-panel-actions">
+          <button class="btn btn-primary" onclick="editEntrySlideIn(${entryId}, ${timesheetId})">
+            Edit Entry
+          </button>
+          <button class="btn btn-danger" onclick="deleteEntryFromCard(${entryId}, ${timesheetId})">
+            Delete Entry
+          </button>
+          <button class="btn btn-secondary" onclick="hideSlidePanel()">
+            Close
+          </button>
+        </div>
+      ` : `
+        <div class="slide-panel-actions">
+          <button class="btn btn-secondary" onclick="hideSlidePanel()">
+            Close
+          </button>
+        </div>
+      `}
+    </div>
+  `;
+    showSlidePanel("Entry Details", html);
+    setTimeout(() => {
+      const mapContainer = document.getElementById("entryMapContainer");
+      if (!mapContainer) return;
+      const hasStartingLocation = entry.startingLocationLat && entry.startingLocationLng;
+      const hasTravelRoute = entry.travelFromLat && entry.travelFromLng && entry.travelToLat && entry.travelToLng;
+      if (!hasStartingLocation && !hasTravelRoute) return;
+      let centerLat, centerLng;
+      if (hasTravelRoute) {
+        centerLat = (entry.travelFromLat + entry.travelToLat) / 2;
+        centerLng = (entry.travelFromLng + entry.travelToLng) / 2;
+      } else {
+        centerLat = entry.startingLocationLat;
+        centerLng = entry.startingLocationLng;
+      }
+      const map = L.map("entryMapContainer").setView([centerLat, centerLng], 13);
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        maxZoom: 19
+      }).addTo(map);
+      if (hasStartingLocation) {
+        L.marker([entry.startingLocationLat, entry.startingLocationLng]).addTo(map).bindPopup(`<strong>Starting Location</strong><br>${escapeHtml(entry.startingLocation || "N/A")}`);
+      }
+      if (hasTravelRoute) {
+        renderTravelRoute(map, entry);
+      }
+    }, 100);
+  }
+  function getSmartDefaultsForTimesheet(timesheetId) {
+    const timesheets = state.get("timesheets");
+    const ts = timesheets.find((t) => t.id === parseInt(timesheetId));
+    const currentUser2 = state.get("currentUser");
+    const emp = currentUser2.employee;
+    const morning = {
+      start: emp ? emp.morningStart : "08:30",
+      end: emp ? emp.morningEnd : "12:30"
+    };
+    const afternoon = {
+      start: emp ? emp.afternoonStart : "13:00",
+      end: emp ? emp.afternoonEnd : "17:00"
+    };
+    if (!ts) {
+      return { date: todayStr(), ...morning };
+    }
+    const weekStart = new Date(ts.weekStarting);
+    const weekEnd = new Date(ts.weekEnding);
+    const entriesByDate = {};
+    if (ts.entries) {
+      ts.entries.forEach((entry) => {
+        const dateKey = new Date(entry.date).toISOString().split("T")[0];
+        if (!entriesByDate[dateKey]) entriesByDate[dateKey] = [];
+        entriesByDate[dateKey].push(entry);
+      });
+    }
+    const currentDate = new Date(weekStart);
+    while (currentDate <= weekEnd) {
+      const dayOfWeek = currentDate.getDay();
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        currentDate.setDate(currentDate.getDate() + 1);
+        continue;
+      }
+      const dateKey = currentDate.toISOString().split("T")[0];
+      const dayEntries = entriesByDate[dateKey] || [];
+      const hasMorning = dayEntries.some(
+        (e) => e.startTime && e.startTime >= "06:00" && e.startTime < "13:00"
+      );
+      if (!hasMorning) {
+        return { date: dateKey, ...morning };
+      }
+      const hasAfternoon = dayEntries.some(
+        (e) => e.startTime && e.startTime >= "13:00" && e.startTime < "18:00"
+      );
+      if (!hasAfternoon) {
+        return { date: dateKey, ...afternoon };
+      }
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+    return { date: todayStr(), start: "", end: "" };
+  }
+  function getTimeDefaultsForTimesheet(timesheetId) {
+    return getSmartDefaultsForTimesheet(timesheetId);
+  }
+  async function createEntryForTimesheet(timesheetId, prefillDate = null) {
+    const smartDefaults = getSmartDefaultsForTimesheet(timesheetId);
+    const defaultDate = prefillDate || smartDefaults.date;
+    const defaults = prefillDate ? getTimeDefaultsForTimesheet(timesheetId) : smartDefaults;
+    const form = `
+    <form id="entryFormSlide">
+      <div class="form-group">
+        <label>Entry Type</label>
+        <select name="entryType" id="slideEntryTypeSelect" required>
+          <option value="GENERAL">General</option>
+          <option value="TRAVEL">Travel</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" name="date" value="${defaultDate}" required>
+      </div>
+      <div class="time-row">
+        <div class="form-group">
+          <label>Start Time</label>
+          <input type="time" name="startTime" id="slideStartTime" value="${defaults.start}" required>
+        </div>
+        <div class="form-group">
+          <label>End Time</label>
+          <input type="time" name="endTime" id="slideEndTime" value="${defaults.end}" required>
+        </div>
+        <div class="calculated-hours" id="slideHoursPreview">${defaults.start && defaults.end ? calculateHoursPreview(defaults.start, defaults.end) : "0.00 hrs"}</div>
+      </div>
+      <div class="form-group">
+        <label>Company</label>
+        <select name="companyId" id="slideEntryCompanySelect" required>
+          <option value="">Select company...</option>
+          ${getEntryCompanyOptions().join("")}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Role</label>
+        <select name="roleId" id="slideEntryRoleSelect" required>
+          <option value="">Select company first...</option>
+        </select>
+      </div>
+      <div id="slideStartingLocationField" class="form-group">
+        <label>Starting Location</label>
+        <input type="text" name="startingLocation" placeholder="e.g. School name, Home, Office">
+        <input type="hidden" name="startingLocationLat">
+        <input type="hidden" name="startingLocationLng">
+        <small style="color: #666;">Where you started from for this entry</small>
+      </div>
+      <div id="slideTravelFields" style="display:none;">
+        <div class="form-group">
+          <label>Travel From</label>
+          <input type="text" name="travelFrom" placeholder="e.g. Home, Work Place 1, or full address">
+          <input type="hidden" name="travelFromLat">
+          <input type="hidden" name="travelFromLng">
+        </div>
+        <div class="form-group">
+          <label>Travel To</label>
+          <input type="text" name="travelTo" placeholder="e.g. School 1, or full address">
+          <input type="hidden" name="travelToLat">
+          <input type="hidden" name="travelToLng">
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" name="isBillable" checked>
+            <span>Billable (sync to WMS)</span>
+          </label>
+          <small style="color: #666;">Uncheck if this travel should not be billed or synced to WMS</small>
+        </div>
+        <div class="form-group" style="background: #e8f4fd; padding: 0.75rem; border-radius: 6px; border-left: 4px solid #3498db; margin-top: 1rem;">
+          <div style="margin-bottom: 0.5rem;">
+            <strong style="color: #2c3e50;">\u23F1\uFE0F Auto-Calculate Travel Time</strong>
+          </div>
+          <div style="color: #555; font-size: 0.85rem; margin-bottom: 0.5rem;">
+            1. Enter start time<br>
+            2. Type location and <strong>select from dropdown</strong> (both From/To)<br>
+            3. Click "Calculate" or wait 1 second
+          </div>
+          <button type="button" id="manualCalcTravelBtn" class="btn btn-sm btn-primary" style="width: 100%;">
+            \u{1F9EE} Calculate End Time from Route
+          </button>
+        </div>
+      </div>
+      <div class="quill-wrapper">
+        <label>Notes / Details</label>
+        <div id="slideNotesEditor"></div>
+      </div>
+      <div class="location-notes-section" style="border: 2px solid #3498db; border-radius: 4px; padding: 1rem; margin-bottom: 1rem; background: #f0f8ff;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+          <label style="font-weight: 600; color: #2c3e50; margin: 0;">Location Notes</label>
+          <button type="button" class="btn btn-sm btn-primary" id="slideAddLocationNoteBtn">+ Add Location</button>
+        </div>
+        <small style="color: #666; display: block; margin-bottom: 0.5rem;">Add notes for each school/location visited</small>
+        <div id="slideLocationNotesContainer"></div>
+      </div>
+      <div class="form-group">
+        <label>Reason for Deviation</label>
+        <textarea name="reasonForDeviation" rows="2" placeholder="If your times differ from your approved schedule, explain why" maxlength="256" style="resize: vertical;"></textarea>
+        <small style="color: #666;">Required by DE WMS if entry times deviate from your default schedule</small>
+      </div>
+      <div class="private-notes-wrapper">
+        <label>Private Notes (internal only - not visible to clients)</label>
+        <div id="slidePrivateNotesEditor"></div>
+      </div>
+      <button type="submit" class="btn btn-primary">Create Entry</button>
+    </form>
+  `;
+    showSlidePanel("Create Entry", form);
+    destroyQuillEditors();
+    const notesEditor = initQuillEditor("slideNotesEditor", "Enter notes or details...");
+    const privateNotesEditor = initQuillEditor("slidePrivateNotesEditor", "Internal notes...");
+    document.getElementById("slideAddLocationNoteBtn").onclick = () => {
+      addLocationNoteField("slideLocationNotesContainer");
+    };
+    const updateHoursPreview = () => {
+      const start = document.getElementById("slideStartTime").value;
+      const end = document.getElementById("slideEndTime").value;
+      document.getElementById("slideHoursPreview").textContent = calculateHoursPreview(start, end) || "0.00 hrs";
+    };
+    document.getElementById("slideStartTime").onchange = updateHoursPreview;
+    document.getElementById("slideEndTime").onchange = updateHoursPreview;
+    const autoCalculateTravelTime = async () => {
+      const entryType = document.getElementById("slideEntryTypeSelect").value;
+      if (entryType !== "TRAVEL") return;
+      const startTime = document.getElementById("slideStartTime").value;
+      const travelFromLat = document.querySelector('#slideTravelFields input[name="travelFromLat"]').value;
+      const travelFromLng = document.querySelector('#slideTravelFields input[name="travelFromLng"]').value;
+      const travelToLat = document.querySelector('#slideTravelFields input[name="travelToLat"]').value;
+      const travelToLng = document.querySelector('#slideTravelFields input[name="travelToLng"]').value;
+      if (!startTime || !travelFromLat || !travelFromLng || !travelToLat || !travelToLng) {
+        console.log("Auto-calc skipped: missing required fields", { startTime, travelFromLat, travelFromLng, travelToLat, travelToLng });
+        return;
+      }
+      console.log("Auto-calculating travel time...");
+      const waypoints = [{ lat: parseFloat(travelFromLat), lng: parseFloat(travelFromLng) }];
+      const locationNoteItems = document.querySelectorAll("#slideLocationNotesContainer .location-note-item");
+      for (const item of locationNoteItems) {
+        const locationInput = item.querySelector(".location-name-input").value.trim();
+        if (locationInput) {
+          try {
+            const result = await api.get(`/maps/search?query=${encodeURIComponent(locationInput)}`);
+            if (result.results && result.results.length > 0) {
+              waypoints.push({ lat: result.results[0].lat, lng: result.results[0].lon });
+            }
+          } catch (e) {
+          }
+        }
+      }
+      waypoints.push({ lat: parseFloat(travelToLat), lng: parseFloat(travelToLng) });
+      try {
+        const coords = waypoints.map((w) => `${w.lng},${w.lat}`).join(";");
+        const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=false`);
+        const data = await response.json();
+        if (data.routes && data.routes.length > 0) {
+          const durationMinutes = Math.round(data.routes[0].duration / 60);
+          console.log(`Route calculated: ${durationMinutes} minutes`);
+          const [hours, minutes] = startTime.split(":").map(Number);
+          const startMinutes = hours * 60 + minutes;
+          const endMinutes = startMinutes + durationMinutes;
+          const endHours = Math.floor(endMinutes / 60) % 24;
+          const endMins = endMinutes % 60;
+          const endTime = `${String(endHours).padStart(2, "0")}:${String(endMins).padStart(2, "0")}`;
+          console.log(`Auto-setting end time: ${startTime} + ${durationMinutes}min = ${endTime}`);
+          document.getElementById("slideEndTime").value = endTime;
+          updateHoursPreview();
+          const hoursPreview = document.getElementById("slideHoursPreview");
+          hoursPreview.innerHTML += ` <span style="color: #27ae60; font-size: 0.8rem;">(Auto-calculated from ${durationMinutes} min route)</span>`;
+          setTimeout(() => updateHoursPreview(), 3e3);
+        } else {
+          console.warn("OSRM returned no routes");
+        }
+      } catch (err) {
+        console.warn("Failed to auto-calculate travel time:", err);
+      }
+    };
+    document.getElementById("slideEntryTypeSelect").onchange = (e) => {
+      const isTravel = e.target.value === "TRAVEL";
+      document.getElementById("slideTravelFields").style.display = isTravel ? "block" : "none";
+      document.getElementById("slideStartingLocationField").style.display = isTravel ? "none" : "block";
+      if (isTravel) {
+        document.getElementById("slideEndTime").value = "";
+        updateHoursPreview();
+        console.log("Switched to TRAVEL - end time cleared, will auto-calculate from route");
+        setTimeout(() => {
+          console.log("Checking if auto-calc can run immediately...");
+          autoCalculateTravelTime();
+        }, 100);
+      }
+    };
+    document.getElementById("slideStartTime").addEventListener("change", autoCalculateTravelTime);
+    const travelFromField = document.querySelector('#slideTravelFields input[name="travelFrom"]');
+    const travelToField = document.querySelector('#slideTravelFields input[name="travelTo"]');
+    if (travelFromField) {
+      travelFromField.addEventListener("change", () => {
+        console.log("Travel From changed, scheduling auto-calc");
+        setTimeout(autoCalculateTravelTime, 1e3);
+      });
+    }
+    if (travelToField) {
+      travelToField.addEventListener("change", () => {
+        console.log("Travel To changed, scheduling auto-calc");
+        setTimeout(autoCalculateTravelTime, 1e3);
+      });
+    }
+    const manualCalcBtn = document.getElementById("manualCalcTravelBtn");
+    if (manualCalcBtn) {
+      manualCalcBtn.addEventListener("click", () => {
+        console.log("Manual calculate clicked");
+        autoCalculateTravelTime();
+      });
+    }
+    document.getElementById("slideEntryCompanySelect").onchange = (e) => {
+      const companyId = parseInt(e.target.value);
+      const roleSelect = document.getElementById("slideEntryRoleSelect");
+      if (!companyId) {
+        roleSelect.innerHTML = '<option value="">Select company first...</option>';
+        return;
+      }
+      const filteredRoles = getEntryRolesForCompany(companyId);
+      roleSelect.innerHTML = '<option value="">Select role...</option>' + filteredRoles.map((r) => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join("");
+    };
+    attachAllLocationAutocompletes();
+    document.getElementById("entryFormSlide").onsubmit = async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const existingEntries = getTimesheetEntries(timesheetId);
+      const validation = validateEntry({
+        date: formData.get("date"),
+        startTime: formData.get("startTime"),
+        endTime: formData.get("endTime")
+      }, existingEntries, null, timesheetId);
+      if (!validation.valid) {
+        showAlert("Entry validation failed:\n\n" + validation.errors.join("\n"));
+        return;
+      }
+      if (validation.warnings && validation.warnings.length > 0) {
+        if (!showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
+          return;
+        }
+      }
+      const notesHtml = quillGetHtml(notesEditor) || null;
+      const privateNotesHtml = quillGetHtml(privateNotesEditor) || null;
+      const locationNotesJson = collectLocationNotes("slideLocationNotesContainer");
+      try {
+        await api.post("/entries", {
+          timesheetId: parseInt(timesheetId),
+          entryType: formData.get("entryType"),
+          date: formData.get("date"),
+          startTime: formData.get("startTime"),
+          endTime: formData.get("endTime"),
+          companyId: parseInt(formData.get("companyId")),
+          roleId: parseInt(formData.get("roleId")),
+          startingLocation: formData.get("startingLocation") || null,
+          startingLocationLat: formData.get("startingLocationLat") ? parseFloat(formData.get("startingLocationLat")) : null,
+          startingLocationLng: formData.get("startingLocationLng") ? parseFloat(formData.get("startingLocationLng")) : null,
+          reasonForDeviation: formData.get("reasonForDeviation") || null,
+          notes: notesHtml || null,
+          privateNotes: privateNotesHtml || null,
+          locationNotes: locationNotesJson,
+          travelFrom: formData.get("travelFrom") || null,
+          travelFromLat: formData.get("travelFromLat") ? parseFloat(formData.get("travelFromLat")) : null,
+          travelFromLng: formData.get("travelFromLng") ? parseFloat(formData.get("travelFromLng")) : null,
+          travelTo: formData.get("travelTo") || null,
+          travelToLat: formData.get("travelToLat") ? parseFloat(formData.get("travelToLat")) : null,
+          travelToLng: formData.get("travelToLng") ? parseFloat(formData.get("travelToLng")) : null,
+          isBillable: formData.get("isBillable") === "on"
+        });
+        hideSlidePanel();
+        if (window.refreshTimesheets) await window.refreshTimesheets();
+      } catch (error) {
+        showAlert(error.message);
+      }
+    };
+  }
+  async function createEntryForDate(timesheetId, dateStr) {
+    await createEntryForTimesheet(timesheetId, dateStr);
+  }
+  async function editEntrySlideIn(entryId, timesheetId) {
+    let entry;
+    try {
+      const result = await api.get(`/entries/timesheet/${timesheetId}`);
+      entry = result.entries.find((e) => e.id === entryId);
+    } catch (error) {
+      showAlert("Failed to load entry");
+      return;
+    }
+    if (!entry) {
+      showAlert("Entry not found");
+      return;
+    }
+    const dateStr = new Date(entry.date).toISOString().split("T")[0];
+    const form = `
+    <form id="editEntryFormSlide">
+      <div class="form-group">
+        <label>Entry Type</label>
+        <select name="entryType" id="slideEditEntryTypeSelect" required>
+          <option value="GENERAL" ${entry.entryType === "GENERAL" ? "selected" : ""}>General</option>
+          <option value="TRAVEL" ${entry.entryType === "TRAVEL" ? "selected" : ""}>Travel</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Date</label>
+        <input type="date" name="date" value="${dateStr}" required>
+      </div>
+      <div class="time-row">
+        <div class="form-group">
+          <label>Start Time</label>
+          <input type="time" name="startTime" id="slideEditStartTime" value="${entry.startTime || ""}" required>
+        </div>
+        <div class="form-group">
+          <label>End Time</label>
+          <input type="time" name="endTime" id="slideEditEndTime" value="${entry.endTime || ""}" required>
+        </div>
+        <div class="calculated-hours" id="slideEditHoursPreview">${entry.hours.toFixed(2)} hrs</div>
+      </div>
+      <div class="form-group">
+        <label>Company</label>
+        <select name="companyId" id="slideEditEntryCompanySelect" required>
+          <option value="">Select company...</option>
+          ${getEntryCompanyOptions(entry.companyId).join("")}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Role</label>
+        <select name="roleId" id="slideEditEntryRoleSelect" required>
+          <option value="">Select role...</option>
+          ${getEntryRolesForCompany(entry.companyId).map((r) => `<option value="${r.id}" ${r.id === entry.roleId ? "selected" : ""}>${escapeHtml(r.name)}</option>`).join("")}
+        </select>
+      </div>
+      <div id="slideEditStartingLocationField" class="form-group" style="display:${entry.entryType === "TRAVEL" ? "none" : "block"};">
+        <label>Starting Location</label>
+        <input type="text" name="startingLocation" value="${escapeHtml(entry.startingLocation || "")}" placeholder="e.g. School name, Home, Office">
+        <input type="hidden" name="startingLocationLat" value="${entry.startingLocationLat || ""}">
+        <input type="hidden" name="startingLocationLng" value="${entry.startingLocationLng || ""}">
+        <small style="color: #666;">Where you started from for this entry</small>
+      </div>
+      <div id="slideEditTravelFields" style="display:${entry.entryType === "TRAVEL" ? "block" : "none"};">
+        <div class="form-group">
+          <label>Travel From</label>
+          <input type="text" name="travelFrom" value="${escapeHtml(entry.travelFrom || "")}">
+          <input type="hidden" name="travelFromLat" value="${entry.travelFromLat || ""}">
+          <input type="hidden" name="travelFromLng" value="${entry.travelFromLng || ""}">
+        </div>
+        <div class="form-group">
+          <label>Travel To</label>
+          <input type="text" name="travelTo" value="${escapeHtml(entry.travelTo || "")}">
+          <input type="hidden" name="travelToLat" value="${entry.travelToLat || ""}">
+          <input type="hidden" name="travelToLng" value="${entry.travelToLng || ""}">
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" name="isBillable" ${entry.isBillable !== false ? "checked" : ""}>
+            <span>Billable (sync to WMS)</span>
+          </label>
+          <small style="color: #666;">Mark as billable for WMS timesheet sync</small>
+        </div>
+        <div class="form-group" style="background: #e8f4fd; padding: 0.75rem; border-radius: 6px; border-left: 4px solid #3498db; margin-top: 1rem;">
+          <div style="margin-bottom: 0.5rem;">
+            <strong style="color: #2c3e50;">\u23F1\uFE0F Auto-Calculate Travel Time</strong>
+          </div>
+          <div style="color: #555; font-size: 0.85rem; margin-bottom: 0.5rem;">
+            1. Enter start time<br>
+            2. Type location and <strong>select from dropdown</strong> (both From/To)<br>
+            3. Click "Calculate" or wait 1 second
+          </div>
+          <button type="button" id="manualCalcEditTravelBtn" class="btn btn-sm btn-primary" style="width: 100%;">
+            \u{1F9EE} Calculate End Time from Route
+          </button>
+        </div>
+      </div>
+      <div class="quill-wrapper">
+        <label>Notes / Details</label>
+        <div id="slideEditNotesEditor"></div>
+      </div>
+      <div class="location-notes-section" style="border: 2px solid #3498db; border-radius: 4px; padding: 1rem; margin-bottom: 1rem; background: #f0f8ff;">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
+          <label style="font-weight: 600; color: #2c3e50; margin: 0;">Location Notes</label>
+          <button type="button" class="btn btn-sm btn-primary" id="slideEditAddLocationNoteBtn">+ Add Location</button>
+        </div>
+        <small style="color: #666; display: block; margin-bottom: 0.5rem;">Add notes for each school/location visited</small>
+        <div id="slideEditLocationNotesContainer"></div>
+      </div>
+      <div class="form-group">
+        <label>Reason for Deviation</label>
+        <textarea name="reasonForDeviation" rows="2" maxlength="256" style="resize: vertical;" placeholder="If your times differ from your approved schedule, explain why">${escapeHtml(entry.reasonForDeviation || "")}</textarea>
+        <small style="color: #666;">Required by DE WMS if entry times deviate from your default schedule</small>
+      </div>
+      <div class="private-notes-wrapper">
+        <label>Private Notes (internal only - not visible to clients)</label>
+        <div id="slideEditPrivateNotesEditor"></div>
+      </div>
+      <button type="submit" class="btn btn-primary">Save Changes</button>
+    </form>
+  `;
+    showSlidePanel("Edit Entry", form);
+    destroyQuillEditors();
+    const notesEditor = initQuillEditor("slideEditNotesEditor", "Enter notes or details...");
+    const privateNotesEditor = initQuillEditor("slideEditPrivateNotesEditor", "Internal notes...");
+    if (entry.notes) {
+      notesEditor.root.innerHTML = entry.notes;
+    }
+    if (entry.privateNotes) {
+      privateNotesEditor.root.innerHTML = entry.privateNotes;
+    }
+    if (entry.locationNotes) {
+      try {
+        const locNotes = typeof entry.locationNotes === "string" ? JSON.parse(entry.locationNotes) : entry.locationNotes;
+        locNotes.forEach((ln) => {
+          addLocationNoteField("slideEditLocationNotesContainer", ln.location, ln.description);
+        });
+      } catch (e) {
+      }
+    }
+    document.getElementById("slideEditAddLocationNoteBtn").onclick = () => {
+      addLocationNoteField("slideEditLocationNotesContainer");
+    };
+    const updateHoursPreview = () => {
+      const start = document.getElementById("slideEditStartTime").value;
+      const end = document.getElementById("slideEditEndTime").value;
+      document.getElementById("slideEditHoursPreview").textContent = calculateHoursPreview(start, end) || `${entry.hours.toFixed(2)} hrs`;
+    };
+    document.getElementById("slideEditStartTime").onchange = updateHoursPreview;
+    document.getElementById("slideEditEndTime").onchange = updateHoursPreview;
+    const autoCalculateEditTravelTime = async () => {
+      const entryType = document.getElementById("slideEditEntryTypeSelect").value;
+      if (entryType !== "TRAVEL") return;
+      const startTime = document.getElementById("slideEditStartTime").value;
+      const travelFromLat = document.querySelector('#slideEditTravelFields input[name="travelFromLat"]').value;
+      const travelFromLng = document.querySelector('#slideEditTravelFields input[name="travelFromLng"]').value;
+      const travelToLat = document.querySelector('#slideEditTravelFields input[name="travelToLat"]').value;
+      const travelToLng = document.querySelector('#slideEditTravelFields input[name="travelToLng"]').value;
+      if (!startTime || !travelFromLat || !travelFromLng || !travelToLat || !travelToLng) {
+        console.log("Edit: Auto-calc skipped - missing required fields", { startTime, travelFromLat, travelFromLng, travelToLat, travelToLng });
+        return;
+      }
+      console.log("Edit: Auto-calculating travel time...");
+      const waypoints = [{ lat: parseFloat(travelFromLat), lng: parseFloat(travelFromLng) }];
+      const locationNoteItems = document.querySelectorAll("#slideEditLocationNotesContainer .location-note-item");
+      for (const item of locationNoteItems) {
+        const locationInput = item.querySelector(".location-name-input").value.trim();
+        if (locationInput) {
+          try {
+            const result = await api.get(`/maps/search?query=${encodeURIComponent(locationInput)}`);
+            if (result.results && result.results.length > 0) {
+              waypoints.push({ lat: result.results[0].lat, lng: result.results[0].lon });
+            }
+          } catch (e) {
+          }
+        }
+      }
+      waypoints.push({ lat: parseFloat(travelToLat), lng: parseFloat(travelToLng) });
+      try {
+        const coords = waypoints.map((w) => `${w.lng},${w.lat}`).join(";");
+        const response = await fetch(`https://router.project-osrm.org/route/v1/driving/${coords}?overview=false`);
+        const data = await response.json();
+        if (data.routes && data.routes.length > 0) {
+          const durationMinutes = Math.round(data.routes[0].duration / 60);
+          const [hours, minutes] = startTime.split(":").map(Number);
+          const startMinutes = hours * 60 + minutes;
+          const endMinutes = startMinutes + durationMinutes;
+          const endHours = Math.floor(endMinutes / 60) % 24;
+          const endMins = endMinutes % 60;
+          const endTime = `${String(endHours).padStart(2, "0")}:${String(endMins).padStart(2, "0")}`;
+          document.getElementById("slideEditEndTime").value = endTime;
+          updateHoursPreview();
+          const hoursPreview = document.getElementById("slideEditHoursPreview");
+          hoursPreview.innerHTML += ` <span style="color: #27ae60; font-size: 0.8rem;">(Auto-calculated from ${durationMinutes} min route)</span>`;
+          setTimeout(() => updateHoursPreview(), 3e3);
+        }
+      } catch (err) {
+        console.warn("Failed to auto-calculate travel time:", err);
+      }
+    };
+    document.getElementById("slideEditEntryTypeSelect").onchange = (e) => {
+      const isTravel = e.target.value === "TRAVEL";
+      document.getElementById("slideEditTravelFields").style.display = isTravel ? "block" : "none";
+      document.getElementById("slideEditStartingLocationField").style.display = isTravel ? "none" : "block";
+      if (isTravel) {
+        document.getElementById("slideEditEndTime").value = "";
+        updateHoursPreview();
+        console.log("Switched to TRAVEL - end time cleared, will auto-calculate from route");
+        setTimeout(() => {
+          console.log("Checking if auto-calc can run immediately...");
+          autoCalculateEditTravelTime();
+        }, 100);
+      }
+    };
+    document.getElementById("slideEditStartTime").addEventListener("change", autoCalculateEditTravelTime);
+    const editTravelFromInput = document.querySelector('#slideEditTravelFields input[name="travelFrom"]');
+    const editTravelToInput = document.querySelector('#slideEditTravelFields input[name="travelTo"]');
+    if (editTravelFromInput) {
+      editTravelFromInput.addEventListener("change", () => {
+        console.log("Edit: Travel From changed, scheduling auto-calc");
+        setTimeout(autoCalculateEditTravelTime, 1e3);
+      });
+    }
+    if (editTravelToInput) {
+      editTravelToInput.addEventListener("change", () => {
+        console.log("Edit: Travel To changed, scheduling auto-calc");
+        setTimeout(autoCalculateEditTravelTime, 1e3);
+      });
+    }
+    const manualCalcEditBtn = document.getElementById("manualCalcEditTravelBtn");
+    if (manualCalcEditBtn) {
+      manualCalcEditBtn.addEventListener("click", () => {
+        console.log("Edit: Manual calculate clicked");
+        autoCalculateEditTravelTime();
+      });
+    }
+    document.getElementById("slideEditEntryCompanySelect").onchange = (e) => {
+      const companyId = parseInt(e.target.value);
+      const roleSelect = document.getElementById("slideEditEntryRoleSelect");
+      if (!companyId) {
+        roleSelect.innerHTML = '<option value="">Select company first...</option>';
+        return;
+      }
+      const filteredRoles = getEntryRolesForCompany(companyId);
+      roleSelect.innerHTML = '<option value="">Select role...</option>' + filteredRoles.map((r) => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join("");
+    };
+    attachAllLocationAutocompletes();
+    document.getElementById("editEntryFormSlide").onsubmit = async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const existingEntries = getTimesheetEntries(timesheetId);
+      const validation = validateEntry({
+        date: formData.get("date"),
+        startTime: formData.get("startTime"),
+        endTime: formData.get("endTime")
+      }, existingEntries, entryId, timesheetId);
+      if (!validation.valid) {
+        showAlert("Entry validation failed:\n\n" + validation.errors.join("\n"));
+        return;
+      }
+      if (validation.warnings && validation.warnings.length > 0) {
+        if (!showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
+          return;
+        }
+      }
+      const notesHtml = quillGetHtml(notesEditor) || null;
+      const privateNotesHtml = quillGetHtml(privateNotesEditor) || null;
+      const locationNotesJson = collectLocationNotes("slideEditLocationNotesContainer");
+      try {
+        await api.put(`/entries/${entryId}`, {
+          entryType: formData.get("entryType"),
+          date: formData.get("date"),
+          startTime: formData.get("startTime"),
+          endTime: formData.get("endTime"),
+          companyId: parseInt(formData.get("companyId")),
+          roleId: parseInt(formData.get("roleId")),
+          startingLocation: formData.get("startingLocation") || null,
+          startingLocationLat: formData.get("startingLocationLat") ? parseFloat(formData.get("startingLocationLat")) : null,
+          startingLocationLng: formData.get("startingLocationLng") ? parseFloat(formData.get("startingLocationLng")) : null,
+          reasonForDeviation: formData.get("reasonForDeviation") || null,
+          notes: notesHtml || null,
+          privateNotes: privateNotesHtml || null,
+          locationNotes: locationNotesJson,
+          travelFrom: formData.get("travelFrom"),
+          travelFromLat: formData.get("travelFromLat") ? parseFloat(formData.get("travelFromLat")) : null,
+          travelFromLng: formData.get("travelFromLng") ? parseFloat(formData.get("travelFromLng")) : null,
+          travelTo: formData.get("travelTo"),
+          travelToLat: formData.get("travelToLat") ? parseFloat(formData.get("travelToLat")) : null,
+          travelToLng: formData.get("travelToLng") ? parseFloat(formData.get("travelToLng")) : null,
+          isBillable: formData.get("isBillable") === "on"
+        });
+        hideSlidePanel();
+        if (window.refreshTimesheets) await window.refreshTimesheets();
+      } catch (error) {
+        showAlert(error.message);
+      }
+    };
+  }
+  async function deleteEntryFromCard(entryId, timesheetId) {
+    if (!showConfirmation("Delete this entry?")) return;
+    try {
+      await api.delete(`/entries/${entryId}`);
+      hideSlidePanel();
+      if (window.refreshTimesheets) await window.refreshTimesheets();
+    } catch (error) {
+      showAlert(error.message);
+    }
+  }
+
+  // public/js/modules/features/profile/profile.js
+  init_api();
+  init_state();
+  init_modal();
+  init_alerts();
+  init_dom();
+  async function showMyProfile() {
+    let currentUser2;
+    try {
+      const result = await api.get("/auth/me");
+      currentUser2 = result.user;
+      state.set("currentUser", currentUser2);
+    } catch (error) {
+      showAlert("Failed to load profile");
+      return;
+    }
+    const emp = currentUser2.employee;
+    const form = `
+    <form id="profileForm">
+      <div class="form-group">
+        <label>Name</label>
+        <input type="text" name="name" value="${escapeHtml(currentUser2.name)}" required>
+      </div>
+      <div class="form-group">
+        <label>Email</label>
+        <input type="email" value="${escapeHtml(currentUser2.email)}" disabled>
+        <small>Email cannot be changed</small>
+      </div>
+      <div class="form-group">
+        <label>New Password (leave blank to keep current)</label>
+        <input type="password" name="password" minlength="6">
+      </div>
+      ${emp ? `
+        <hr>
+        <h3>Employee Details</h3>
+        <div class="form-group">
+          <label>Phone</label>
+          <input type="tel" name="phone" value="${escapeHtml(emp.phone || "")}">
+        </div>
+        <h3>Time Templates</h3>
+        <p><small>Default start/end times for new entries</small></p>
+        <div style="display: flex; gap: 1rem;">
+          <div style="flex: 1; border: 1px solid #ddd; padding: 0.75rem; border-radius: 4px;">
+            <strong>Morning</strong>
+            <div class="form-group" style="margin-top: 0.5rem;">
+              <label>Start</label>
+              <input type="time" name="morningStart" value="${emp.morningStart || "08:30"}">
+            </div>
+            <div class="form-group">
+              <label>End</label>
+              <input type="time" name="morningEnd" value="${emp.morningEnd || "12:30"}">
+            </div>
+          </div>
+          <div style="flex: 1; border: 1px solid #ddd; padding: 0.75rem; border-radius: 4px;">
+            <strong>Afternoon</strong>
+            <div class="form-group" style="margin-top: 0.5rem;">
+              <label>Start</label>
+              <input type="time" name="afternoonStart" value="${emp.afternoonStart || "13:00"}">
+            </div>
+            <div class="form-group">
+              <label>End</label>
+              <input type="time" name="afternoonEnd" value="${emp.afternoonEnd || "17:00"}">
+            </div>
+          </div>
+        </div>
+        <h3 style="margin-top: 1.5rem;">Saved Locations</h3>
+        <p><small>Quick-select locations when creating entries. These appear in the autocomplete dropdown.</small></p>
+        <div id="presetAddressesContainer"></div>
+        <button type="button" class="btn btn-sm btn-primary" id="addPresetAddressBtn" style="margin-top: 0.5rem;">+ Add Location</button>
+      ` : "<p><em>No employee profile linked to your account.</em></p>"}
+      <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">Save Profile</button>
+    </form>
+  `;
+    showModalWithForm("My Profile", form);
+    if (emp) {
+      const container = document.getElementById("presetAddressesContainer");
+      let presets = {};
+      if (emp.presetAddresses) {
+        try {
+          presets = typeof emp.presetAddresses === "string" ? JSON.parse(emp.presetAddresses) : emp.presetAddresses;
+        } catch (e) {
+        }
+      }
+      let presetIndex = 0;
+      const addPresetRow = (label = "", address = "") => {
+        const idx = presetIndex++;
+        const row = document.createElement("div");
+        row.className = "preset-address-row";
+        row.id = `presetRow_${idx}`;
+        row.style.cssText = "display:flex;gap:0.5rem;align-items:center;margin-bottom:0.5rem;";
+        row.innerHTML = `
+        <input type="text" class="form-control preset-label" placeholder="Label (e.g. Home)" value="${escapeHtml(label || "")}" style="flex:1;">
+        <input type="text" class="form-control preset-address" placeholder="Address" value="${escapeHtml(address || "")}" style="flex:2;">
+        <button type="button" class="btn btn-sm btn-danger" onclick="document.getElementById('presetRow_${idx}').remove()">X</button>
+      `;
+        container.appendChild(row);
+        const addrInput = row.querySelector(".preset-address");
+        if (addrInput) attachLocationAutocomplete(addrInput);
+      };
+      if (presets && typeof presets === "object") {
+        for (const [label, addr] of Object.entries(presets)) {
+          addPresetRow(label, addr);
+        }
+      }
+      document.getElementById("addPresetAddressBtn").onclick = () => addPresetRow();
+    }
+    document.getElementById("profileForm").onsubmit = async (e) => {
+      e.preventDefault();
+      const formData = new FormData(e.target);
+      const data = { name: formData.get("name") };
+      const password = formData.get("password");
+      if (password) data.password = password;
+      if (emp) {
+        data.phone = formData.get("phone") || null;
+        data.morningStart = formData.get("morningStart");
+        data.morningEnd = formData.get("morningEnd");
+        data.afternoonStart = formData.get("afternoonStart");
+        data.afternoonEnd = formData.get("afternoonEnd");
+        const presetObj = {};
+        document.querySelectorAll(".preset-address-row").forEach((row) => {
+          const label = row.querySelector(".preset-label").value.trim();
+          const address = row.querySelector(".preset-address").value.trim();
+          if (label && address) presetObj[label] = address;
+        });
+        data.presetAddresses = Object.keys(presetObj).length > 0 ? presetObj : null;
+      }
+      try {
+        const result = await api.put("/auth/profile", data);
+        const updatedUser = result.user;
+        state.set("currentUser", updatedUser);
+        document.getElementById("userDisplay").textContent = updatedUser.name;
+        hideModal();
+        showAlert("Profile updated successfully");
+      } catch (error) {
+        showAlert(error.message);
+      }
+    };
+  }
+
+  // public/js/modules/main.js
+  init_api_keys();
   init_wms_sync();
 
   // public/js/modules/features/wms/wms-comparison.js
@@ -2150,13 +4391,11 @@ var App = (() => {
     }
   }
 
-  // public/js/modules/features/entries/entry-validation.js
-  init_state();
-
   // public/js/modules/main.js
   Object.assign(window, {
     // Modal functions
     hideModal,
+    hideSlidePanel,
     // Auth
     login,
     logout,
@@ -2183,11 +4422,31 @@ var App = (() => {
     deleteUser,
     // Timesheets
     createTimesheet,
-    viewTimesheet,
     submitTimesheet,
     approveTimesheet,
     lockTimesheet,
     deleteTimesheet,
+    refreshTimesheets: refreshTimesheets2,
+    toggleAccordion,
+    toggleDateAccordion,
+    selectEmployee,
+    // Entries
+    createEntry,
+    editEntry,
+    deleteEntry,
+    loadEntries,
+    createEntryForTimesheet,
+    createEntryForDate,
+    viewEntrySlideIn,
+    editEntrySlideIn,
+    deleteEntryFromCard,
+    // Profile
+    showMyProfile,
+    // API Keys
+    createApiKey,
+    copyApiKey,
+    revokeApiKey,
+    loadApiKeys,
     // WMS
     syncToWms,
     viewSyncHistory,
@@ -2198,15 +4457,16 @@ var App = (() => {
   async function init() {
     console.log("Initializing timesheet application...");
     initNavigation();
+    initSlidePanel();
+    document.querySelectorAll(".sidebar .nav-item[data-tab]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const tabName = btn.dataset.tab;
+        activateTab(tabName);
+      });
+    });
     const closeBtn = document.querySelector(".modal .close");
     if (closeBtn) {
       closeBtn.addEventListener("click", hideModal);
-    }
-    const modal = document.getElementById("modal");
-    if (modal) {
-      modal.addEventListener("click", (e) => {
-        if (e.target === modal) hideModal();
-      });
     }
     const createCompanyBtn = document.getElementById("createCompanyBtn");
     if (createCompanyBtn) {
@@ -2239,11 +4499,33 @@ var App = (() => {
     }
     const myProfileBtn = document.getElementById("myProfileBtn");
     if (myProfileBtn) {
-      myProfileBtn.addEventListener("click", () => {
-        showAlert("Profile functionality coming soon");
+      myProfileBtn.addEventListener("click", () => showMyProfile());
+    }
+    const createEntryBtn = document.getElementById("createEntryBtn");
+    if (createEntryBtn) {
+      createEntryBtn.addEventListener("click", () => createEntry());
+    }
+    const createApiKeyBtn = document.getElementById("createApiKeyBtn");
+    if (createApiKeyBtn) {
+      createApiKeyBtn.addEventListener("click", () => createApiKey());
+    }
+    const timesheetSelect = document.getElementById("timesheetSelect");
+    if (timesheetSelect) {
+      timesheetSelect.addEventListener("change", (e) => {
+        if (e.target.value) {
+          loadEntries(e.target.value);
+        }
       });
     }
+    const createTimesheetBtn = document.getElementById("createTimesheetBtn");
+    if (createTimesheetBtn) {
+      createTimesheetBtn.addEventListener("click", () => createTimesheet());
+    }
     await checkAuth();
+    const currentUser2 = state.get("currentUser");
+    if (currentUser2 && currentUser2.isAdmin) {
+      initEmployeeSelector();
+    }
     console.log("Application initialized");
   }
   document.addEventListener("DOMContentLoaded", init);

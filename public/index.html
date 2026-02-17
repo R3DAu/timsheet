@@ -6,6 +6,9 @@
   <title>Timesheet Management System</title>
   <link rel="stylesheet" href="/css/style.css">
   <link href="https://cdn.jsdelivr.net/npm/quill@2.0.3/dist/quill.snow.css" rel="stylesheet">
+  <!-- Leaflet for maps -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
 </head>
 <body>
   <div id="app">
@@ -53,16 +56,8 @@
 
       <div class="app-shell">
         <aside class="sidebar">
-          <button class="nav-item active" data-tab="myTimesheets">
-            <span class="nav-icon">🗓️</span> My Timesheets
-          </button>
-
-          <button class="nav-item" data-tab="entries">
-            <span class="nav-icon">✍️</span> Timesheet Entries
-          </button>
-
-          <button class="nav-item" data-tab="allTimesheets">
-            <span class="nav-icon">📋</span> All Timesheets
+          <button class="nav-item active" data-tab="timesheets">
+            <span class="nav-icon">📋</span> Timesheets
           </button>
 
           <div class="nav-section admin-only">
@@ -76,39 +71,27 @@
         </aside>
 
         <main class="main">
-          <!-- Keep your existing tab-content divs exactly as they are -->
-          <!-- My Timesheets Tab -->
-          <div id="myTimesheetsTab" class="tab-content">
+          <!-- Unified Timesheets Tab -->
+          <div id="timesheetsTab" class="tab-content active">
             <div class="card">
               <div class="card-header">
-                <h2>My Timesheets</h2>
-                <button id="createTimesheetBtn" class="btn btn-primary">Create Timesheet</button>
+                <div class="card-header-left">
+                  <h2 id="timesheetsHeading">My Timesheets</h2>
+                  <div id="employeeSelectorWrapper" class="admin-only" style="display:none;">
+                    <div class="employee-selector">
+                      <input type="text" id="employeeSearchInput"
+                             class="form-control"
+                             placeholder="Search employee..."
+                             autocomplete="off">
+                      <div id="employeeDropdown" class="employee-dropdown" style="display:none;"></div>
+                    </div>
+                  </div>
+                </div>
+                <div class="card-header-right">
+                  <button id="createTimesheetBtn" class="btn btn-primary">Create Timesheet</button>
+                </div>
               </div>
-              <div id="myTimesheetsList"></div>
-            </div>
-          </div>
-
-          <!-- All Timesheets Tab (Admin) -->
-          <div id="allTimesheetsTab" class="tab-content">
-            <div class="card">
-              <div class="card-header">
-                <h2>All Timesheets</h2>
-              </div>
-              <div id="allTimesheetsList"></div>
-            </div>
-          </div>
-
-          <!-- Entries Tab -->
-          <div id="entriesTab" class="tab-content">
-            <div class="card">
-              <div class="card-header">
-                <h2>Timesheet Entries</h2>
-                <select id="timesheetSelect" class="form-control">
-                  <option value="">Select a timesheet...</option>
-                </select>
-                <button id="createEntryBtn" class="btn btn-primary">Add Entry</button>
-              </div>
-              <div id="entriesList"></div>
+              <div id="timesheetsAccordion" class="accordion-container"></div>
             </div>
           </div>
 
@@ -176,6 +159,17 @@
     <div class="modal-content">
       <span class="close">&times;</span>
       <div id="modalBody"></div>
+    </div>
+  </div>
+
+  <!-- Slide-in Panel for Entry Editing -->
+  <div id="slidePanel" class="slide-panel-overlay">
+    <div class="slide-panel">
+      <div class="slide-panel-header">
+        <h3 id="slidePanelTitle">Edit Entry</h3>
+        <button class="slide-panel-close" id="slidePanelClose">&times;</button>
+      </div>
+      <div class="slide-panel-body" id="slidePanelBody"></div>
     </div>
   </div>
 

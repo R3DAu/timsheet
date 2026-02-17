@@ -11,10 +11,18 @@ export async function loadMyTimesheets() {
     const currentUser = state.get('currentUser');
     const result = await api.get(`/timesheets?employeeId=${currentUser.employeeId}`);
     state.set('myTimesheets', result.timesheets);
-    //let's get all of the timesheets and combine them into one list for easy lookup.
     await combineTimesheetsAndDedupe();
-    displayMyTimesheets();
-    populateTimesheetSelect();
+
+    // Auto-create current + next week timesheets
+    await autoCreateTimesheets();
+
+    // Reload after auto-create
+    const updatedResult = await api.get(`/timesheets?employeeId=${currentUser.employeeId}`);
+    state.set('myTimesheets', updatedResult.timesheets);
+    await combineTimesheetsAndDedupe();
+
+    // Display in unified view
+    displayUnifiedTimesheets();
 }
 
 export async function loadAllTimesheets() {
@@ -173,82 +181,11 @@ export async function refreshTimesheets() {
 }
 
 export function displayMyTimesheets() {
-    displayTimesheetsTable(state.get('myTimesheets'), 'myTimesheetsList', false);
+    displayUnifiedTimesheets();
 }
 
 export async function displayAllTimesheets() {
-    displayTimesheetsTable(state.get('allTimesheets'), 'allTimesheetsList', true);
-}
-
-export async function viewTimesheet(id) {
-    //get the timesheet from the state.
-    const ts = state.get('timesheets').find(ts => ts.id === id);
-
-    //let's return an error if we can't find it.
-    if(!ts) {
-        showAlert('Timesheet not found.');
-        return;
-    }
-
-    const html = `
-    <h3>${escapeHtml(ts.employee.user.name)}</h3>
-      <p>Week ${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}</p>
-      <p><strong>Status:</strong> <span class="status-badge status-${ts.status}">${ts.status}</span></p>
-      ${ts.approvedBy ? `<p><strong>Approved by:</strong> ${escapeHtml(ts.approvedBy.name)}</p>` : ''}
-      ${ts.entries.length > 0 ? `
-        <div class="table-responsive">
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th>
-              <th>Type</th>
-              <th>Time</th>
-              <th>Hours</th>
-              <th>Company</th>
-              <th>Role</th>
-              <th>Location</th>
-              <th>Details</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${ts.entries.map(entry => `
-              <tr>
-                <td>${new Date(entry.date).toLocaleDateString()}</td>
-                <td>${entry.entryType}</td>
-                <td style="white-space:nowrap;">${entry.startTime && entry.endTime ? `${formatTime(entry.startTime)} - ${formatTime(entry.endTime)}` : '-'}</td>
-                <td>${entry.hours.toFixed(2)}</td>
-                <td>${escapeHtml(entry.company.name)}</td>
-                <td>${escapeHtml(entry.role.name)}</td>
-                <td>${escapeHtml(entry.startingLocation) || '-'}</td>
-                <td>
-                  <div class="rich-text-content">${sanitizeRichText(entry.notes) || '-'}</div>
-                  ${entry.reasonForDeviation ? `<div style="margin-top:0.25rem;padding:0.25rem 0.5rem;background:#fff3cd;border-radius:4px;border-left:3px solid #ffc107;"><small><strong>Deviation:</strong> ${sanitizeRichText(entry.reasonForDeviation)}</small></div>` : ''}
-                  ${entry.entryType === 'TRAVEL' ? `<br><small>${escapeHtml(entry.travelFrom)} &rarr; ${escapeHtml(entry.travelTo)}${entry.distance ? ` (${entry.distance.toFixed(1)} km)` : ''}</small>` : ''}
-                  ${entry.locationNotes ? (() => {
-                        try {
-                            const lnotes = typeof entry.locationNotes === 'string' ? JSON.parse(entry.locationNotes) : entry.locationNotes;
-                            return lnotes.map(ln => `<div style="margin-top:0.5rem;padding:0.25rem 0.5rem;background:#e8f4fd;border-radius:4px;border-left:3px solid #3498db;"><strong>${escapeHtml(ln.location)}</strong><div class="rich-text-content">${sanitizeRichText(ln.description)}</div></div>`).join('');
-                        } catch(e) { return ''; }
-                    })() : ''}
-                  ${entry.privateNotes ? `<br><span class="private-notes-badge">Private notes</span>` : ''}
-                </td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
-        </div>
-        <p><strong>Total Hours:</strong> ${ts.entries.reduce((sum, e) => sum + e.hours, 0).toFixed(2)}</p>
-      ` : '<p>No entries yet</p>'}
-      <div style="margin-top: 1rem; display: flex; gap: 0.5rem;">
-        <button class="btn btn-secondary" onclick="hideModal(); showDeWmsEntries(${id});">DE WMS Entries</button>
-      </div>
-    `;
-
-    try{
-        showModalWithForm('Timesheet Details', html);
-    }catch (e){
-        showAlert(e);
-    }
+    displayUnifiedTimesheets();
 }
 
 export async function submitTimesheet(id) {
@@ -342,5 +279,363 @@ function getTimeDefaults(timesheetId) {
     return { start: '', end: '' };
 }
 
+// ==================== NEW: UNIFIED ACCORDION VIEW ====================
+
+/**
+ * Main render function - unified accordion view
+ */
+export function displayUnifiedTimesheets() {
+  const currentUser = state.get('currentUser');
+  const selectedEmployeeId = state.get('selectedEmployeeId');
+  const container = document.getElementById('timesheetsAccordion');
+
+  if (!container) return;
+
+  // Determine which timesheets to show
+  let timesheetsToShow;
+  if (currentUser.isAdmin && selectedEmployeeId && selectedEmployeeId !== currentUser.employeeId) {
+    timesheetsToShow = state.get('allTimesheets')
+      .filter(ts => ts.employeeId === selectedEmployeeId);
+  } else {
+    timesheetsToShow = state.get('myTimesheets');
+  }
+
+  // Sort: OPEN first, then by weekStarting desc
+  timesheetsToShow.sort((a, b) => {
+    if (a.status === 'OPEN' && b.status !== 'OPEN') return -1;
+    if (b.status === 'OPEN' && a.status !== 'OPEN') return 1;
+    return new Date(b.weekStarting) - new Date(a.weekStarting);
+  });
+
+  if (timesheetsToShow.length === 0) {
+    container.innerHTML = '<p style="padding: 1rem; color: var(--muted);">No timesheets found.</p>';
+    return;
+  }
+
+  const accordionOpen = state.get('accordionOpen') || {};
+
+  container.innerHTML = timesheetsToShow.map(ts => {
+    const isOpen = accordionOpen[ts.id] || ts.status === 'OPEN';
+    const totalHours = ts.entries.reduce((sum, e) => sum + e.hours, 0);
+    const weekLabel = `${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}`;
+
+    return `
+      <div class="accordion-item ${isOpen ? 'open' : ''}" data-ts-id="${ts.id}">
+        <div class="accordion-header" onclick="toggleAccordion(${ts.id})">
+          <div class="accordion-header-left">
+            <span class="accordion-chevron">&#9654;</span>
+            <span class="accordion-week">${weekLabel}</span>
+            <span class="status-badge status-${ts.status}">${ts.status}</span>
+            ${ts.autoCreated ? '<span class="source-badge tsdata-badge">TSDATA</span>' : ''}
+          </div>
+          <div class="accordion-meta">
+            <span>${ts.entries.length} entries</span>
+            <span>&middot;</span>
+            <span>${totalHours.toFixed(1)} hrs</span>
+            <div class="accordion-actions" onclick="event.stopPropagation();">
+              ${ts.status === 'OPEN' ? `<button class="btn btn-sm btn-success" onclick="submitTimesheet(${ts.id})">Submit</button>` : ''}
+              ${ts.status === 'SUBMITTED' && currentUser.isAdmin ? `<button class="btn btn-sm btn-success" onclick="approveTimesheet(${ts.id})">Approve</button>` : ''}
+              ${ts.status === 'APPROVED' && currentUser.isAdmin ? `<button class="btn btn-sm btn-secondary" onclick="lockTimesheet(${ts.id})">Lock</button>` : ''}
+              ${getWmsSyncButton(ts)}
+              <button class="btn btn-sm btn-danger" onclick="deleteTimesheet(${ts.id})">Delete</button>
+            </div>
+          </div>
+        </div>
+        <div class="accordion-body">
+          <div class="accordion-body-inner">
+            ${renderEntriesByDate(ts)}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+/**
+ * Toggle accordion open/close
+ */
+export function toggleAccordion(timesheetId) {
+  const accordionOpen = state.get('accordionOpen') || {};
+  accordionOpen[timesheetId] = !accordionOpen[timesheetId];
+  state.set('accordionOpen', accordionOpen);
+
+  const item = document.querySelector(`.accordion-item[data-ts-id="${timesheetId}"]`);
+  if (item) item.classList.toggle('open');
+}
+
+/**
+ * Render entries grouped by date (with nested accordions)
+ */
+function renderEntriesByDate(ts) {
+  if (ts.entries.length === 0) {
+    return `
+      <p style="color: var(--muted); font-size: 0.9rem;">No entries yet.</p>
+      <button class="add-entry-btn" onclick="createEntryForTimesheet(${ts.id})">
+        + Add Entry
+      </button>
+    `;
+  }
+
+  // Group entries by date
+  const grouped = {};
+  ts.entries.forEach(entry => {
+    const dateKey = new Date(entry.date).toISOString().split('T')[0];
+    if (!grouped[dateKey]) grouped[dateKey] = [];
+    grouped[dateKey].push(entry);
+  });
+
+  const sortedDates = Object.keys(grouped).sort().reverse(); // Most recent first
+  const isEditable = ts.status === 'OPEN';
+  const dateAccordionOpen = state.get('dateAccordionOpen') || {};
+
+  return sortedDates.map(dateKey => {
+    const dateEntries = grouped[dateKey].sort((a, b) => {
+      if (!a.startTime || !b.startTime) return 0;
+      return a.startTime.localeCompare(b.startTime);
+    });
+    const dayTotal = dateEntries.reduce((sum, e) => sum + e.hours, 0);
+    const dateLabel = new Date(dateKey + 'T00:00:00').toLocaleDateString('en-US', {
+      weekday: 'short', month: 'short', day: 'numeric'
+    });
+    const dateId = `${ts.id}-${dateKey}`;
+    const isOpen = dateAccordionOpen[dateId] !== false; // Default open
+
+    return `
+      <div class="date-group ${isOpen ? 'open' : ''}" data-date-id="${dateId}">
+        <div class="date-group-header" onclick="toggleDateAccordion('${dateId}')">
+          <div class="date-group-header-left">
+            <span class="date-chevron">&#9654;</span>
+            <h4>${dateLabel}</h4>
+          </div>
+          <span class="date-hours">${dayTotal.toFixed(2)} hrs · ${dateEntries.length} entries</span>
+        </div>
+        <div class="date-group-body">
+          <div class="date-group-body-inner">
+            ${dateEntries.map(entry => renderEntryCard(entry, ts.id, isEditable)).join('')}
+            ${isEditable ? `
+              <button class="add-entry-btn" onclick="createEntryForDate(${ts.id}, '${dateKey}'); event.stopPropagation();">
+                + Add Entry for ${dateLabel}
+              </button>
+            ` : ''}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('') + (isEditable ? `
+    <button class="add-entry-btn" style="margin-top: 0.5rem;" onclick="createEntryForTimesheet(${ts.id})">
+      + Add Entry
+    </button>
+  ` : '');
+}
+
+/**
+ * Toggle date accordion open/close
+ */
+export function toggleDateAccordion(dateId) {
+  const dateAccordionOpen = state.get('dateAccordionOpen') || {};
+  dateAccordionOpen[dateId] = !dateAccordionOpen[dateId];
+  state.set('dateAccordionOpen', dateAccordionOpen);
+
+  const item = document.querySelector(`.date-group[data-date-id="${dateId}"]`);
+  if (item) item.classList.toggle('open');
+}
+
+/**
+ * Render a single entry card (clickable to view details)
+ */
+function renderEntryCard(entry, timesheetId, isEditable) {
+  const timeRange = entry.startTime && entry.endTime
+    ? `${formatTime(entry.startTime)} - ${formatTime(entry.endTime)}`
+    : 'No time set';
+
+  const plainNotes = entry.notes
+    ? entry.notes.replace(/<[^>]*>/g, '').substring(0, 100)
+    : '';
+
+  return `
+    <div class="entry-card" onclick="viewEntrySlideIn(${entry.id}, ${timesheetId}, ${isEditable})">
+      <div class="entry-card-main">
+        <div class="entry-card-time">
+          ${timeRange}
+          <span class="entry-hours">${entry.hours.toFixed(2)} hrs &middot; ${entry.entryType}</span>
+        </div>
+        <div class="entry-card-role">${escapeHtml(entry.role.name)}</div>
+        <div class="entry-card-company">${escapeHtml(entry.company.name)}</div>
+        <div class="entry-card-badges">
+          <span class="status-badge status-${entry.status}">${entry.status}</span>
+          ${entry.tsDataSource ? '<span class="source-badge tsdata-badge">TSDATA</span>' : ''}
+          ${entry.privateNotes ? '<span class="private-notes-badge">Private</span>' : ''}
+        </div>
+        ${entry.startingLocation ? `<div class="entry-card-location">📍 ${escapeHtml(entry.startingLocation)}</div>` : ''}
+        ${plainNotes ? `<div class="entry-card-description">${escapeHtml(plainNotes)}</div>` : ''}
+      </div>
+      <div class="entry-card-actions" onclick="event.stopPropagation();">
+        ${isEditable ? `
+          <button class="btn-icon" onclick="editEntrySlideIn(${entry.id}, ${timesheetId})" title="Edit">&#9998;</button>
+          <button class="btn-icon btn-delete" onclick="deleteEntryFromCard(${entry.id}, ${timesheetId})" title="Delete">&times;</button>
+        ` : '<span style="color:#999; font-size:0.75rem;">Locked</span>'}
+      </div>
+    </div>
+  `;
+}
+
+// ==================== ADMIN EMPLOYEE SELECTOR ====================
+
+/**
+ * Initialize employee selector for admins
+ */
+export function initEmployeeSelector() {
+  const currentUser = state.get('currentUser');
+  if (!currentUser.isAdmin) return;
+
+  const wrapper = document.getElementById('employeeSelectorWrapper');
+  const input = document.getElementById('employeeSearchInput');
+  const dropdown = document.getElementById('employeeDropdown');
+
+  if (!wrapper || !input || !dropdown) return;
+
+  wrapper.style.display = '';
+  input.placeholder = 'My Timesheets - Search to switch employee...';
+
+  input.addEventListener('focus', () => {
+    renderEmployeeDropdown('');
+    dropdown.style.display = 'block';
+  });
+
+  input.addEventListener('input', (e) => {
+    renderEmployeeDropdown(e.target.value);
+  });
+
+  document.addEventListener('click', (e) => {
+    if (!wrapper.contains(e.target)) {
+      dropdown.style.display = 'none';
+    }
+  });
+}
+
+/**
+ * Render employee dropdown options
+ */
+function renderEmployeeDropdown(searchTerm) {
+  const employees = state.get('employees');
+  const currentUser = state.get('currentUser');
+  const dropdown = document.getElementById('employeeDropdown');
+  const selectedId = state.get('selectedEmployeeId');
+
+  if (!dropdown) return;
+
+  const filtered = employees.filter(emp => {
+    const name = emp.user.name.toLowerCase();
+    const email = emp.user.email.toLowerCase();
+    const term = searchTerm.toLowerCase();
+    return name.includes(term) || email.includes(term);
+  });
+
+  let html = `
+    <div class="employee-dropdown-item employee-dropdown-item-self ${!selectedId || selectedId === currentUser.employeeId ? 'selected' : ''}"
+         onclick="selectEmployee(null)">
+      <span class="emp-name">My Timesheets</span>
+    </div>
+  `;
+
+  html += filtered.map(emp => {
+    const allTs = state.get('allTimesheets');
+    const tsCount = allTs.filter(ts => ts.employeeId === emp.id).length;
+
+    return `
+      <div class="employee-dropdown-item ${selectedId === emp.id ? 'selected' : ''}"
+           onclick="selectEmployee(${emp.id})">
+        <span class="emp-name">${escapeHtml(emp.user.name)}</span>
+        <span class="emp-ts-count">${tsCount} timesheets</span>
+      </div>
+    `;
+  }).join('');
+
+  dropdown.innerHTML = html;
+}
+
+/**
+ * Select an employee (admin feature)
+ */
+export async function selectEmployee(employeeId) {
+  const currentUser = state.get('currentUser');
+  const input = document.getElementById('employeeSearchInput');
+  const dropdown = document.getElementById('employeeDropdown');
+  const heading = document.getElementById('timesheetsHeading');
+
+  if (!employeeId || employeeId === currentUser.employeeId) {
+    state.set('selectedEmployeeId', null);
+    if (input) input.value = '';
+    if (input) input.placeholder = 'My Timesheets - Search to switch employee...';
+    if (heading) heading.textContent = 'My Timesheets';
+  } else {
+    state.set('selectedEmployeeId', employeeId);
+    const employees = state.get('employees');
+    const emp = employees.find(e => e.id === employeeId);
+    if (input) input.value = emp ? emp.user.name : '';
+    if (heading) heading.textContent = `Timesheets: ${emp ? emp.user.name : ''}`;
+  }
+
+  if (dropdown) dropdown.style.display = 'none';
+  displayUnifiedTimesheets();
+}
+
+// ==================== AUTO-CREATE TIMESHEETS ====================
+
+/**
+ * Auto-create timesheets for current and next week
+ */
+export async function autoCreateTimesheets() {
+  const currentUser = state.get('currentUser');
+  if (!currentUser.employeeId) return;
+
+  const now = new Date();
+  const dayOfWeek = now.getDay();
+  const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
+
+  const currentMonday = new Date(now);
+  currentMonday.setDate(now.getDate() + mondayOffset);
+  currentMonday.setHours(0, 0, 0, 0);
+
+  const currentSunday = new Date(currentMonday);
+  currentSunday.setDate(currentMonday.getDate() + 6);
+
+  const nextMonday = new Date(currentMonday);
+  nextMonday.setDate(currentMonday.getDate() + 7);
+  const nextSunday = new Date(nextMonday);
+  nextSunday.setDate(nextMonday.getDate() + 6);
+
+  const weeks = [
+    { start: currentMonday, end: currentSunday },
+    { start: nextMonday, end: nextSunday }
+  ];
+
+  const myTimesheets = state.get('myTimesheets') || [];
+
+  for (const week of weeks) {
+    const weekStartStr = week.start.toISOString().split('T')[0];
+    const weekEndStr = week.end.toISOString().split('T')[0];
+
+    const exists = myTimesheets.some(ts => {
+      const tsStart = new Date(ts.weekStarting).toISOString().split('T')[0];
+      return tsStart === weekStartStr;
+    });
+
+    if (!exists) {
+      try {
+        await api.post('/timesheets', {
+          employeeId: currentUser.employeeId,
+          weekStarting: weekStartStr,
+          weekEnding: weekEndStr
+        });
+      } catch (error) {
+        console.log('Auto-create timesheet skipped:', error.message);
+      }
+    }
+  }
+}
+
+
+registerTabHook('timesheets', displayUnifiedTimesheets);
 registerTabHook('myTimesheets', displayMyTimesheets);
 registerTabHook('allTimesheets', displayAllTimesheets);

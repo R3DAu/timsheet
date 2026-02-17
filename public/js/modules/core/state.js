@@ -14,7 +14,10 @@ class AppState {
       myTimesheets: [],
       allTimesheets: [],
       users: [],
-      apiKeys: []
+      apiKeys: [],
+      selectedEmployeeId: null,  // For admin employee selector
+      accordionOpen: {},         // Track open accordion items
+      dateAccordionOpen: {}      // Track open date accordion items
     };
     this._listeners = {};
   }
