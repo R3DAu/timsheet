@@ -4,7 +4,7 @@ import {escapeHtml, sanitizeRichText} from '../../core/dom.js';
 import {registerTabHook} from '../../core/navigation.js';
 import {showModalWithForm, hideModal} from '../../core/modal.js';
 import {showAlert, showConfirmation} from '../../core/alerts.js';
-import {formatTime, todayStr} from '../../core/dateTime.js';
+import {formatTime, todayStr, formatLocalDate} from '../../core/dateTime.js';
 import {getWmsSyncButton} from '../wms/wms-sync.js';
 
 export async function loadMyTimesheets() {
@@ -221,11 +221,23 @@ export async function lockTimesheet(id) {
     }
 }
 
+export async function unlockTimesheet(id) {
+    if (!showConfirmation('Unlock this timesheet and set status to OPEN? All entries will also be set to OPEN.')) return;
+    try {
+        await api.post(`/timesheets/${id}/unlock`);
+        await refreshTimesheets();
+        showAlert('Timesheet unlocked and set to OPEN');
+    } catch (error) {
+        showAlert(error.message);
+    }
+}
+
 export async function deleteTimesheet(id) {
-    if (!showConfirmation('Are you sure you want to delete this timesheet?')) return;
+    if (!showConfirmation('Are you sure you want to delete this timesheet and all its entries?')) return;
     try {
         await api.delete(`/timesheets/${id}`);
         await refreshTimesheets();
+        showAlert('Timesheet deleted successfully');
     } catch (error) {
         showAlert(error.message);
     }
@@ -258,7 +270,7 @@ function getTimeDefaults(timesheetId) {
     let todayEntryCount = 0;
     if (ts && ts.entries) {
         todayEntryCount = ts.entries.filter(e => {
-            const d = new Date(e.date).toISOString().split('T')[0];
+            const d = formatLocalDate(e.date);
             return d === today;
         }).length;
     }
@@ -336,8 +348,11 @@ export function displayUnifiedTimesheets() {
               ${ts.status === 'OPEN' ? `<button class="btn btn-sm btn-success" onclick="submitTimesheet(${ts.id})">Submit</button>` : ''}
               ${ts.status === 'SUBMITTED' && currentUser.isAdmin ? `<button class="btn btn-sm btn-success" onclick="approveTimesheet(${ts.id})">Approve</button>` : ''}
               ${ts.status === 'APPROVED' && currentUser.isAdmin ? `<button class="btn btn-sm btn-secondary" onclick="lockTimesheet(${ts.id})">Lock</button>` : ''}
+              ${(ts.status === 'LOCKED' || ts.status === 'APPROVED' || ts.status === 'SUBMITTED') && currentUser.isAdmin ? `
+                <button class="btn btn-sm btn-warning" onclick="unlockTimesheet(${ts.id})" title="Unlock and set to OPEN">🔓 Unlock</button>
+              ` : ''}
               ${getWmsSyncButton(ts)}
-              <button class="btn btn-sm btn-danger" onclick="deleteTimesheet(${ts.id})">Delete</button>
+              ${currentUser.isAdmin ? `<button class="btn btn-sm btn-danger" onclick="deleteTimesheet(${ts.id})">Delete</button>` : ''}
             </div>
           </div>
         </div>
@@ -379,12 +394,12 @@ function renderEntriesByDate(ts) {
   // Group entries by date
   const grouped = {};
   ts.entries.forEach(entry => {
-    const dateKey = new Date(entry.date).toISOString().split('T')[0];
+    const dateKey = formatLocalDate(entry.date);
     if (!grouped[dateKey]) grouped[dateKey] = [];
     grouped[dateKey].push(entry);
   });
 
-  const sortedDates = Object.keys(grouped).sort().reverse(); // Most recent first
+  const sortedDates = Object.keys(grouped).sort(); // Chronological order (oldest first)
   const isEditable = ts.status === 'OPEN';
   const dateAccordionOpen = state.get('dateAccordionOpen') || {};
 
@@ -473,6 +488,9 @@ function renderEntryCard(entry, timesheetId, isEditable) {
         ${isEditable ? `
           <button class="btn-icon" onclick="editEntrySlideIn(${entry.id}, ${timesheetId})" title="Edit">&#9998;</button>
           <button class="btn-icon btn-delete" onclick="deleteEntryFromCard(${entry.id}, ${timesheetId})" title="Delete">&times;</button>
+        ` : state.get('currentUser').isAdmin ? `
+          <span style="color:#999; font-size:0.75rem; margin-right:0.5rem;">Locked</span>
+          <button class="btn-icon btn-delete" onclick="deleteEntryFromCard(${entry.id}, ${timesheetId})" title="Admin Delete">&times;</button>
         ` : '<span style="color:#999; font-size:0.75rem;">Locked</span>'}
       </div>
     </div>
@@ -617,7 +635,7 @@ export async function autoCreateTimesheets() {
     const weekEndStr = week.end.toISOString().split('T')[0];
 
     const exists = myTimesheets.some(ts => {
-      const tsStart = new Date(ts.weekStarting).toISOString().split('T')[0];
+      const tsStart = formatLocalDate(ts.weekStarting);
       return tsStart === weekStartStr;
     });
 

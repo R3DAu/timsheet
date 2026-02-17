@@ -163,6 +163,57 @@ router.post('/:id/lock', requireAdmin, timesheetController.lockTimesheet);
 
 /**
  * @swagger
+ * /api/timesheets/{id}/unlock:
+ *   post:
+ *     summary: Unlock a timesheet and set status to OPEN (admin only)
+ *     tags: [Timesheets]
+ *     security:
+ *       - sessionAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Timesheet unlocked
+ */
+router.post('/:id/unlock', requireAdmin, timesheetController.unlockTimesheet);
+
+/**
+ * @swagger
+ * /api/timesheets/{id}/change-status:
+ *   post:
+ *     summary: Change timesheet status to any valid state (admin only)
+ *     tags: [Timesheets]
+ *     security:
+ *       - sessionAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [status]
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [OPEN, INCOMPLETE, SUBMITTED, AWAITING_APPROVAL, APPROVED, LOCKED, UNLOCKED, PROCESSED]
+ *     responses:
+ *       200:
+ *         description: Timesheet status changed
+ */
+router.post('/:id/change-status', requireAdmin, timesheetController.changeTimesheetStatus);
+
+/**
+ * @swagger
  * /api/timesheets/{id}:
  *   delete:
  *     summary: Delete a timesheet
@@ -180,5 +231,19 @@ router.post('/:id/lock', requireAdmin, timesheetController.lockTimesheet);
  *         description: Timesheet deleted
  */
 router.delete('/:id', requireAuth, timesheetController.deleteTimesheet);
+
+/**
+ * @swagger
+ * /api/timesheets/repair/status-inconsistencies:
+ *   post:
+ *     summary: Repair status inconsistencies (admin only)
+ *     tags: [Timesheets]
+ *     security:
+ *       - sessionAuth: []
+ *     responses:
+ *       200:
+ *         description: Status repair completed
+ */
+router.post('/repair/status-inconsistencies', requireAdmin, timesheetController.repairStatusInconsistencies);
 
 module.exports = router;

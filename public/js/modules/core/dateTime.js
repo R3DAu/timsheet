@@ -4,6 +4,27 @@
 
 import { state } from './state.js';
 
+/**
+ * Format a Date object to YYYY-MM-DD string in LOCAL timezone.
+ * Prevents UTC conversion issues where dates shift by one day.
+ *
+ * @param {Date|string} date - Date object or ISO string
+ * @returns {string} - Date string in YYYY-MM-DD format
+ *
+ * @example
+ * formatLocalDate(new Date('2026-02-06T00:00:00')) // "2026-02-06" (not "2026-02-05"!)
+ */
+export function formatLocalDate(date) {
+    if (!date) return '';
+
+    const d = typeof date === 'string' ? new Date(date) : date;
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+
+    return `${year}-${month}-${day}`;
+}
+
 // Time helpers
 export function formatTime(timeStr) {
     if (!timeStr) return '';
@@ -26,7 +47,7 @@ export function calculateHoursPreview(startTime, endTime) {
 }
 
 export function todayStr() {
-    return new Date().toISOString().split('T')[0];
+    return formatLocalDate(new Date());
 }
 
 /**
@@ -44,7 +65,7 @@ export function getTimeDefaults(timesheetId) {
     let todayEntryCount = 0;
     if (ts && ts.entries) {
         todayEntryCount = ts.entries.filter(e => {
-            const d = new Date(e.date).toISOString().split('T')[0];
+            const d = formatLocalDate(e.date);
             return d === today;
         }).length;
     }

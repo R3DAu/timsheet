@@ -340,7 +340,8 @@ var App = (() => {
         companies: "Companies",
         roles: "Roles",
         users: "Users",
-        apiKeys: "API Keys"
+        apiKeys: "API Keys",
+        systemTools: "System Tools"
       };
       tabHooks = {};
     }
@@ -667,6 +668,14 @@ var App = (() => {
   });
 
   // public/js/modules/core/dateTime.js
+  function formatLocalDate(date) {
+    if (!date) return "";
+    const d = typeof date === "string" ? new Date(date) : date;
+    const year = d.getFullYear();
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  }
   function formatTime(timeStr) {
     if (!timeStr) return "";
     const [h, m] = timeStr.split(":");
@@ -686,7 +695,7 @@ var App = (() => {
     return `${hours.toFixed(2)} hrs`;
   }
   function todayStr() {
-    return (/* @__PURE__ */ new Date()).toISOString().split("T")[0];
+    return formatLocalDate(/* @__PURE__ */ new Date());
   }
   function getTimeDefaults(timesheetId) {
     const myTimesheets = state.get("myTimesheets");
@@ -697,7 +706,7 @@ var App = (() => {
     let todayEntryCount = 0;
     if (ts && ts.entries) {
       todayEntryCount = ts.entries.filter((e) => {
-        const d = new Date(e.date).toISOString().split("T")[0];
+        const d = formatLocalDate(e.date);
         return d === today;
       }).length;
     }
@@ -993,7 +1002,8 @@ var App = (() => {
     selectEmployee: () => selectEmployee,
     submitTimesheet: () => submitTimesheet,
     toggleAccordion: () => toggleAccordion,
-    toggleDateAccordion: () => toggleDateAccordion
+    toggleDateAccordion: () => toggleDateAccordion,
+    unlockTimesheet: () => unlockTimesheet
   });
   async function loadMyTimesheets() {
     const currentUser2 = state.get("currentUser");
@@ -1112,11 +1122,22 @@ var App = (() => {
       showAlert(error.message);
     }
   }
+  async function unlockTimesheet(id) {
+    if (!showConfirmation("Unlock this timesheet and set status to OPEN? All entries will also be set to OPEN.")) return;
+    try {
+      await api.post(`/timesheets/${id}/unlock`);
+      await refreshTimesheets2();
+      showAlert("Timesheet unlocked and set to OPEN");
+    } catch (error) {
+      showAlert(error.message);
+    }
+  }
   async function deleteTimesheet(id) {
-    if (!showConfirmation("Are you sure you want to delete this timesheet?")) return;
+    if (!showConfirmation("Are you sure you want to delete this timesheet and all its entries?")) return;
     try {
       await api.delete(`/timesheets/${id}`);
       await refreshTimesheets2();
+      showAlert("Timesheet deleted successfully");
     } catch (error) {
       showAlert(error.message);
     }
@@ -1174,8 +1195,11 @@ var App = (() => {
               ${ts.status === "OPEN" ? `<button class="btn btn-sm btn-success" onclick="submitTimesheet(${ts.id})">Submit</button>` : ""}
               ${ts.status === "SUBMITTED" && currentUser2.isAdmin ? `<button class="btn btn-sm btn-success" onclick="approveTimesheet(${ts.id})">Approve</button>` : ""}
               ${ts.status === "APPROVED" && currentUser2.isAdmin ? `<button class="btn btn-sm btn-secondary" onclick="lockTimesheet(${ts.id})">Lock</button>` : ""}
+              ${(ts.status === "LOCKED" || ts.status === "APPROVED" || ts.status === "SUBMITTED") && currentUser2.isAdmin ? `
+                <button class="btn btn-sm btn-warning" onclick="unlockTimesheet(${ts.id})" title="Unlock and set to OPEN">\u{1F513} Unlock</button>
+              ` : ""}
               ${getWmsSyncButton(ts)}
-              <button class="btn btn-sm btn-danger" onclick="deleteTimesheet(${ts.id})">Delete</button>
+              ${currentUser2.isAdmin ? `<button class="btn btn-sm btn-danger" onclick="deleteTimesheet(${ts.id})">Delete</button>` : ""}
             </div>
           </div>
         </div>
@@ -1206,11 +1230,11 @@ var App = (() => {
     }
     const grouped = {};
     ts.entries.forEach((entry) => {
-      const dateKey = new Date(entry.date).toISOString().split("T")[0];
+      const dateKey = formatLocalDate(entry.date);
       if (!grouped[dateKey]) grouped[dateKey] = [];
       grouped[dateKey].push(entry);
     });
-    const sortedDates = Object.keys(grouped).sort().reverse();
+    const sortedDates = Object.keys(grouped).sort();
     const isEditable = ts.status === "OPEN";
     const dateAccordionOpen = state.get("dateAccordionOpen") || {};
     return sortedDates.map((dateKey) => {
@@ -1284,6 +1308,9 @@ var App = (() => {
         ${isEditable ? `
           <button class="btn-icon" onclick="editEntrySlideIn(${entry.id}, ${timesheetId})" title="Edit">&#9998;</button>
           <button class="btn-icon btn-delete" onclick="deleteEntryFromCard(${entry.id}, ${timesheetId})" title="Delete">&times;</button>
+        ` : state.get("currentUser").isAdmin ? `
+          <span style="color:#999; font-size:0.75rem; margin-right:0.5rem;">Locked</span>
+          <button class="btn-icon btn-delete" onclick="deleteEntryFromCard(${entry.id}, ${timesheetId})" title="Admin Delete">&times;</button>
         ` : '<span style="color:#999; font-size:0.75rem;">Locked</span>'}
       </div>
     </div>
@@ -1386,7 +1413,7 @@ var App = (() => {
       const weekStartStr = week.start.toISOString().split("T")[0];
       const weekEndStr = week.end.toISOString().split("T")[0];
       const exists = myTimesheets.some((ts) => {
-        const tsStart = new Date(ts.weekStarting).toISOString().split("T")[0];
+        const tsStart = formatLocalDate(ts.weekStarting);
         return tsStart === weekStartStr;
       });
       if (!exists) {
@@ -2672,6 +2699,7 @@ var App = (() => {
 
   // public/js/modules/features/entries/entry-validation.js
   init_state();
+  init_dateTime();
   function timeToMinutes(timeStr) {
     if (!timeStr) return null;
     const [h, m] = timeStr.split(":").map(Number);
@@ -2724,7 +2752,7 @@ var App = (() => {
     }
     const entryDate = entry.date;
     const sameDayEntries = existingEntries.filter((e) => {
-      const eDate = new Date(e.date).toISOString().split("T")[0];
+      const eDate = formatLocalDate(e.date);
       const matchesDate = eDate === entryDate;
       const notSelf = excludeEntryId ? e.id !== excludeEntryId : true;
       return matchesDate && notSelf && e.startTime && e.endTime;
@@ -3047,7 +3075,7 @@ var App = (() => {
       showAlert("Entry not found");
       return;
     }
-    const dateStr = new Date(entry.date).toISOString().split("T")[0];
+    const dateStr = formatLocalDate(entry.date);
     const form = `
     <form id="editEntryForm">
       <div class="form-group">
@@ -3519,7 +3547,7 @@ var App = (() => {
     const entriesByDate = {};
     if (ts.entries) {
       ts.entries.forEach((entry) => {
-        const dateKey = new Date(entry.date).toISOString().split("T")[0];
+        const dateKey = formatLocalDate(entry.date);
         if (!entriesByDate[dateKey]) entriesByDate[dateKey] = [];
         entriesByDate[dateKey].push(entry);
       });
@@ -3841,41 +3869,54 @@ var App = (() => {
       showAlert("Entry not found");
       return;
     }
-    const dateStr = new Date(entry.date).toISOString().split("T")[0];
+    const dateStr = formatLocalDate(entry.date);
+    const isTsData = entry.tsDataSource === true;
+    const readonly = isTsData ? 'readonly onclick="return false;" style="background-color: #f5f5f5; cursor: not-allowed;"' : "";
+    const disabled = isTsData ? 'disabled style="background-color: #f5f5f5; cursor: not-allowed;"' : "";
     const form = `
     <form id="editEntryFormSlide">
+      ${isTsData ? `
+        <div style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 0.75rem; margin-bottom: 1rem;">
+          <strong style="color: #856404;">\u{1F4CA} TSDATA Entry</strong>
+          <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: #856404;">
+            Date, time, and hours are readonly (imported from TSDATA).
+            You can edit notes, descriptions, and location details.
+            ${entry.verified ? '<span style="color: #27ae60;">\u2713 Verified</span>' : ""}
+          </p>
+        </div>
+      ` : ""}
       <div class="form-group">
         <label>Entry Type</label>
-        <select name="entryType" id="slideEditEntryTypeSelect" required>
+        <select name="entryType" id="slideEditEntryTypeSelect" required ${disabled}>
           <option value="GENERAL" ${entry.entryType === "GENERAL" ? "selected" : ""}>General</option>
           <option value="TRAVEL" ${entry.entryType === "TRAVEL" ? "selected" : ""}>Travel</option>
         </select>
       </div>
       <div class="form-group">
         <label>Date</label>
-        <input type="date" name="date" value="${dateStr}" required>
+        <input type="date" name="date" value="${dateStr}" required ${readonly}>
       </div>
       <div class="time-row">
         <div class="form-group">
           <label>Start Time</label>
-          <input type="time" name="startTime" id="slideEditStartTime" value="${entry.startTime || ""}" required>
+          <input type="time" name="startTime" id="slideEditStartTime" value="${entry.startTime || ""}" required ${readonly}>
         </div>
         <div class="form-group">
           <label>End Time</label>
-          <input type="time" name="endTime" id="slideEditEndTime" value="${entry.endTime || ""}" required>
+          <input type="time" name="endTime" id="slideEditEndTime" value="${entry.endTime || ""}" required ${readonly}>
         </div>
         <div class="calculated-hours" id="slideEditHoursPreview">${entry.hours.toFixed(2)} hrs</div>
       </div>
       <div class="form-group">
         <label>Company</label>
-        <select name="companyId" id="slideEditEntryCompanySelect" required>
+        <select name="companyId" id="slideEditEntryCompanySelect" required ${disabled}>
           <option value="">Select company...</option>
           ${getEntryCompanyOptions(entry.companyId).join("")}
         </select>
       </div>
       <div class="form-group">
         <label>Role</label>
-        <select name="roleId" id="slideEditEntryRoleSelect" required>
+        <select name="roleId" id="slideEditEntryRoleSelect" required ${disabled}>
           <option value="">Select role...</option>
           ${getEntryRolesForCompany(entry.companyId).map((r) => `<option value="${r.id}" ${r.id === entry.roleId ? "selected" : ""}>${escapeHtml(r.name)}</option>`).join("")}
         </select>
@@ -4391,6 +4432,209 @@ var App = (() => {
     }
   }
 
+  // public/js/modules/features/system-tools/system-tools.js
+  init_api();
+  init_alerts();
+  function initSystemTools() {
+    const cleanupBtn = document.getElementById("cleanupDuplicatesBtn");
+    const repairBtn = document.getElementById("repairStatusBtn");
+    const syncBtn = document.getElementById("manualSyncBtn");
+    const weekendBtn = document.getElementById("removeWeekendBtn");
+    const mergeBtn = document.getElementById("mergeDuplicatesBtn");
+    if (cleanupBtn) {
+      cleanupBtn.addEventListener("click", runCleanupDuplicates);
+    }
+    if (repairBtn) {
+      repairBtn.addEventListener("click", runRepairStatuses);
+    }
+    if (syncBtn) {
+      syncBtn.addEventListener("click", runManualSync);
+    }
+    if (weekendBtn) {
+      weekendBtn.addEventListener("click", runRemoveWeekendEntries);
+    }
+    if (mergeBtn) {
+      mergeBtn.addEventListener("click", runMergeDuplicateTimesheets);
+    }
+  }
+  async function runCleanupDuplicates() {
+    const btn = document.getElementById("cleanupDuplicatesBtn");
+    const resultDiv = document.getElementById("cleanupDuplicatesResult");
+    btn.disabled = true;
+    btn.textContent = "\u{1F504} Running cleanup...";
+    resultDiv.innerHTML = '<p style="color: #6b7280;">Processing... This may take a moment.</p>';
+    try {
+      const result = await api.post("/tsdata/cleanup-duplicates", {});
+      resultDiv.innerHTML = `
+      <div style="background: #d1fae5; border: 1px solid #10b981; border-radius: 6px; padding: 1rem; color: #065f46;">
+        <strong>\u2705 Cleanup completed successfully!</strong>
+        <ul style="margin: 0.5rem 0 0 1.5rem; font-size: 0.9rem;">
+          <li><strong>${result.duplicatesRemoved || 0}</strong> duplicate TSDATA entries removed</li>
+          <li><strong>${result.entriesVerified || 0}</strong> local entries marked as verified</li>
+          <li><strong>${result.timesheetsUpdated || 0}</strong> timesheets updated</li>
+        </ul>
+        ${result.errors > 0 ? `<p style="margin-top: 0.5rem; color: #dc2626;">\u26A0\uFE0F ${result.errors} errors occurred</p>` : ""}
+      </div>
+    `;
+      if (result.duplicatesRemoved > 0 || result.entriesVerified > 0) {
+        if (window.refreshTimesheets) {
+          await window.refreshTimesheets();
+        }
+      }
+    } catch (error) {
+      resultDiv.innerHTML = `
+      <div style="background: #fee2e2; border: 1px solid #dc2626; border-radius: 6px; padding: 1rem; color: #991b1b;">
+        <strong>\u274C Cleanup failed</strong>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;">${error.message || "Unknown error occurred"}</p>
+      </div>
+    `;
+      console.error("Cleanup error:", error);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "\u{1F9F9} Run TSDATA Cleanup";
+    }
+  }
+  async function runRepairStatuses() {
+    const btn = document.getElementById("repairStatusBtn");
+    const resultDiv = document.getElementById("repairStatusResult");
+    btn.disabled = true;
+    btn.textContent = "\u{1F504} Repairing statuses...";
+    resultDiv.innerHTML = '<p style="color: #6b7280;">Processing... This may take a moment.</p>';
+    try {
+      const result = await api.post("/timesheets/repair/status-inconsistencies", {});
+      resultDiv.innerHTML = `
+      <div style="background: #d1fae5; border: 1px solid #10b981; border-radius: 6px; padding: 1rem; color: #065f46;">
+        <strong>\u2705 Status repair completed successfully!</strong>
+        <ul style="margin: 0.5rem 0 0 1.5rem; font-size: 0.9rem;">
+          <li><strong>${result.timesheetsChecked || 0}</strong> timesheets checked</li>
+          <li><strong>${result.timesheetsFixed || 0}</strong> timesheets had inconsistencies</li>
+          <li><strong>${result.entriesUpdated || 0}</strong> entries updated to match parent status</li>
+        </ul>
+      </div>
+    `;
+      if (result.entriesUpdated > 0) {
+        if (window.refreshTimesheets) {
+          await window.refreshTimesheets();
+        }
+      }
+    } catch (error) {
+      resultDiv.innerHTML = `
+      <div style="background: #fee2e2; border: 1px solid #dc2626; border-radius: 6px; padding: 1rem; color: #991b1b;">
+        <strong>\u274C Status repair failed</strong>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;">${error.message || "Unknown error occurred"}</p>
+      </div>
+    `;
+      console.error("Status repair error:", error);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "\u{1F504} Repair Entry Statuses";
+    }
+  }
+  async function runRemoveWeekendEntries() {
+    const btn = document.getElementById("removeWeekendBtn");
+    const resultDiv = document.getElementById("removeWeekendResult");
+    btn.disabled = true;
+    btn.textContent = "\u{1F504} Removing weekend entries...";
+    resultDiv.innerHTML = '<p style="color: #6b7280;">Processing...</p>';
+    try {
+      const result = await api.post("/tsdata/remove-weekend-entries", {});
+      resultDiv.innerHTML = `
+      <div style="background: #d1fae5; border: 1px solid #10b981; border-radius: 6px; padding: 1rem; color: #065f46;">
+        <strong>\u2705 Weekend entries removed successfully!</strong>
+        <ul style="margin: 0.5rem 0 0 1.5rem; font-size: 0.9rem;">
+          <li><strong>${result.weekendEntriesRemoved || 0}</strong> weekend entries deleted</li>
+          <li><strong>${result.timesheetsUpdated || 0}</strong> timesheets updated</li>
+        </ul>
+        <p style="margin-top: 0.5rem; font-size: 0.85rem;">Future TSDATA syncs will automatically skip weekend entries.</p>
+      </div>
+    `;
+      if (result.weekendEntriesRemoved > 0 && window.refreshTimesheets) {
+        await window.refreshTimesheets();
+      }
+    } catch (error) {
+      resultDiv.innerHTML = `
+      <div style="background: #fee2e2; border: 1px solid #dc2626; border-radius: 6px; padding: 1rem; color: #991b1b;">
+        <strong>\u274C Weekend removal failed</strong>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;">${error.message || "Unknown error occurred"}</p>
+      </div>
+    `;
+      console.error("Weekend removal error:", error);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "\u{1F4C5} Remove Weekend Entries";
+    }
+  }
+  async function runManualSync() {
+    const btn = document.getElementById("manualSyncBtn");
+    const resultDiv = document.getElementById("manualSyncResult");
+    btn.disabled = true;
+    btn.textContent = "\u{1F504} Syncing from TSDATA...";
+    resultDiv.innerHTML = '<p style="color: #6b7280;">Processing... This may take several minutes.</p>';
+    try {
+      const result = await api.post("/tsdata/sync", {});
+      resultDiv.innerHTML = `
+      <div style="background: #d1fae5; border: 1px solid #10b981; border-radius: 6px; padding: 1rem; color: #065f46;">
+        <strong>\u2705 TSDATA sync completed successfully!</strong>
+        <ul style="margin: 0.5rem 0 0 1.5rem; font-size: 0.9rem;">
+          <li><strong>${result.timesheetsCreated || 0}</strong> timesheets created</li>
+          <li><strong>${result.timesheetsUpdated || 0}</strong> timesheets updated</li>
+          <li><strong>${result.entriesCreated || 0}</strong> entries created</li>
+          <li><strong>${result.entriesUpdated || 0}</strong> entries verified/updated</li>
+        </ul>
+        ${result.errors && result.errors.length > 0 ? `<p style="margin-top: 0.5rem; color: #dc2626;">\u26A0\uFE0F ${result.errors.length} worker(s) had errors</p>` : ""}
+      </div>
+    `;
+      if (window.refreshTimesheets) {
+        await window.refreshTimesheets();
+      }
+    } catch (error) {
+      resultDiv.innerHTML = `
+      <div style="background: #fee2e2; border: 1px solid #dc2626; border-radius: 6px; padding: 1rem; color: #991b1b;">
+        <strong>\u274C TSDATA sync failed</strong>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;">${error.message || "Unknown error occurred"}</p>
+      </div>
+    `;
+      console.error("Manual sync error:", error);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "\u{1F504} Run Manual Sync";
+    }
+  }
+  async function runMergeDuplicateTimesheets() {
+    const btn = document.getElementById("mergeDuplicatesBtn");
+    const resultDiv = document.getElementById("mergeDuplicatesResult");
+    btn.disabled = true;
+    btn.textContent = "\u{1F504} Merging duplicate timesheets...";
+    resultDiv.innerHTML = '<p style="color: #6b7280;">Processing... This may take a moment.</p>';
+    try {
+      const result = await api.post("/tsdata/merge-duplicate-timesheets", {});
+      resultDiv.innerHTML = `
+      <div style="background: #d1fae5; border: 1px solid #10b981; border-radius: 6px; padding: 1rem; color: #065f46;">
+        <strong>\u2705 Duplicate timesheets merged successfully!</strong>
+        <ul style="margin: 0.5rem 0 0 1.5rem; font-size: 0.9rem;">
+          <li><strong>${result.employeesProcessed || 0}</strong> employees processed</li>
+          <li><strong>${result.timesheetsMerged || 0}</strong> duplicate timesheets merged</li>
+          <li><strong>${result.entriesMoved || 0}</strong> entries moved to kept timesheets</li>
+        </ul>
+      </div>
+    `;
+      if (window.refreshTimesheets) {
+        await window.refreshTimesheets();
+      }
+    } catch (error) {
+      resultDiv.innerHTML = `
+      <div style="background: #fee2e2; border: 1px solid #dc2626; border-radius: 6px; padding: 1rem; color: #991b1b;">
+        <strong>\u274C Merge failed</strong>
+        <p style="margin: 0.5rem 0 0 0; font-size: 0.9rem;">${error.message || "Unknown error occurred"}</p>
+      </div>
+    `;
+      console.error("Merge duplicates error:", error);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "\u{1F500} Merge Duplicate Timesheets";
+    }
+  }
+
   // public/js/modules/main.js
   Object.assign(window, {
     // Modal functions
@@ -4425,6 +4669,7 @@ var App = (() => {
     submitTimesheet,
     approveTimesheet,
     lockTimesheet,
+    unlockTimesheet,
     deleteTimesheet,
     refreshTimesheets: refreshTimesheets2,
     toggleAccordion,
@@ -4509,6 +4754,7 @@ var App = (() => {
     if (createApiKeyBtn) {
       createApiKeyBtn.addEventListener("click", () => createApiKey());
     }
+    initSystemTools();
     const timesheetSelect = document.getElementById("timesheetSelect");
     if (timesheetSelect) {
       timesheetSelect.addEventListener("change", (e) => {

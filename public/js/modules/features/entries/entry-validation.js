@@ -3,6 +3,7 @@
  */
 
 import { state } from '../../core/state.js';
+import { formatLocalDate } from '../../core/dateTime.js';
 
 /**
  * Convert HH:MM to minutes since midnight for comparison
@@ -103,7 +104,7 @@ export function validateEntry(entry, existingEntries, excludeEntryId, timesheetI
   // Get all entries for the same day (across ALL companies)
   const entryDate = entry.date;
   const sameDayEntries = existingEntries.filter(e => {
-    const eDate = new Date(e.date).toISOString().split('T')[0];
+    const eDate = formatLocalDate(e.date);
     const matchesDate = eDate === entryDate;
     const notSelf = excludeEntryId ? e.id !== excludeEntryId : true;
     return matchesDate && notSelf && e.startTime && e.endTime;

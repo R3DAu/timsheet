@@ -124,6 +124,7 @@ model Timesheet {
   tsDataStatus   String?          // Authoritative status from TSDATA
   tsDataSyncedAt DateTime?        // Last sync timestamp
   autoCreated    Boolean  @default(false) // Auto-created by TSDATA sync
+  verified       Boolean  @default(false) // All entries verified against TSDATA
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
@@ -149,6 +150,7 @@ model TimesheetEntry {
   tsDataSource   Boolean  @default(false) // true if entry came from TSDATA
   tsDataEntryId  String?  @unique         // External ID from TSDATA
   tsDataSyncedAt DateTime?                // Last sync timestamp
+  verified       Boolean  @default(false) // Verified against TSDATA
   startingLocation String? // School/location where this entry's work began
   startingLocationLat Float? // Latitude for starting location
   startingLocationLng Float? // Longitude for starting location

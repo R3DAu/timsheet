@@ -14,6 +14,7 @@ const TAB_TITLES = {
   roles: 'Roles',
   users: 'Users',
   apiKeys: 'API Keys',
+  systemTools: 'System Tools',
 };
 
 // Tab activation hooks - feature modules register their display functions here

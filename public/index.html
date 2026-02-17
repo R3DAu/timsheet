@@ -67,6 +67,7 @@
             <button class="nav-item" data-tab="companies"><span class="nav-icon">🏢</span> Companies</button>
             <button class="nav-item" data-tab="roles"><span class="nav-icon">🧾</span> Roles</button>
             <button class="nav-item" data-tab="apiKeys"><span class="nav-icon">🔑</span> API Keys</button>
+            <button class="nav-item" data-tab="systemTools"><span class="nav-icon">🔧</span> System Tools</button>
           </div>
         </aside>
 
@@ -147,6 +148,106 @@
                 <button id="createApiKeyBtn" class="btn btn-primary">Create API Key</button>
               </div>
               <div id="apiKeysList"></div>
+            </div>
+          </div>
+
+          <!-- System Tools Tab (Admin) -->
+          <div id="systemToolsTab" class="tab-content">
+            <div class="card">
+              <div class="card-header">
+                <h2>System Tools</h2>
+              </div>
+              <div style="padding: 1.5rem;">
+                <!-- TSDATA Cleanup Section -->
+                <div class="tool-section" style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; background: #f9fafb;">
+                  <div style="display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1rem;">
+                    <div style="font-size: 2rem;">🧹</div>
+                    <div style="flex: 1;">
+                      <h3 style="margin: 0 0 0.5rem 0; color: #1f2937;">Clean Up Duplicate TSDATA Entries</h3>
+                      <p style="margin: 0 0 1rem 0; color: #6b7280; font-size: 0.9rem;">
+                        Removes duplicate TSDATA entries that were imported before smart matching was implemented.
+                        Finds TSDATA entries with matching local entries (same date/hours), deletes duplicates, and marks local entries as verified.
+                      </p>
+                      <button id="cleanupDuplicatesBtn" class="btn btn-primary" style="margin-bottom: 0.5rem;">
+                        🧹 Run TSDATA Cleanup
+                      </button>
+                      <div id="cleanupDuplicatesResult" style="margin-top: 1rem;"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Remove Weekend Entries Section -->
+                <div class="tool-section" style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; background: #f9fafb;">
+                  <div style="display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1rem;">
+                    <div style="font-size: 2rem;">📅</div>
+                    <div style="flex: 1;">
+                      <h3 style="margin: 0 0 0.5rem 0; color: #1f2937;">Remove Weekend TSDATA Entries</h3>
+                      <p style="margin: 0 0 1rem 0; color: #6b7280; font-size: 0.9rem;">
+                        Removes all TSDATA entries that fall on Saturday or Sunday. These are typically data quality issues.
+                        Future syncs will automatically skip weekend entries.
+                      </p>
+                      <button id="removeWeekendBtn" class="btn btn-warning" style="margin-bottom: 0.5rem;">
+                        📅 Remove Weekend Entries
+                      </button>
+                      <div id="removeWeekendResult" style="margin-top: 1rem;"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Status Repair Section -->
+                <div class="tool-section" style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; background: #f9fafb;">
+                  <div style="display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1rem;">
+                    <div style="font-size: 2rem;">🔄</div>
+                    <div style="flex: 1;">
+                      <h3 style="margin: 0 0 0.5rem 0; color: #1f2937;">Repair Status Inconsistencies</h3>
+                      <p style="margin: 0 0 1rem 0; color: #6b7280; font-size: 0.9rem;">
+                        Fixes entries that have incorrect status compared to their parent timesheet.
+                        Updates all entries to match their timesheet status (e.g., if timesheet is APPROVED, all entries become APPROVED).
+                      </p>
+                      <button id="repairStatusBtn" class="btn btn-primary" style="margin-bottom: 0.5rem;">
+                        🔄 Repair Entry Statuses
+                      </button>
+                      <div id="repairStatusResult" style="margin-top: 1rem;"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Merge Duplicate Timesheets Section -->
+                <div class="tool-section" style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; background: #f9fafb;">
+                  <div style="display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1rem;">
+                    <div style="font-size: 2rem;">🔀</div>
+                    <div style="flex: 1;">
+                      <h3 style="margin: 0 0 0.5rem 0; color: #1f2937;">Merge Duplicate Timesheets</h3>
+                      <p style="margin: 0 0 1rem 0; color: #6b7280; font-size: 0.9rem;">
+                        Consolidates timesheets that have the same employee and week range.
+                        Keeps the timesheet with the most entries and moves all entries from duplicates to the kept timesheet.
+                      </p>
+                      <button id="mergeDuplicatesBtn" class="btn btn-warning" style="margin-bottom: 0.5rem;">
+                        🔀 Merge Duplicate Timesheets
+                      </button>
+                      <div id="mergeDuplicatesResult" style="margin-top: 1rem;"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- TSDATA Manual Sync Section -->
+                <div class="tool-section" style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 1.5rem; background: #f9fafb;">
+                  <div style="display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1rem;">
+                    <div style="font-size: 2rem;">🔄</div>
+                    <div style="flex: 1;">
+                      <h3 style="margin: 0 0 0.5rem 0; color: #1f2937;">Manual TSDATA Sync</h3>
+                      <p style="margin: 0 0 1rem 0; color: #6b7280; font-size: 0.9rem;">
+                        Manually trigger a sync from TSDATA to import/update timesheets and entries.
+                        Uses smart matching to verify existing entries instead of creating duplicates.
+                      </p>
+                      <button id="manualSyncBtn" class="btn btn-primary" style="margin-bottom: 0.5rem;">
+                        🔄 Run Manual Sync
+                      </button>
+                      <div id="manualSyncResult" style="margin-top: 1rem;"></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           </div>
         </main>

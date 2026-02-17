@@ -9,7 +9,7 @@ import { escapeHtml } from '../../core/dom.js';
 import { showModalWithForm, hideModal } from '../../core/modal.js';
 import { showAlert, showConfirmation } from '../../core/alerts.js';
 import { initQuillEditor, destroyQuillEditors, quillGetHtml } from '../../core/quill.js';
-import { formatTime, calculateHoursPreview, todayStr, getTimeDefaults } from '../../core/dateTime.js';
+import { formatTime, calculateHoursPreview, todayStr, getTimeDefaults, formatLocalDate } from '../../core/dateTime.js';
 import {
   attachLocationAutocomplete,
   attachAllLocationAutocompletes,
@@ -355,7 +355,7 @@ export async function editEntry(id, timesheetIdParam) {
     return;
   }
 
-  const dateStr = new Date(entry.date).toISOString().split('T')[0];
+  const dateStr = formatLocalDate(entry.date);
 
   const form = `
     <form id="editEntryForm">
@@ -932,7 +932,7 @@ function getSmartDefaultsForTimesheet(timesheetId) {
   const entriesByDate = {};
   if (ts.entries) {
     ts.entries.forEach(entry => {
-      const dateKey = new Date(entry.date).toISOString().split('T')[0];
+      const dateKey = formatLocalDate(entry.date);
       if (!entriesByDate[dateKey]) entriesByDate[dateKey] = [];
       entriesByDate[dateKey].push(entry);
     });
@@ -1335,42 +1335,55 @@ export async function editEntrySlideIn(entryId, timesheetId) {
     return;
   }
 
-  const dateStr = new Date(entry.date).toISOString().split('T')[0];
+  const dateStr = formatLocalDate(entry.date);
+  const isTsData = entry.tsDataSource === true;
+  const readonly = isTsData ? 'readonly onclick="return false;" style="background-color: #f5f5f5; cursor: not-allowed;"' : '';
+  const disabled = isTsData ? 'disabled style="background-color: #f5f5f5; cursor: not-allowed;"' : '';
 
   const form = `
     <form id="editEntryFormSlide">
+      ${isTsData ? `
+        <div style="background: #fff3cd; border: 1px solid #ffc107; border-radius: 6px; padding: 0.75rem; margin-bottom: 1rem;">
+          <strong style="color: #856404;">📊 TSDATA Entry</strong>
+          <p style="margin: 0.25rem 0 0 0; font-size: 0.85rem; color: #856404;">
+            Date, time, and hours are readonly (imported from TSDATA).
+            You can edit notes, descriptions, and location details.
+            ${entry.verified ? '<span style="color: #27ae60;">✓ Verified</span>' : ''}
+          </p>
+        </div>
+      ` : ''}
       <div class="form-group">
         <label>Entry Type</label>
-        <select name="entryType" id="slideEditEntryTypeSelect" required>
+        <select name="entryType" id="slideEditEntryTypeSelect" required ${disabled}>
           <option value="GENERAL" ${entry.entryType === 'GENERAL' ? 'selected' : ''}>General</option>
           <option value="TRAVEL" ${entry.entryType === 'TRAVEL' ? 'selected' : ''}>Travel</option>
         </select>
       </div>
       <div class="form-group">
         <label>Date</label>
-        <input type="date" name="date" value="${dateStr}" required>
+        <input type="date" name="date" value="${dateStr}" required ${readonly}>
       </div>
       <div class="time-row">
         <div class="form-group">
           <label>Start Time</label>
-          <input type="time" name="startTime" id="slideEditStartTime" value="${entry.startTime || ''}" required>
+          <input type="time" name="startTime" id="slideEditStartTime" value="${entry.startTime || ''}" required ${readonly}>
         </div>
         <div class="form-group">
           <label>End Time</label>
-          <input type="time" name="endTime" id="slideEditEndTime" value="${entry.endTime || ''}" required>
+          <input type="time" name="endTime" id="slideEditEndTime" value="${entry.endTime || ''}" required ${readonly}>
         </div>
         <div class="calculated-hours" id="slideEditHoursPreview">${entry.hours.toFixed(2)} hrs</div>
       </div>
       <div class="form-group">
         <label>Company</label>
-        <select name="companyId" id="slideEditEntryCompanySelect" required>
+        <select name="companyId" id="slideEditEntryCompanySelect" required ${disabled}>
           <option value="">Select company...</option>
           ${getEntryCompanyOptions(entry.companyId).join('')}
         </select>
       </div>
       <div class="form-group">
         <label>Role</label>
-        <select name="roleId" id="slideEditEntryRoleSelect" required>
+        <select name="roleId" id="slideEditEntryRoleSelect" required ${disabled}>
           <option value="">Select role...</option>
           ${getEntryRolesForCompany(entry.companyId).map(r => `<option value="${r.id}" ${r.id === entry.roleId ? 'selected' : ''}>${escapeHtml(r.name)}</option>`).join('')}
         </select>

@@ -316,6 +316,68 @@ const lockTimesheet = async (req, res) => {
   }
 };
 
+/**
+ * Unlock a timesheet (admin only)
+ * Changes status back to OPEN and cascades to entries
+ */
+const unlockTimesheet = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const timesheet = await prisma.timesheet.update({
+      where: { id: parseInt(id) },
+      data: { status: 'OPEN' }
+    });
+
+    // Cascade status change to all entries
+    await prisma.timesheetEntry.updateMany({
+      where: { timesheetId: parseInt(id) },
+      data: { status: 'OPEN' }
+    });
+
+    res.json({ message: 'Timesheet unlocked successfully', timesheet });
+  } catch (error) {
+    console.error('Unlock timesheet error:', error);
+    res.status(500).json({ error: 'Failed to unlock timesheet' });
+  }
+};
+
+/**
+ * Change timesheet status (admin only)
+ * Allows admin to set any status and cascades to entries
+ */
+const changeTimesheetStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!status) {
+      return res.status(400).json({ error: 'Status is required' });
+    }
+
+    const validStatuses = ['OPEN', 'INCOMPLETE', 'SUBMITTED', 'AWAITING_APPROVAL', 'APPROVED', 'LOCKED', 'UNLOCKED', 'PROCESSED'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: 'Invalid status' });
+    }
+
+    const timesheet = await prisma.timesheet.update({
+      where: { id: parseInt(id) },
+      data: { status }
+    });
+
+    // Cascade status change to all entries
+    await prisma.timesheetEntry.updateMany({
+      where: { timesheetId: parseInt(id) },
+      data: { status }
+    });
+
+    res.json({ message: `Timesheet status changed to ${status}`, timesheet });
+  } catch (error) {
+    console.error('Change timesheet status error:', error);
+    res.status(500).json({ error: 'Failed to change timesheet status' });
+  }
+};
+
 const deleteTimesheet = async (req, res) => {
   try {
     const { id } = req.params;
@@ -331,6 +393,68 @@ const deleteTimesheet = async (req, res) => {
   }
 };
 
+/**
+ * Repair status inconsistencies across all timesheets.
+ * Ensures all entries match their parent timesheet status.
+ * This fixes legacy data where entries weren't properly cascaded.
+ */
+const repairStatusInconsistencies = async (req, res) => {
+  try {
+    console.log('[Status Repair] Starting status consistency repair...');
+
+    // Get all timesheets
+    const timesheets = await prisma.timesheet.findMany({
+      include: {
+        entries: {
+          select: { id: true, status: true }
+        }
+      }
+    });
+
+    let timesheetsFixed = 0;
+    let entriesUpdated = 0;
+
+    for (const timesheet of timesheets) {
+      // Find entries with status different from timesheet
+      const inconsistentEntries = timesheet.entries.filter(
+        e => e.status !== timesheet.status
+      );
+
+      if (inconsistentEntries.length > 0) {
+        console.log(`[Status Repair] Fixing ${inconsistentEntries.length} entries for timesheet ${timesheet.id} (${timesheet.status})`);
+
+        // Update all entries to match timesheet status
+        await prisma.timesheetEntry.updateMany({
+          where: {
+            timesheetId: timesheet.id
+          },
+          data: {
+            status: timesheet.status
+          }
+        });
+
+        timesheetsFixed++;
+        entriesUpdated += inconsistentEntries.length;
+      }
+    }
+
+    const result = {
+      timesheetsChecked: timesheets.length,
+      timesheetsFixed,
+      entriesUpdated
+    };
+
+    console.log('[Status Repair] Completed:', result);
+    res.json({
+      message: 'Status repair completed successfully',
+      ...result
+    });
+  } catch (error) {
+    console.error('[Status Repair] Error:', error);
+    res.status(500).json({ error: 'Failed to repair statuses: ' + error.message });
+  }
+};
+
 module.exports = {
   getAllTimesheets,
   getTimesheetById,
@@ -339,5 +463,8 @@ module.exports = {
   submitTimesheet,
   approveTimesheet,
   lockTimesheet,
-  deleteTimesheet
+  unlockTimesheet,
+  changeTimesheetStatus,
+  deleteTimesheet,
+  repairStatusInconsistencies
 };

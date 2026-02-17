@@ -34,6 +34,7 @@ import * as profile from './features/profile/profile.js';
 import * as apiKeys from './features/api-keys/api-keys.js';
 import * as wmsSync from './features/wms/wms-sync.js';
 import * as wmsComparison from './features/wms/wms-comparison.js';
+import * as systemTools from './features/system-tools/system-tools.js';
 
 // Validation
 import { validateEntry, getTimesheetById, getTimesheetEntries, formatTime } from './features/entries/entry-validation.js';
@@ -78,6 +79,7 @@ Object.assign(window, {
   submitTimesheet: timesheets.submitTimesheet,
   approveTimesheet: timesheets.approveTimesheet,
   lockTimesheet: timesheets.lockTimesheet,
+  unlockTimesheet: timesheets.unlockTimesheet,
   deleteTimesheet: timesheets.deleteTimesheet,
   refreshTimesheets: timesheets.refreshTimesheets,
   toggleAccordion: timesheets.toggleAccordion,
@@ -204,6 +206,9 @@ async function init() {
   if (createApiKeyBtn) {
     createApiKeyBtn.addEventListener('click', () => apiKeys.createApiKey());
   }
+
+  // Initialize system tools (admin only)
+  systemTools.initSystemTools();
 
   // Set up timesheet select for entries tab
   const timesheetSelect = document.getElementById('timesheetSelect');
