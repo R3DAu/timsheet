@@ -1,5 +1,7 @@
-const prisma = require('../config/database');
+const { PrismaClient } = require('@prisma/client');
 const xeroPayrollService = require('./xeroPayrollService');
+
+const prisma = new PrismaClient();
 
 /**
  * Xero Sync Service

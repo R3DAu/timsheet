@@ -1,6 +1,8 @@
 const { XeroClient } = require('xero-node');
 const crypto = require('crypto');
-const prisma = require('../config/database');
+const { PrismaClient } = require('@prisma/client');
+
+const prisma = new PrismaClient();
 
 /**
  * Xero Authentication Service

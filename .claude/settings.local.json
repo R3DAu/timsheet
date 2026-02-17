@@ -25,7 +25,8 @@
       "Bash(FINAL_STATUS.md:*)",
       "Bash(sqlite3:*)",
       "Bash(git checkout:*)",
-      "Bash(/e/Projects/gitProjects/timsheet/public/css/style.css:*)"
+      "Bash(/e/Projects/gitProjects/timsheet/public/css/style.css:*)",
+      "Bash(grep:*)"
     ]
   }
 }
