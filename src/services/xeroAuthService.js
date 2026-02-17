@@ -44,6 +44,7 @@ class XeroAuthService {
           'openid',
           'profile',
           'email',
+          'offline_access',
           'accounting.transactions',
           'accounting.contacts',
           'payroll.employees',
