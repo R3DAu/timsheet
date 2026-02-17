@@ -22,6 +22,7 @@ const userRoutes = require('./routes/users');
 const wmsSyncRoutes = require('./routes/wmsSync');
 const apiKeyRoutes = require('./routes/apiKeys');
 const tsDataRoutes = require('./routes/tsData');
+const xeroRoutes = require('./routes/xero');
 const wmsSyncService = require('./services/wmsSyncService');
 const { startScheduler } = require('./jobs/scheduler');
 
@@ -100,6 +101,7 @@ app.use('/api/users', userRoutes);
 app.use('/api/wms-sync', wmsSyncRoutes);
 app.use('/api/api-keys', apiKeyRoutes);
 app.use('/api/tsdata', tsDataRoutes);
+app.use('/api/xero', xeroRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -23,7 +23,8 @@
       "Bash(npm run build)",
       "Bash(git restore:*)",
       "Bash(FINAL_STATUS.md:*)",
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "Bash(git checkout:*)"
     ]
   }
 }

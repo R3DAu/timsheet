@@ -288,6 +288,20 @@ const approveTimesheet = async (req, res) => {
       console.error('Failed to send approval notification:', emailError);
     }
 
+    // Trigger Xero sync (non-blocking - failures won't prevent approval)
+    if (process.env.XERO_SYNC_ENABLED === 'true') {
+      try {
+        const xeroSyncService = require('../services/xeroSyncService');
+        // Don't await - sync happens in background
+        xeroSyncService.processApprovedTimesheet(timesheet).catch(xeroError => {
+          console.error('[Timesheet] Xero sync failed:', xeroError);
+          // Failure is logged in XeroSyncLog - will retry via scheduled job
+        });
+      } catch (xeroError) {
+        console.error('[Timesheet] Error initiating Xero sync:', xeroError);
+      }
+    }
+
     res.json({ message: 'Timesheet approved successfully', timesheet });
   } catch (error) {
     console.error('Approve timesheet error:', error);

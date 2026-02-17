@@ -22,10 +22,11 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  employee      Employee?
-  approvals     TimesheetApprover[]
+  employee           Employee?
+  approvals          TimesheetApprover[]
   approvedTimesheets Timesheet[] @relation("ApprovedBy")
-  apiKeys       ApiKey[]
+  apiKeys            ApiKey[]
+  approvedLeaves     LeaveRequest[]
 }
 
 model Company {
@@ -36,11 +37,13 @@ model Company {
   createdAt       DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  roles            Role[]
-  employeeRoles    EmployeeRole[]
-  approvers        TimesheetApprover[]
-  timesheetEntries TimesheetEntry[]
+  roles               Role[]
+  employeeRoles       EmployeeRole[]
+  approvers           TimesheetApprover[]
+  timesheetEntries    TimesheetEntry[]
   employeeIdentifiers EmployeeIdentifier[]
+  xeroMappings        CompanyXeroMapping[]
+  xeroInvoices        XeroInvoice[]
 }
 
 model Employee {
@@ -59,10 +62,13 @@ model Employee {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  identifiers EmployeeIdentifier[]
-  roles       EmployeeRole[]
-  timesheets  Timesheet[]
+  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identifiers     EmployeeIdentifier[]
+  roles           EmployeeRole[]
+  timesheets      Timesheet[]
+  xeroSettings    EmployeeXeroSettings?
+  leaveRequests   LeaveRequest[]
+  xeroInvoices    XeroInvoice[]
 }
 
 model EmployeeIdentifier {
@@ -88,9 +94,10 @@ model Role {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  company         Company          @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  employeeRoles   EmployeeRole[]
-  timesheetEntries TimesheetEntry[]
+  company              Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeRoles        EmployeeRole[]
+  timesheetEntries     TimesheetEntry[]
+  xeroEarningsRateMaps XeroEarningsRateMapping[]
 
   @@unique([name, companyId])
 }
@@ -125,13 +132,17 @@ model Timesheet {
   tsDataSyncedAt DateTime?        // Last sync timestamp
   autoCreated    Boolean  @default(false) // Auto-created by TSDATA sync
   verified       Boolean  @default(false) // All entries verified against TSDATA
+  xeroTimesheetId String?  @unique // Xero timesheet ID
+  xeroSyncedAt    DateTime?        // Last Xero sync timestamp
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  employee     Employee          @relation(fields: [employeeId], references: [id], onDelete: Cascade)
-  approvedBy   User?             @relation("ApprovedBy", fields: [approvedById], references: [id])
-  entries      TimesheetEntry[]
-  wmsSyncLogs  WmsSyncLog[]
+  employee       Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  approvedBy     User?              @relation("ApprovedBy", fields: [approvedById], references: [id])
+  entries        TimesheetEntry[]
+  wmsSyncLogs    WmsSyncLog[]
+  xeroSyncLogs   XeroSyncLog[]
+  invoiceEntries XeroInvoiceEntry[]
 
   @@unique([employeeId, weekStarting])
 }
@@ -252,4 +263,154 @@ model PlaceCache {
   googlePlaceId String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+}
+
+// === XERO INTEGRATION MODELS ===
+
+model XeroToken {
+  id            Int      @id @default(autoincrement())
+  tenantId      String   @unique
+  tenantName    String
+  accessToken   String   // AES-256 encrypted
+  refreshToken  String   // AES-256 encrypted
+  expiresAt     DateTime
+  scope         String
+  isActive      Boolean  @default(true)
+  lastSyncedAt  DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  companies     CompanyXeroMapping[]
+  syncLogs      XeroSyncLog[]
+}
+
+model CompanyXeroMapping {
+  id            Int      @id @default(autoincrement())
+  companyId     Int
+  xeroTokenId   Int
+  xeroTenantId  String
+  xeroContactId String?  // Xero contact ID for invoicing
+  invoiceRate   Float?   // Hourly rate for LT invoices
+
+  company    Company    @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  xeroToken  XeroToken  @relation(fields: [xeroTokenId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, xeroTokenId])
+}
+
+model XeroEarningsRateMapping {
+  id                  Int    @id @default(autoincrement())
+  roleId              Int
+  xeroTenantId        String
+  xeroEarningsRateId  String
+  earningsRateName    String
+
+  role Role @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, xeroTenantId])
+}
+
+model XeroSyncLog {
+  id               Int      @id @default(autoincrement())
+  xeroTokenId      Int?
+  syncType         String   // TIMESHEET_SYNC, INVOICE_CREATE, LEAVE_SYNC, RECONCILIATION
+  status           String   // PENDING, SUCCESS, ERROR, PARTIAL
+  timesheetId      Int?
+  xeroTimesheetId  String?
+  xeroInvoiceId    String?
+  xeroPayrunId     String?
+  xeroLeaveId      String?
+  recordsProcessed Int      @default(0)
+  recordsSuccess   Int      @default(0)
+  recordsFailed    Int      @default(0)
+  errorMessage     String?
+  syncDetails      String?  // JSON: differences, validation results
+  startedAt        DateTime @default(now())
+  completedAt      DateTime?
+
+  xeroToken  XeroToken? @relation(fields: [xeroTokenId], references: [id], onDelete: SetNull)
+  timesheet  Timesheet? @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
+
+  @@index([syncType, status])
+  @@index([timesheetId])
+}
+
+model EmployeeXeroSettings {
+  id           Int     @id @default(autoincrement())
+  employeeId   Int     @unique
+  employeeType String  @default("ST") // "ST" (Specialist Tech) or "LT" (Local Tech)
+  autoApprove  Boolean @default(false)
+  syncEnabled  Boolean @default(true)
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+}
+
+model LeaveRequest {
+  id            Int      @id @default(autoincrement())
+  employeeId    Int
+  leaveType     String   // ANNUAL, SICK, PERSONAL, UNPAID
+  startDate     DateTime
+  endDate       DateTime
+  totalHours    Float
+  status        String   @default("PENDING") // PENDING, APPROVED, REJECTED, CANCELLED
+  notes         String?
+  approvedById  Int?
+  approvedAt    DateTime?
+  xeroLeaveId   String?  @unique
+  xeroSyncedAt  DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  approvedBy User?    @relation(fields: [approvedById], references: [id])
+
+  @@index([employeeId, status])
+}
+
+model XeroInvoice {
+  id            Int      @id @default(autoincrement())
+  employeeId    Int
+  companyId     Int
+  xeroTenantId  String
+  xeroInvoiceId String?  @unique
+  invoiceMonth  DateTime // First day of month
+  status        String   @default("DRAFT") // DRAFT, SUBMITTED, SENT, PAID
+  totalHours    Float    @default(0)
+  hourlyRate    Float
+  totalAmount   Float    @default(0)
+  sentAt        DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  employee Employee           @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  company  Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  entries  XeroInvoiceEntry[]
+
+  @@unique([employeeId, companyId, invoiceMonth])
+  @@index([status])
+}
+
+model XeroInvoiceEntry {
+  id          Int    @id @default(autoincrement())
+  invoiceId   Int
+  timesheetId Int
+  hours       Float
+  description String?
+
+  invoice   XeroInvoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  timesheet Timesheet   @relation(fields: [timesheetId], references: [id], onDelete: Cascade)
+
+  @@unique([invoiceId, timesheetId])
+}
+
+model XeroPayrun {
+  id           Int      @id @default(autoincrement())
+  xeroTenantId String
+  xeroPayrunId String   @unique
+  periodStart  DateTime
+  periodEnd    DateTime
+  paymentDate  DateTime
+  status       String   // DRAFT, POSTED, PAID
+
+  @@index([periodStart, status])
 }
