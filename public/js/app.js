@@ -4648,6 +4648,7 @@ var App = (() => {
   init_alerts();
   init_dom();
   init_navigation();
+  init_modal();
   var currentSetupTab = "companies";
   var selectedEmployeeTenant = null;
   var selectedRoleTenant = null;
@@ -4674,6 +4675,10 @@ var App = (() => {
       selectedRoleTenant = e.target.value;
       displayRoleMappings();
     });
+    document.getElementById("leaveTypeTenantSelector")?.addEventListener("change", (e) => {
+      selectedLeaveTypeTenant = e.target.value;
+      displayLeaveTypeMappings();
+    });
   }
   function switchSetupTab(tabName) {
     currentSetupTab = tabName;
@@ -4699,6 +4704,9 @@ var App = (() => {
       displayEmployeeMappings();
     } else if (tabName === "roles") {
       displayRoleMappings();
+    } else if (tabName === "leaveTypes") {
+      populateLeaveTypeTenantSelector();
+      displayLeaveTypeMappings();
     } else if (tabName === "settings") {
       displayEmployeeSettings();
     }
@@ -4718,6 +4726,8 @@ var App = (() => {
     const statusDiv = document.getElementById("xeroConnectionStatus");
     const connectBtn = document.getElementById("connectXeroBtn");
     const refreshBtn = document.getElementById("refreshTenantsBtn");
+    const activeTenants = tenants.filter((t) => t.isActive);
+    const inactiveTenants = tenants.filter((t) => !t.isActive);
     if (tenants.length === 0) {
       statusDiv.innerHTML = `
       <div style="padding: 1rem; background: #fef3c7; border: 1px solid #fcd34d; border-radius: 6px;">
@@ -4727,19 +4737,45 @@ var App = (() => {
         </p>
       </div>
     `;
+      connectBtn.textContent = "Connect Xero";
       connectBtn.style.display = "inline-block";
       refreshBtn.style.display = "none";
     } else {
+      const hasInactive = inactiveTenants.length > 0;
       statusDiv.innerHTML = `
-      <div style="padding: 1rem; background: #d1fae5; border: 1px solid #6ee7b7; border-radius: 6px;">
-        <strong>\u2705 Connected</strong>
-        <p style="margin: 0.5rem 0 0 0; color: #065f46;">
-          ${tenants.length} organization${tenants.length > 1 ? "s" : ""} connected
-        </p>
+      <div style="padding: 1rem; background: ${hasInactive ? "#fef3c7" : "#d1fae5"}; border: 1px solid ${hasInactive ? "#fcd34d" : "#6ee7b7"}; border-radius: 6px;">
+        <strong>${hasInactive ? "\u26A0\uFE0F Partial Connection" : "\u2705 Connected"}</strong>
+
+        ${activeTenants.length > 0 ? `
+          <p style="margin: 0.5rem 0 0 0; color: ${hasInactive ? "#92400e" : "#065f46"};">
+            <strong>Active (${activeTenants.length}):</strong>
+          </p>
+          <ul style="margin: 0.25rem 0 0 1.5rem; color: ${hasInactive ? "#92400e" : "#065f46"};">
+            ${activeTenants.map((t) => `<li>${escapeHtml(t.tenantName)}</li>`).join("")}
+          </ul>
+        ` : ""}
+
+        ${hasInactive ? `
+          <p style="margin: 0.75rem 0 0 0; color: #dc2626;">
+            <strong>Inactive (${inactiveTenants.length}):</strong>
+          </p>
+          <ul style="margin: 0.25rem 0 0 1.5rem; color: #dc2626;">
+            ${inactiveTenants.map((t) => `<li>${escapeHtml(t.tenantName)} - Token expired</li>`).join("")}
+          </ul>
+          <p style="margin: 0.75rem 0 0 0; color: #92400e;">
+            Click "Reconnect All" below to refresh all tenant tokens.
+          </p>
+        ` : ""}
       </div>
     `;
-      connectBtn.style.display = "none";
-      refreshBtn.style.display = "inline-block";
+      if (hasInactive) {
+        connectBtn.textContent = "Reconnect All Tenants";
+        connectBtn.style.display = "inline-block";
+        refreshBtn.style.display = "inline-block";
+      } else {
+        connectBtn.style.display = "none";
+        refreshBtn.style.display = "inline-block";
+      }
     }
   }
   function populateTenantSelectors(tenants) {
@@ -4959,12 +4995,14 @@ var App = (() => {
         const mapping = mappings.find(
           (m) => m.employeeId === employee.id && m.identifierType === "xero_employee_id"
         );
-        const xeroEmp = mapping ? xeroEmployees.find((xe) => xe.EmployeeID === mapping.identifierValue) : null;
+        const xeroEmp = mapping ? xeroEmployees.find(
+          (xe) => (xe.EmployeeID || xe.employeeID) === mapping.identifierValue
+        ) : null;
         return `
               <tr>
                 <td>${escapeHtml(employee.firstName)} ${escapeHtml(employee.lastName)}</td>
                 <td>
-                  ${xeroEmp ? `${escapeHtml(xeroEmp.FirstName)} ${escapeHtml(xeroEmp.LastName)}` : '<span style="color: #9ca3af;">Not mapped</span>'}
+                  ${xeroEmp ? `${escapeHtml(xeroEmp.FirstName || xeroEmp.firstName || "")} ${escapeHtml(xeroEmp.LastName || xeroEmp.lastName || "")}` : '<span style="color: #9ca3af;">Not mapped</span>'}
                 </td>
                 <td>
                   ${mapping ? '<span style="color: #10b981;">\u2713 Mapped</span>' : '<span style="color: #f59e0b;">\u26A0 Unmapped</span>'}
@@ -4987,53 +5025,67 @@ var App = (() => {
   }
   window.editEmployeeMapping = async function(employeeId) {
     const employees = state.get("employees") || [];
-    const xeroEmployees = state.get("xeroEmployees") || [];
     const mappings = state.get("xeroMappings")?.employees || [];
     const employee = employees.find((e) => e.id === employeeId);
     const mapping = mappings.find(
       (m) => m.employeeId === employeeId && m.identifierType === "xero_employee_id"
     );
     if (!employee) return;
+    if (!selectedEmployeeTenant) {
+      showAlert("Please select a Xero tenant first", "error");
+      return;
+    }
     const { showModalWithForm: showModalWithForm2, hideModal: hideModal2 } = await Promise.resolve().then(() => (init_modal(), modal_exports));
-    const form = `
-    <form id="employeeMappingForm">
-      <div class="form-group">
-        <label>Local Employee</label>
-        <input type="text" value="${escapeHtml(employee.firstName)} ${escapeHtml(employee.lastName)}" disabled>
-      </div>
-      <div class="form-group">
-        <label>Xero Employee *</label>
-        <select name="xeroEmployeeId" required>
-          <option value="">Select Xero employee...</option>
-          ${xeroEmployees.map((xe) => `
-            <option value="${escapeHtml(xe.EmployeeID)}" ${mapping?.identifierValue === xe.EmployeeID ? "selected" : ""}>
-              ${escapeHtml(xe.FirstName)} ${escapeHtml(xe.LastName)} (${escapeHtml(xe.EmployeeID.substring(0, 8))})
-            </option>
-          `).join("")}
-        </select>
-      </div>
-      <button type="submit" class="btn btn-primary">Save Mapping</button>
-    </form>
-  `;
-    showModalWithForm2(`Map Employee: ${employee.firstName} ${employee.lastName}`, form);
-    document.getElementById("employeeMappingForm").onsubmit = async (e) => {
-      e.preventDefault();
-      const formData = new FormData(e.target);
-      try {
-        await api.post("/xero/setup/employees/map", {
-          employeeId: employee.id,
-          xeroEmployeeId: formData.get("xeroEmployeeId"),
-          companyId: null
-        });
-        showAlert("Employee mapping saved successfully", "success");
-        await loadMappings();
-        displayEmployeeMappings();
-        hideModal2();
-      } catch (error) {
-        console.error("Failed to save employee mapping:", error);
-        showAlert("Failed to save mapping: " + error.message, "error");
-      }
-    };
+    try {
+      const xeroEmployees = await api.get(`/xero/setup/employees/${selectedEmployeeTenant}`);
+      const form = `
+      <form id="employeeMappingForm">
+        <div class="form-group">
+          <label>Local Employee</label>
+          <input type="text" value="${escapeHtml(employee.firstName)} ${escapeHtml(employee.lastName)}" disabled>
+        </div>
+        <div class="form-group">
+          <label>Xero Employee *</label>
+          <select name="xeroEmployeeId" required>
+            <option value="">Select Xero employee...</option>
+            ${xeroEmployees.filter((xe) => xe.employeeID || xe.EmployeeID).map((xe) => {
+        const empId = xe.employeeID || xe.EmployeeID;
+        const firstName = xe.firstName || xe.FirstName || "";
+        const lastName = xe.lastName || xe.LastName || "";
+        return `
+                <option value="${escapeHtml(empId)}" ${mapping?.identifierValue === empId ? "selected" : ""}>
+                  ${escapeHtml(firstName)} ${escapeHtml(lastName)} (${escapeHtml(empId.substring(0, 8))})
+                </option>
+              `;
+      }).join("")}
+          </select>
+        </div>
+        <button type="submit" class="btn btn-primary">Save Mapping</button>
+      </form>
+    `;
+      showModalWithForm2(`Map Employee: ${employee.firstName} ${employee.lastName}`, form);
+      document.getElementById("employeeMappingForm").onsubmit = async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        try {
+          await api.post("/xero/setup/employees/map", {
+            employeeId: employee.id,
+            xeroEmployeeId: formData.get("xeroEmployeeId"),
+            companyId: null
+          });
+          showAlert("Employee mapping saved successfully", "success");
+          await loadMappings();
+          displayEmployeeMappings();
+          hideModal2();
+        } catch (error) {
+          console.error("Failed to save employee mapping:", error);
+          showAlert("Failed to save mapping: " + error.message, "error");
+        }
+      };
+    } catch (error) {
+      console.error("Failed to load Xero employees:", error);
+      showAlert("Failed to load Xero employees: " + error.message, "error");
+    }
   };
   async function displayRoleMappings() {
     const container = document.getElementById("roleMappingList");
@@ -5063,13 +5115,15 @@ var App = (() => {
         const mapping = mappings.find(
           (m) => m.roleId === role.id && m.xeroTenantId === selectedRoleTenant
         );
-        const earningsRate = mapping ? earningsRates.find((er) => er.EarningsRateID === mapping.xeroEarningsRateId) : null;
+        const earningsRate = mapping ? earningsRates.find(
+          (er) => (er.EarningsRateID || er.earningsRateID) === mapping.xeroEarningsRateId
+        ) : null;
         return `
               <tr>
                 <td>${escapeHtml(role.name)}</td>
                 <td>${escapeHtml(role.company?.name || "N/A")}</td>
                 <td>
-                  ${earningsRate ? escapeHtml(earningsRate.Name) : '<span style="color: #9ca3af;">Not mapped</span>'}
+                  ${earningsRate ? escapeHtml(earningsRate.Name || earningsRate.name || "(Unnamed)") : '<span style="color: #9ca3af;">Not mapped</span>'}
                 </td>
                 <td>
                   ${mapping ? '<span style="color: #10b981;">\u2713 Mapped</span>' : '<span style="color: #f59e0b;">\u26A0 Unmapped</span>'}
@@ -5110,11 +5164,16 @@ var App = (() => {
         <label>Xero Earnings Rate *</label>
         <select name="xeroEarningsRateId" required>
           <option value="">Select earnings rate...</option>
-          ${earningsRates.map((er) => `
-            <option value="${escapeHtml(er.EarningsRateID)}" ${mapping?.xeroEarningsRateId === er.EarningsRateID ? "selected" : ""}>
-              ${escapeHtml(er.Name)} (${escapeHtml(er.RateType || "Standard")})
-            </option>
-          `).join("")}
+          ${earningsRates.map((er) => {
+      const rateId = er.EarningsRateID || er.earningsRateID;
+      const name = er.Name || er.name || "(Unnamed)";
+      const rateType = er.RateType || er.rateType || "Standard";
+      return `
+              <option value="${escapeHtml(rateId)}" ${mapping?.xeroEarningsRateId === rateId ? "selected" : ""}>
+                ${escapeHtml(name)} (${escapeHtml(rateType)})
+              </option>
+            `;
+    }).join("")}
         </select>
       </div>
       <button type="submit" class="btn btn-primary">Save Mapping</button>
@@ -5126,12 +5185,14 @@ var App = (() => {
       const formData = new FormData(e.target);
       try {
         const xeroEarningsRateId = formData.get("xeroEarningsRateId");
-        const earningsRate = earningsRates.find((er) => er.EarningsRateID === xeroEarningsRateId);
+        const earningsRate = earningsRates.find(
+          (er) => (er.EarningsRateID || er.earningsRateID) === xeroEarningsRateId
+        );
         await api.post("/xero/setup/earnings-rates/map", {
           roleId: role.id,
           xeroTenantId: selectedRoleTenant,
           xeroEarningsRateId,
-          earningsRateName: earningsRate.Name
+          earningsRateName: earningsRate.Name || earningsRate.name
         });
         showAlert("Role mapping saved successfully", "success");
         await loadMappings();
@@ -5148,11 +5209,13 @@ var App = (() => {
     const employees = state.get("employees") || [];
     const settings = state.get("xeroMappings")?.settings || [];
     container.innerHTML = `
+    <h3 style="margin-bottom: 1rem;">General Settings</h3>
     <table>
       <thead>
         <tr>
           <th>Employee</th>
           <th>Type</th>
+          <th>Salaried</th>
           <th>Auto-Approve</th>
           <th>Sync Enabled</th>
           <th>Actions</th>
@@ -5167,6 +5230,9 @@ var App = (() => {
               <td>
                 ${empSettings?.employeeType === "LT" ? '<span style="color: #3b82f6;">Local Tech</span>' : '<span style="color: #10b981;">Specialist Tech</span>'}
               </td>
+              <td>
+                ${empSettings?.isSalaried ? '<span style="color: #f59e0b;">\u2713 Salaried</span>' : "\u2717 No"}
+              </td>
               <td>${empSettings?.autoApprove ? "\u2713 Yes" : "\u2717 No"}</td>
               <td>${empSettings?.syncEnabled !== false ? "\u2713 Enabled" : "\u2717 Disabled"}</td>
               <td>
@@ -5179,8 +5245,195 @@ var App = (() => {
     }).join("")}
       </tbody>
     </table>
+
+    <h3 style="margin: 2rem 0 1rem 0;">Employee-Specific Earnings Rates</h3>
+    <p style="color: #6b7280; margin-bottom: 1rem;">
+      Override the default earnings rate for specific employees. If not set, the role's default rate is used.
+    </p>
+    <div id="employeeEarningsRatesList"></div>
+  `;
+    displayEmployeeEarningsRates();
+  }
+  function displayEmployeeEarningsRates() {
+    const container = document.getElementById("employeeEarningsRatesList");
+    const employees = state.get("employees") || [];
+    const roles = state.get("roles") || [];
+    const earningsRateMappings = state.get("xeroMappings")?.earningsRates || [];
+    const employeeEarningsRates = state.get("xeroMappings")?.employeeEarningsRates || [];
+    const tenants = state.get("xeroTenants") || [];
+    if (tenants.length === 0) {
+      container.innerHTML = '<p style="color: #6b7280;">Connect to Xero first to configure earnings rates.</p>';
+      return;
+    }
+    const employeeRoles = [];
+    employees.forEach((employee) => {
+      employee.roles?.forEach((empRole) => {
+        const role = roles.find((r) => r.id === empRole.roleId);
+        if (role) {
+          employeeRoles.push({
+            employee,
+            role,
+            empRole
+          });
+        }
+      });
+    });
+    if (employeeRoles.length === 0) {
+      container.innerHTML = '<p style="color: #6b7280;">No employee role assignments found.</p>';
+      return;
+    }
+    container.innerHTML = `
+    <table>
+      <thead>
+        <tr>
+          <th>Employee</th>
+          <th>Role</th>
+          <th>Xero Tenant</th>
+          <th>Current Rate</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${employeeRoles.map(({ employee, role }) => {
+      return tenants.filter((t) => t.isActive).map((tenant) => {
+        const customRate = employeeEarningsRates.find(
+          (er) => er.employeeId === employee.id && er.roleId === role.id && er.xeroTenantId === tenant.tenantId
+        );
+        const defaultRate = earningsRateMappings.find(
+          (m) => m.roleId === role.id && m.xeroTenantId === tenant.tenantId
+        );
+        const currentRate = customRate || defaultRate;
+        const isCustom = !!customRate;
+        return `
+              <tr>
+                <td>${escapeHtml(employee.firstName)} ${escapeHtml(employee.lastName)}</td>
+                <td>${escapeHtml(role.name)}</td>
+                <td>${escapeHtml(tenant.tenantName)}</td>
+                <td>
+                  ${currentRate ? `
+                    <span style="${isCustom ? "color: #3b82f6; font-weight: 500;" : ""}">
+                      ${escapeHtml(currentRate.earningsRateName)}
+                    </span>
+                    ${isCustom ? '<span style="color: #3b82f6; font-size: 0.75rem; margin-left: 0.5rem;">(CUSTOM)</span>' : ""}
+                    ${!isCustom ? '<span style="color: #6b7280; font-size: 0.75rem; margin-left: 0.5rem;">(default)</span>' : ""}
+                  ` : '<span style="color: #dc2626;">Not mapped</span>'}
+                </td>
+                <td>
+                  ${currentRate ? `
+                    <button class="btn btn-sm btn-primary"
+                      onclick="window.setCustomEarningsRate(${employee.id}, ${role.id}, '${tenant.tenantId}', '${tenant.tenantName}')">
+                      ${isCustom ? "Change" : "Set Custom"}
+                    </button>
+                    ${isCustom ? `
+                      <button class="btn btn-sm btn-secondary"
+                        onclick="window.removeCustomEarningsRate(${customRate.id}, ${employee.id}, ${role.id})">
+                        Revert to Default
+                      </button>
+                    ` : ""}
+                  ` : '<span style="color: #9ca3af;">Map role first</span>'}
+                </td>
+              </tr>
+            `;
+      }).join("");
+    }).join("")}
+      </tbody>
+    </table>
   `;
   }
+  window.setCustomEarningsRate = async function(employeeId, roleId, xeroTenantId, tenantName) {
+    const employees = state.get("employees") || [];
+    const roles = state.get("roles") || [];
+    const employee = employees.find((e) => e.id === employeeId);
+    const role = roles.find((r) => r.id === roleId);
+    if (!employee || !role) return;
+    const { showModalWithForm: showModalWithForm2, hideModal: hideModal2 } = await Promise.resolve().then(() => (init_modal(), modal_exports));
+    try {
+      const earningsRates = await api.get(`/xero/setup/earnings-rates/${xeroTenantId}`);
+      const form = `
+      <form id="customEarningsRateForm">
+        <div class="form-group">
+          <label>Employee</label>
+          <input type="text" value="${escapeHtml(employee.firstName)} ${escapeHtml(employee.lastName)}" disabled>
+        </div>
+        <div class="form-group">
+          <label>Role</label>
+          <input type="text" value="${escapeHtml(role.name)}" disabled>
+        </div>
+        <div class="form-group">
+          <label>Xero Tenant</label>
+          <input type="text" value="${escapeHtml(tenantName)}" disabled>
+        </div>
+        <div class="form-group">
+          <label>Custom Earnings Rate *</label>
+          <select name="xeroEarningsRateId" required>
+            <option value="">Select earnings rate...</option>
+            ${earningsRates.map((er) => {
+        const rateId = er.EarningsRateID || er.earningsRateID;
+        const name = er.Name || er.name || "(Unnamed)";
+        const rateType = er.RateType || er.rateType || "Standard";
+        return `
+                <option value="${escapeHtml(rateId)}">
+                  ${escapeHtml(name)} (${escapeHtml(rateType)})
+                </option>
+              `;
+      }).join("")}
+          </select>
+          <small>This will override the role's default rate for this employee</small>
+        </div>
+        <button type="submit" class="btn btn-primary">Save Custom Rate</button>
+      </form>
+    `;
+      showModalWithForm2(`Set Custom Rate: ${employee.firstName} ${employee.lastName}`, form);
+      document.getElementById("customEarningsRateForm").onsubmit = async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        try {
+          const xeroEarningsRateId = formData.get("xeroEarningsRateId");
+          const earningsRate = earningsRates.find(
+            (er) => (er.EarningsRateID || er.earningsRateID) === xeroEarningsRateId
+          );
+          await api.post("/xero/setup/employee-earnings-rate", {
+            employeeId,
+            roleId,
+            xeroTenantId,
+            xeroEarningsRateId,
+            earningsRateName: earningsRate.Name || earningsRate.name
+          });
+          showAlert("Custom earnings rate saved successfully", "success");
+          await loadMappings();
+          displayEmployeeSettings();
+          hideModal2();
+        } catch (error) {
+          console.error("Failed to save custom earnings rate:", error);
+          showAlert("Failed to save custom rate: " + error.message, "error");
+        }
+      };
+    } catch (error) {
+      console.error("Failed to load earnings rates:", error);
+      showAlert("Failed to load earnings rates: " + error.message, "error");
+    }
+  };
+  window.removeCustomEarningsRate = async function(customRateId, employeeId, roleId) {
+    const employees = state.get("employees") || [];
+    const roles = state.get("roles") || [];
+    const employee = employees.find((e) => e.id === employeeId);
+    const role = roles.find((r) => r.id === roleId);
+    const confirmed = confirm(
+      `Remove custom earnings rate for ${employee.firstName} ${employee.lastName} - ${role.name}?
+
+This will revert to using the role's default rate.`
+    );
+    if (!confirmed) return;
+    try {
+      await api.delete(`/xero/setup/employee-earnings-rate/${customRateId}`);
+      showAlert("Custom earnings rate removed - reverted to role default", "success");
+      await loadMappings();
+      displayEmployeeSettings();
+    } catch (error) {
+      console.error("Failed to remove custom earnings rate:", error);
+      showAlert("Failed to remove custom rate: " + error.message, "error");
+    }
+  };
   window.editEmployeeSettings = async function(employeeId) {
     const employees = state.get("employees") || [];
     const settings = state.get("xeroMappings")?.settings || [];
@@ -5218,6 +5471,13 @@ var App = (() => {
           Enable Xero sync for this employee
         </label>
       </div>
+      <div class="form-group">
+        <label>
+          <input type="checkbox" name="isSalaried" ${empSettings?.isSalaried ? "checked" : ""}>
+          Employee is salaried (skip timesheet sync)
+        </label>
+        <small>Salaried employees won't have timesheets synced to Xero, but can still create timesheets for tracking</small>
+      </div>
       <button type="submit" class="btn btn-primary">Save Settings</button>
     </form>
   `;
@@ -5230,7 +5490,8 @@ var App = (() => {
           employeeId: employee.id,
           employeeType: formData.get("employeeType"),
           autoApprove: formData.get("autoApprove") === "on",
-          syncEnabled: formData.get("syncEnabled") === "on"
+          syncEnabled: formData.get("syncEnabled") === "on",
+          isSalaried: formData.get("isSalaried") === "on"
         });
         showAlert("Employee settings saved successfully", "success");
         await loadMappings();
@@ -5243,6 +5504,147 @@ var App = (() => {
     };
   };
   registerTabHook("xeroSetup", initXeroSetup);
+  var selectedLeaveTypeTenant = null;
+  async function displayLeaveTypeMappings() {
+    const container = document.getElementById("leaveTypeMappingsList");
+    if (!container) return;
+    if (!selectedLeaveTypeTenant) {
+      container.innerHTML = '<p style="color: #6b7280;">Please select a Xero tenant above.</p>';
+      return;
+    }
+    try {
+      const xeroLeaveTypes = await api.get(`/xero/setup/leave-types/${selectedLeaveTypeTenant}`);
+      const mappings = state.get("xeroMappings") || {};
+      const leaveTypeMappings = mappings.leaveTypes || [];
+      const internalLeaveTypes = [
+        { code: "ANNUAL", name: "Annual Leave" },
+        { code: "SICK", name: "Sick Leave" },
+        { code: "PERSONAL", name: "Personal Leave" },
+        { code: "UNPAID", name: "Unpaid Leave" }
+      ];
+      container.innerHTML = `
+      <table style="width: 100%; border-collapse: collapse;">
+        <thead>
+          <tr style="background: #f9fafb; border-bottom: 2px solid #e5e7eb;">
+            <th style="padding: 1rem; text-align: left;">Leave Type</th>
+            <th style="padding: 1rem; text-align: left;">Xero Leave Type</th>
+            <th style="padding: 1rem; text-align: right;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${internalLeaveTypes.map((leaveType) => {
+        const mapping = leaveTypeMappings.find(
+          (m) => m.xeroTenantId === selectedLeaveTypeTenant && m.leaveType === leaveType.code
+        );
+        return `
+              <tr style="border-bottom: 1px solid #f3f4f6;">
+                <td style="padding: 1rem; font-weight: 500;">${leaveType.name}</td>
+                <td style="padding: 1rem;">
+                  ${mapping ? `
+                    <span style="color: #10b981;">\u2713 ${mapping.leaveTypeName}</span>
+                  ` : `
+                    <span style="color: #f59e0b;">Not mapped</span>
+                  `}
+                </td>
+                <td style="padding: 1rem; text-align: right;">
+                  <button
+                    class="btn btn-sm btn-primary"
+                    onclick="xeroSetup.editLeaveTypeMapping('${leaveType.code}', '${leaveType.name}')"
+                  >
+                    ${mapping ? "Change" : "Map"}
+                  </button>
+                </td>
+              </tr>
+            `;
+      }).join("")}
+        </tbody>
+      </table>
+    `;
+    } catch (error) {
+      console.error("[XeroSetup] Error displaying leave type mappings:", error);
+      showAlert("Failed to load leave type mappings", "error");
+    }
+  }
+  window.xeroSetup = window.xeroSetup || {};
+  window.xeroSetup.editLeaveTypeMapping = async function(leaveTypeCode, leaveTypeName) {
+    if (!selectedLeaveTypeTenant) {
+      showAlert("Please select a Xero tenant first", "error");
+      return;
+    }
+    try {
+      const xeroTypes = await api.get(`/xero/setup/leave-types/${selectedLeaveTypeTenant}`);
+      const mappings = state.get("xeroMappings") || {};
+      const leaveTypeMappings = mappings.leaveTypes || [];
+      const currentMapping = leaveTypeMappings.find(
+        (m) => m.xeroTenantId === selectedLeaveTypeTenant && m.leaveType === leaveTypeCode
+      );
+      const modalContent = `
+      <h2>Map ${leaveTypeName}</h2>
+      <form id="leave-type-mapping-form">
+        <input type="hidden" name="leaveType" value="${leaveTypeCode}" />
+
+        <div class="form-group">
+          <label>Xero Leave Type</label>
+          <select name="xeroLeaveTypeId" class="form-control" required>
+            <option value="">Select Xero leave type...</option>
+            ${xeroTypes.map((lt) => {
+        const ltId = lt.leaveTypeID || lt.LeaveTypeID;
+        const ltName = lt.name || lt.Name || "(Unnamed)";
+        const selected = currentMapping && currentMapping.xeroLeaveTypeId === ltId ? "selected" : "";
+        return `<option value="${ltId}" ${selected}>${ltName}</option>`;
+      }).join("")}
+          </select>
+        </div>
+
+        <div class="form-actions" style="margin-top: 1.5rem;">
+          <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+          <button type="submit" class="btn btn-primary">Save Mapping</button>
+        </div>
+      </form>
+    `;
+      showModalWithForm("Map Leave Type", modalContent);
+      document.getElementById("leave-type-mapping-form").addEventListener("submit", async (e) => {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const xeroLeaveTypeId = formData.get("xeroLeaveTypeId");
+        const selectedType = xeroTypes.find(
+          (lt) => (lt.leaveTypeID || lt.LeaveTypeID) === xeroLeaveTypeId
+        );
+        const leaveTypeNameXero = selectedType ? selectedType.name || selectedType.Name : "";
+        try {
+          await api.post("/xero/setup/leave-type-mapping", {
+            xeroTenantId: selectedLeaveTypeTenant,
+            leaveType: leaveTypeCode,
+            xeroLeaveTypeId,
+            leaveTypeName: leaveTypeNameXero
+          });
+          showAlert(`${leaveTypeName} mapped successfully!`, "success");
+          hideModal();
+          await loadMappings();
+          await displayLeaveTypeMappings();
+        } catch (error) {
+          console.error("[XeroSetup] Error saving leave type mapping:", error);
+          showAlert("Failed to save mapping", "error");
+        }
+      });
+    } catch (error) {
+      console.error("[XeroSetup] Error loading leave types:", error);
+      showAlert("Failed to load Xero leave types", "error");
+    }
+  };
+  function populateLeaveTypeTenantSelector() {
+    const selector = document.getElementById("leaveTypeTenantSelector");
+    if (!selector) return;
+    const tenants = state.get("xeroTenants") || [];
+    selector.innerHTML = '<option value="">Select tenant...</option>' + tenants.map((t) => `<option value="${t.tenantId}">${t.tenantName}</option>`).join("");
+    if (tenants.length === 1) {
+      selector.value = tenants[0].tenantId;
+      selectedLeaveTypeTenant = tenants[0].tenantId;
+      displayLeaveTypeMappings();
+    } else if (selectedLeaveTypeTenant) {
+      selector.value = selectedLeaveTypeTenant;
+    }
+  }
 
   // public/js/modules/features/xero/xero-sync-logs.js
   init_api();
@@ -5409,6 +5811,7 @@ var App = (() => {
       const { showModalWithHTML: showModalWithHTML2 } = await Promise.resolve().then(() => (init_modal(), modal_exports));
       const details = log.syncDetails ? JSON.parse(log.syncDetails) : {};
       const html = `
+      <h2>Sync Log Details</h2>
       <div style="max-width: 600px;">
         <table style="width: 100%; margin-bottom: 1rem;">
           <tr>
@@ -5470,7 +5873,7 @@ var App = (() => {
         ` : ""}
       </div>
     `;
-      showModalWithHTML2("Sync Log Details", html);
+      showModalWithHTML2(html);
     } catch (error) {
       console.error("Failed to load sync log:", error);
       showAlert("Failed to load sync log: " + error.message, "error");
@@ -5490,6 +5893,401 @@ var App = (() => {
     }
   };
   registerTabHook("xeroSyncLogs", initXeroSyncLogs);
+
+  // public/js/modules/features/xero/xero-leave.js
+  init_api();
+  init_state();
+  init_alerts();
+  init_navigation();
+  init_quill();
+  var leaveBalances = null;
+  async function initLeaveManagement() {
+    const currentUser2 = state.get("currentUser");
+    if (!currentUser2) return;
+    if (currentUser2.employeeId) {
+      await showEmployeeLeaveView();
+    }
+    if (currentUser2.isAdmin) {
+      await showAdminLeaveView();
+    }
+  }
+  async function showEmployeeLeaveView() {
+    const container = document.getElementById("xero-leave-employee");
+    if (!container) return;
+    const requests = await fetchMyLeaveRequests();
+    leaveBalances = await fetchLeaveBalances();
+    const hasBalances = leaveBalances && Array.isArray(leaveBalances) && leaveBalances.length > 0;
+    container.innerHTML = `
+    <div class="leave-employee-view">
+      <div class="leave-header">
+        <h2>My Leave Requests</h2>
+        <button class="btn btn-primary" onclick="xeroLeave.showNewLeaveRequestPanel()">
+          New Leave Request
+        </button>
+      </div>
+
+      ${hasBalances ? `
+        <div class="leave-balances">
+          <h3>Your Leave Balances</h3>
+          <div class="balance-grid">
+            ${formatLeaveBalances(leaveBalances)}
+          </div>
+        </div>
+      ` : ""}
+
+      <div class="leave-requests">
+        <h3>Your Leave Requests</h3>
+        ${requests.length > 0 ? `
+          <table class="leave-table">
+            <thead>
+              <tr>
+                <th>Type</th>
+                <th>Start Date</th>
+                <th>End Date</th>
+                <th>Hours</th>
+                <th>Status</th>
+                <th>Approved By</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${requests.map((req) => `
+                <tr class="leave-request-row status-${req.status.toLowerCase()}">
+                  <td>${formatLeaveType(req.leaveType)}</td>
+                  <td>${formatDate(req.startDate)}</td>
+                  <td>${formatDate(req.endDate)}</td>
+                  <td>${req.totalHours}h</td>
+                  <td><span class="status-badge status-${req.status.toLowerCase()}">${req.status}</span></td>
+                  <td>${req.approvedBy ? req.approvedBy.name : "-"}</td>
+                  <td>
+                    ${req.status === "PENDING" ? `
+                      <button class="btn btn-sm btn-danger" onclick="xeroLeave.deleteLeaveRequest(${req.id})">
+                        Delete
+                      </button>
+                    ` : "-"}
+                  </td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        ` : '<p class="no-data">No leave requests yet.</p>'}
+      </div>
+    </div>
+  `;
+  }
+  async function showAdminLeaveView() {
+    const container = document.getElementById("xero-leave-admin");
+    if (!container) return;
+    const requests = await fetchAllLeaveRequests();
+    const allBalances = await fetchAllEmployeeBalances();
+    const pending = requests.filter((r) => r.status === "PENDING");
+    const processed = requests.filter((r) => r.status !== "PENDING");
+    container.innerHTML = `
+    <div class="leave-admin-view">
+      <h2>Leave Request Management (Admin)</h2>
+
+      ${allBalances.length > 0 ? `
+        <div class="leave-section" style="margin-bottom: 2rem;">
+          <h3>Employee Leave Balances</h3>
+          <div style="display: grid; gap: 1.5rem;">
+            ${allBalances.map((emp) => `
+              <div style="background: white; border-radius: 8px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                  <div>
+                    <h4 style="margin: 0; color: #111827;">${emp.employeeName}</h4>
+                    <p style="margin: 0.25rem 0 0 0; color: #6b7280; font-size: 0.875rem;">${emp.email}</p>
+                  </div>
+                </div>
+                <div class="balance-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+                  ${emp.balances.map((bal) => {
+      const name = bal.leaveName || bal.LeaveName || bal.name || bal.Name || "Unknown";
+      const units = bal.numberOfUnits || bal.NumberOfUnits || 0;
+      return `
+                      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; padding: 1rem; color: white; text-align: center;">
+                        <div style="font-size: 0.75rem; opacity: 0.9; margin-bottom: 0.5rem;">${name}</div>
+                        <div style="font-size: 1.75rem; font-weight: 700;">${units}h</div>
+                        <div style="font-size: 0.75rem; opacity: 0.8;">available</div>
+                      </div>
+                    `;
+    }).join("")}
+                </div>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+      ` : ""}
+
+      <h2>Leave Request Management (Admin)</h2>
+
+      <div class="leave-section">
+        <h3>Pending Approval (${pending.length})</h3>
+        ${pending.length > 0 ? `
+          <table class="leave-table">
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Type</th>
+                <th>Start Date</th>
+                <th>End Date</th>
+                <th>Hours</th>
+                <th>Reason</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${pending.map((req) => `
+                <tr>
+                  <td>${req.employee.firstName} ${req.employee.lastName}</td>
+                  <td>${formatLeaveType(req.leaveType)}</td>
+                  <td>${formatDate(req.startDate)}</td>
+                  <td>${formatDate(req.endDate)}</td>
+                  <td>${req.totalHours}h</td>
+                  <td style="max-width: 300px;">
+                    <div class="leave-notes-preview">${req.notes ? req.notes : "-"}</div>
+                  </td>
+                  <td>
+                    <button class="btn btn-sm btn-success" onclick="xeroLeave.approveLeaveRequest(${req.id})">
+                      Approve
+                    </button>
+                    <button class="btn btn-sm btn-danger" onclick="xeroLeave.rejectLeaveRequest(${req.id})">
+                      Reject
+                    </button>
+                  </td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        ` : '<p class="no-data">No pending leave requests.</p>'}
+      </div>
+
+      <div class="leave-section">
+        <h3>Processed Requests (${processed.length})</h3>
+        ${processed.length > 0 ? `
+          <table class="leave-table">
+            <thead>
+              <tr>
+                <th>Employee</th>
+                <th>Type</th>
+                <th>Start Date</th>
+                <th>End Date</th>
+                <th>Hours</th>
+                <th>Status</th>
+                <th>Processed By</th>
+                <th>Xero Sync</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${processed.map((req) => `
+                <tr class="status-${req.status.toLowerCase()}">
+                  <td>${req.employee.firstName} ${req.employee.lastName}</td>
+                  <td>${formatLeaveType(req.leaveType)}</td>
+                  <td>${formatDate(req.startDate)}</td>
+                  <td>${formatDate(req.endDate)}</td>
+                  <td>${req.totalHours}h</td>
+                  <td><span class="status-badge status-${req.status.toLowerCase()}">${req.status}</span></td>
+                  <td>${req.approvedBy ? req.approvedBy.name : "-"}</td>
+                  <td>${req.xeroLeaveId ? "\u2713 Synced" : "-"}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        ` : '<p class="no-data">No processed requests.</p>'}
+      </div>
+    </div>
+  `;
+  }
+  function showNewLeaveRequestPanel() {
+    const tomorrow = /* @__PURE__ */ new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const tomorrowStr = tomorrow.toISOString().split("T")[0];
+    const panelContent = `
+    <form id="new-leave-form" style="padding: 1.5rem;">
+      <div class="form-group">
+        <label for="leave-type">Leave Type</label>
+        <select id="leave-type" name="leaveType" class="form-control" required>
+          <option value="">Select type...</option>
+          <option value="ANNUAL">Annual Leave</option>
+          <option value="SICK">Sick Leave</option>
+          <option value="PERSONAL">Personal Leave</option>
+          <option value="UNPAID">Unpaid Leave</option>
+        </select>
+      </div>
+
+      <div class="form-row" style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+        <div class="form-group">
+          <label for="start-date">Start Date</label>
+          <input type="date" id="start-date" name="startDate" class="form-control" value="${tomorrowStr}" required />
+        </div>
+
+        <div class="form-group">
+          <label for="end-date">End Date</label>
+          <input type="date" id="end-date" name="endDate" class="form-control" value="${tomorrowStr}" required />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label for="leave-hours">Total Hours</label>
+        <input type="number" id="leave-hours" name="totalHours" class="form-control" value="7.6" step="0.1" min="0" required />
+        <small style="color: #6b7280; font-size: 0.875rem;">Default: 7.6 hours per day</small>
+      </div>
+
+      <div class="form-group">
+        <label for="leave-reason">Reason for Leave</label>
+        <div id="leaveReasonEditor" style="height: 150px; background: white;"></div>
+      </div>
+
+      <div class="form-actions" style="display: flex; gap: 1rem; justify-content: flex-end; margin-top: 2rem;">
+        <button type="button" class="btn btn-secondary" onclick="hideSlidePanel()">Cancel</button>
+        <button type="submit" class="btn btn-primary">Submit Request</button>
+      </div>
+    </form>
+  `;
+    showSlidePanel("New Leave Request", panelContent);
+    requestAnimationFrame(() => {
+      const reasonEditor = initQuillEditor("leaveReasonEditor", "Enter the reason for your leave request...");
+      const form = document.getElementById("new-leave-form");
+      if (form) {
+        form.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          const formData = new FormData(e.target);
+          const reasonHtml = quillGetHtml(reasonEditor);
+          const data = {
+            leaveType: formData.get("leaveType"),
+            startDate: formData.get("startDate"),
+            endDate: formData.get("endDate"),
+            totalHours: parseFloat(formData.get("totalHours")),
+            notes: reasonHtml
+          };
+          await submitLeaveRequest(data);
+        });
+      }
+    });
+  }
+  async function submitLeaveRequest(data) {
+    try {
+      await api.post("/xero/leave/request", data);
+      showAlert("Leave request submitted successfully!", "success");
+      hideSlidePanel();
+      await showEmployeeLeaveView();
+    } catch (error) {
+      console.error("Error submitting leave request:", error);
+      showAlert(error.message || "Failed to create leave request", "error");
+    }
+  }
+  async function approveLeaveRequest(id) {
+    if (!confirm("Approve this leave request? It will be synced to Xero.")) {
+      return;
+    }
+    try {
+      await api.post(`/xero/leave/approve/${id}`);
+      showAlert("Leave request approved and synced to Xero!", "success");
+      await showAdminLeaveView();
+    } catch (error) {
+      console.error("Error approving leave request:", error);
+      showAlert(error.message || "Failed to approve leave request", "error");
+    }
+  }
+  async function rejectLeaveRequest(id) {
+    if (!confirm("Reject this leave request?")) {
+      return;
+    }
+    try {
+      await api.post(`/xero/leave/reject/${id}`);
+      showAlert("Leave request rejected.", "success");
+      await showAdminLeaveView();
+    } catch (error) {
+      console.error("Error rejecting leave request:", error);
+      showAlert(error.message || "Failed to reject leave request", "error");
+    }
+  }
+  async function deleteLeaveRequest(id) {
+    if (!confirm("Delete this leave request?")) {
+      return;
+    }
+    try {
+      await api.delete(`/xero/leave/request/${id}`);
+      showAlert("Leave request deleted.", "success");
+      await showEmployeeLeaveView();
+    } catch (error) {
+      console.error("Error deleting leave request:", error);
+      showAlert(error.message || "Failed to delete leave request", "error");
+    }
+  }
+  async function fetchMyLeaveRequests() {
+    try {
+      return await api.get("/xero/leave/my-requests");
+    } catch (error) {
+      console.error("Error fetching leave requests:", error);
+      showAlert("Failed to load leave requests", "error");
+      return [];
+    }
+  }
+  async function fetchAllLeaveRequests() {
+    try {
+      return await api.get("/xero/leave/requests");
+    } catch (error) {
+      console.error("Error fetching leave requests:", error);
+      showAlert("Failed to load leave requests", "error");
+      return [];
+    }
+  }
+  async function fetchLeaveBalances() {
+    try {
+      const data = await api.get("/xero/leave/balances");
+      return data.message ? null : data;
+    } catch (error) {
+      console.error("Error fetching leave balances:", error);
+      return null;
+    }
+  }
+  async function fetchAllEmployeeBalances() {
+    try {
+      return await api.get("/xero/leave/all-balances");
+    } catch (error) {
+      console.error("Error fetching all employee balances:", error);
+      return [];
+    }
+  }
+  function formatLeaveBalances(balances) {
+    if (!balances || !Array.isArray(balances) || balances.length === 0) {
+      return '<p class="no-data">No leave balances available from Xero</p>';
+    }
+    return balances.map((balance) => {
+      const leaveName = balance.leaveName || balance.LeaveName || balance.leaveType || balance.LeaveType || balance.name || balance.Name || "Unknown Leave";
+      const units = balance.numberOfUnits || balance.NumberOfUnits || 0;
+      return `
+      <div class="balance-card">
+        <div class="balance-type">${leaveName}</div>
+        <div class="balance-hours">${units}h</div>
+        <div class="balance-label">available</div>
+      </div>
+    `;
+    }).join("");
+  }
+  function formatLeaveType(type) {
+    const types = {
+      "ANNUAL": "Annual Leave",
+      "SICK": "Sick Leave",
+      "PERSONAL": "Personal Leave",
+      "UNPAID": "Unpaid Leave"
+    };
+    return types[type] || type;
+  }
+  function formatDate(dateString) {
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-AU", {
+      year: "numeric",
+      month: "short",
+      day: "numeric"
+    });
+  }
+  window.xeroLeave = {
+    showNewLeaveRequestPanel,
+    approveLeaveRequest,
+    rejectLeaveRequest,
+    deleteLeaveRequest
+  };
+  registerTabHook("leaveManagement", initLeaveManagement);
 
   // public/js/modules/main.js
   Object.assign(window, {

@@ -59,6 +59,9 @@
           <button class="nav-item active" data-tab="timesheets">
             <span class="nav-icon">📋</span> Timesheets
           </button>
+          <button class="nav-item" data-tab="leaveManagement">
+            <span class="nav-icon">🏖️</span> Leave Requests
+          </button>
 
           <div class="nav-section admin-only">
             <div class="nav-section-title">Admin</div>
@@ -289,6 +292,7 @@
                   <button class="setup-tab-btn active" data-setup-tab="companies">Companies</button>
                   <button class="setup-tab-btn" data-setup-tab="employees">Employees</button>
                   <button class="setup-tab-btn" data-setup-tab="roles">Roles</button>
+                  <button class="setup-tab-btn" data-setup-tab="leaveTypes">Leave Types</button>
                   <button class="setup-tab-btn" data-setup-tab="settings">Settings</button>
                 </div>
 
@@ -332,6 +336,22 @@
                 </div>
 
                 <!-- Employee Settings Tab -->
+                <div id="setupLeaveTypesTab" class="setup-tab-content">
+                  <h3>Leave Type to Xero Leave Type Mapping</h3>
+                  <p style="color: #6b7280; margin-bottom: 1rem;">
+                    Map each leave type to the corresponding Xero leave type for automatic sync.
+                  </p>
+
+                  <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Select Xero Tenant:</label>
+                    <select id="leaveTypeTenantSelector" class="form-control" style="max-width: 400px;">
+                      <option value="">Select tenant...</option>
+                    </select>
+                  </div>
+
+                  <div id="leaveTypeMappingsList"></div>
+                </div>
+
                 <div id="setupSettingsTab" class="setup-tab-content">
                   <h3>Employee Xero Settings</h3>
                   <p style="color: #6b7280; margin-bottom: 1rem;">
@@ -384,6 +404,21 @@
 
               <!-- Logs Table -->
               <div id="syncLogsList" style="padding: 1.5rem;"></div>
+            </div>
+          </div>
+
+          <!-- Leave Management Tab -->
+          <div id="leaveManagementTab" class="tab-content">
+            <div class="card">
+              <div class="card-header">
+                <h2>Leave Management</h2>
+              </div>
+
+              <!-- Employee View: Leave Requests & Balances -->
+              <div id="xero-leave-employee" style="padding: 1.5rem;"></div>
+
+              <!-- Admin View: Pending Approvals & History -->
+              <div id="xero-leave-admin" style="padding: 1.5rem; border-top: 1px solid #e5e7eb;"></div>
             </div>
           </div>
         </main>

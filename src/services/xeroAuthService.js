@@ -171,19 +171,12 @@ class XeroAuthService {
     try {
       const refreshToken = this.decrypt(xeroToken.refreshToken);
 
-      // Create a token set for refresh
-      const tokenSet = {
-        access_token: this.decrypt(xeroToken.accessToken),
-        refresh_token: refreshToken,
-        expires_in: 1800, // Xero tokens expire in 30 minutes
-        token_type: 'Bearer'
-      };
-
-      // Set the token set on the client
-      await this.xero.setTokenSet(tokenSet);
-
-      // Refresh the token
-      const newTokenSet = await this.xero.refreshToken();
+      // Use the SDK's refresh method with client credentials
+      const newTokenSet = await this.xero.refreshWithRefreshToken(
+        this.clientId,
+        this.clientSecret,
+        refreshToken
+      );
 
       // Encrypt and store new tokens
       const encryptedAccess = this.encrypt(newTokenSet.access_token);
@@ -224,6 +217,7 @@ class XeroAuthService {
         id: true,
         tenantId: true,
         tenantName: true,
+        isActive: true,
         lastSyncedAt: true,
         createdAt: true,
         companies: {
@@ -241,6 +235,34 @@ class XeroAuthService {
   }
 
   /**
+   * Get all Xero tenants (including inactive)
+   */
+  async getAllTenants() {
+    return await prisma.xeroToken.findMany({
+      select: {
+        id: true,
+        tenantId: true,
+        tenantName: true,
+        isActive: true,
+        expiresAt: true,
+        lastSyncedAt: true,
+        createdAt: true,
+        companies: {
+          include: {
+            company: {
+              select: {
+                id: true,
+                name: true
+              }
+            }
+          }
+        }
+      },
+      orderBy: { createdAt: 'desc' }
+    });
+  }
+
+  /**
    * Disconnect a Xero tenant
    */
   async disconnectTenant(tenantId) {
@@ -250,6 +272,18 @@ class XeroAuthService {
     });
 
     console.log(`[XeroAuth] Disconnected tenant: ${tenantId}`);
+  }
+
+  /**
+   * Reactivate a Xero tenant (marks as active so reconnect will work)
+   */
+  async reactivateTenant(tenantId) {
+    await prisma.xeroToken.update({
+      where: { tenantId },
+      data: { isActive: true }
+    });
+
+    console.log(`[XeroAuth] Reactivated tenant: ${tenantId}`);
   }
 
   /**

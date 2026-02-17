@@ -44,11 +44,11 @@ exports.handleCallback = async (req, res) => {
 
 /**
  * GET /api/xero/auth/tenants
- * Get all connected Xero tenants
+ * Get all connected Xero tenants (including inactive)
  */
 exports.getTenants = async (req, res) => {
   try {
-    const tenants = await xeroAuthService.getActiveTenants();
+    const tenants = await xeroAuthService.getAllTenants();
     res.json(tenants);
   } catch (error) {
     console.error('[XeroAuth] Error fetching tenants:', error);

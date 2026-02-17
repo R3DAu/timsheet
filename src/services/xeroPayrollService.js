@@ -66,53 +66,58 @@ class XeroPayrollService {
    * Get all payruns
    */
   async getPayruns(tenantId, status = null) {
-    let url = `${this.payrollAuUrl}/PayRuns`;
+    const xero = await this.getXeroClient(tenantId);
+
+    let where = null;
     if (status) {
-      url += `?where=Status=="${status}"`;
+      where = `Status=="${status}"`;
     }
-    const response = await this.makeRequest('GET', url, tenantId);
-    return response.PayRuns || [];
+
+    const response = await xero.payrollAUApi.getPayRuns(tenantId, null, where);
+    return response.body.payRuns || [];
   }
 
   /**
    * Get a single payrun by ID
    */
   async getPayrun(tenantId, payrunId) {
-    const url = `${this.payrollAuUrl}/PayRuns/${payrunId}`;
-    const response = await this.makeRequest('GET', url, tenantId);
-    return response.PayRuns?.[0] || null;
+    const xero = await this.getXeroClient(tenantId);
+    const response = await xero.payrollAUApi.getPayRun(tenantId, payrunId);
+    return response.body.payRuns?.[0] || null;
   }
 
   /**
-   * Create a new payrun
+   * Create a new payrun (Note: Xero Payroll AU doesn't support auto-creating payruns via API)
    */
   async createPayrun(tenantId, payrunData) {
-    const url = `${this.payrollAuUrl}/PayRuns`;
-    const response = await this.makeRequest('POST', url, tenantId, {
-      PayRuns: [payrunData]
-    });
-    return response.PayRuns?.[0] || null;
+    // Xero Payroll AU API doesn't support creating payruns
+    // Payruns must be created manually in Xero
+    console.warn('[XeroPayroll] Payrun creation not supported by Xero Payroll AU API');
+    return null;
   }
 
   /**
    * Get timesheets for a payrun
    */
   async getTimesheets(tenantId, payrunId = null) {
-    let url = `${this.payrollAuUrl}/Timesheets`;
+    const xero = await this.getXeroClient(tenantId);
+
+    let where = null;
     if (payrunId) {
-      url += `?where=PayrollCalendarID=="${payrunId}"`;
+      where = `PayrollCalendarID=="${payrunId}"`;
     }
-    const response = await this.makeRequest('GET', url, tenantId);
-    return response.Timesheets || [];
+
+    const response = await xero.payrollAUApi.getTimesheets(tenantId, null, where);
+    return response.body.timesheets || [];
   }
 
   /**
    * Get a single timesheet by ID
    */
   async getTimesheet(tenantId, timesheetId) {
-    const url = `${this.payrollAuUrl}/Timesheets/${timesheetId}`;
-    const response = await this.makeRequest('GET', url, tenantId);
-    return response.Timesheets?.[0] || null;
+    const xero = await this.getXeroClient(tenantId);
+    const response = await xero.payrollAUApi.getTimesheet(tenantId, timesheetId);
+    return response.body.timesheets?.[0] || null;
   }
 
   /**
@@ -123,11 +128,8 @@ class XeroPayrollService {
 
     const xero = await this.getXeroClient(tenantId);
 
-    // Create timesheet object using SDK models
-    const { Timesheet } = require('xero-node');
-    const timesheet = Timesheet.constructFromObject(timesheetData);
-
-    const response = await xero.payrollAUApi.createTimesheet(tenantId, [timesheet]);
+    // SDK accepts plain JavaScript objects
+    const response = await xero.payrollAUApi.createTimesheet(tenantId, [timesheetData]);
 
     return response.body.timesheets?.[0] || null;
   }
@@ -136,130 +138,155 @@ class XeroPayrollService {
    * Update an existing timesheet
    */
   async updateTimesheet(tenantId, timesheetId, timesheetData) {
-    const url = `${this.payrollAuUrl}/Timesheets/${timesheetId}`;
-
     console.log('[XeroPayroll] Updating timesheet:', timesheetId);
 
-    const response = await this.makeRequest('POST', url, tenantId, {
-      Timesheets: [{ ...timesheetData, TimesheetID: timesheetId }]
-    });
+    const xero = await this.getXeroClient(tenantId);
 
-    return response.Timesheets?.[0] || null;
+    // SDK accepts plain JavaScript objects
+    const response = await xero.payrollAUApi.updateTimesheet(tenantId, timesheetId, [{
+      ...timesheetData,
+      timesheetID: timesheetId
+    }]);
+
+    return response.body.timesheets?.[0] || null;
   }
 
   /**
    * Get leave applications
    */
   async getLeaveApplications(tenantId, employeeId = null) {
-    let url = `${this.payrollAuUrl}/LeaveApplications`;
+    const xero = await this.getXeroClient(tenantId);
+
+    let where = null;
     if (employeeId) {
-      url += `?where=EmployeeID=="${employeeId}"`;
+      where = `EmployeeID=="${employeeId}"`;
     }
-    const response = await this.makeRequest('GET', url, tenantId);
-    return response.LeaveApplications || [];
+
+    const response = await xero.payrollAUApi.getLeaveApplications(tenantId, null, where);
+    return response.body.leaveApplications || [];
   }
 
   /**
    * Create a leave application
    */
   async createLeaveApplication(tenantId, leaveData) {
-    const url = `${this.payrollAuUrl}/LeaveApplications`;
-
     console.log('[XeroPayroll] Creating leave application:', JSON.stringify(leaveData, null, 2));
 
-    const response = await this.makeRequest('POST', url, tenantId, {
-      LeaveApplications: [leaveData]
-    });
+    const xero = await this.getXeroClient(tenantId);
 
-    return response.LeaveApplications?.[0] || null;
+    // SDK accepts plain JavaScript objects
+    const response = await xero.payrollAUApi.createLeaveApplication(tenantId, [leaveData]);
+
+    return response.body.leaveApplications?.[0] || null;
   }
 
   /**
    * Get employee leave balances
    */
   async getLeaveBalances(tenantId, employeeId) {
-    const url = `${this.payrollAuUrl}/Employees/${employeeId}`;
-    const response = await this.makeRequest('GET', url, tenantId);
-    const employee = response.Employees?.[0];
-    return employee?.LeaveBalances || [];
+    const xero = await this.getXeroClient(tenantId);
+    const response = await xero.payrollAUApi.getEmployee(tenantId, employeeId);
+    const employee = response.body.employees?.[0];
+    return employee?.leaveBalances || [];
   }
 
   /**
    * Get all contacts (for invoicing)
    */
   async getContacts(tenantId) {
-    const url = `${this.baseUrl}/Contacts`;
-    const response = await this.makeRequest('GET', url, tenantId);
-    return response.Contacts || [];
+    const xero = await this.getXeroClient(tenantId);
+    const response = await xero.accountingApi.getContacts(tenantId);
+    return response.body.contacts || [];
   }
 
   /**
    * Get a single contact by ID
    */
   async getContact(tenantId, contactId) {
-    const url = `${this.baseUrl}/Contacts/${contactId}`;
-    const response = await this.makeRequest('GET', url, tenantId);
-    return response.Contacts?.[0] || null;
+    const xero = await this.getXeroClient(tenantId);
+    const response = await xero.accountingApi.getContact(tenantId, contactId);
+    return response.body.contacts?.[0] || null;
   }
 
   /**
    * Get all invoices
    */
   async getInvoices(tenantId, status = null) {
-    let url = `${this.baseUrl}/Invoices`;
+    const xero = await this.getXeroClient(tenantId);
+
+    let where = null;
     if (status) {
-      url += `?where=Status=="${status}"`;
+      where = `Status=="${status}"`;
     }
-    const response = await this.makeRequest('GET', url, tenantId);
-    return response.Invoices || [];
+
+    const response = await xero.accountingApi.getInvoices(tenantId, null, where);
+    return response.body.invoices || [];
   }
 
   /**
    * Get a single invoice by ID
    */
   async getInvoice(tenantId, invoiceId) {
-    const url = `${this.baseUrl}/Invoices/${invoiceId}`;
-    const response = await this.makeRequest('GET', url, tenantId);
-    return response.Invoices?.[0] || null;
+    const xero = await this.getXeroClient(tenantId);
+    const response = await xero.accountingApi.getInvoice(tenantId, invoiceId);
+    return response.body.invoices?.[0] || null;
   }
 
   /**
    * Create a new invoice
    */
   async createInvoice(tenantId, invoiceData) {
-    const url = `${this.baseUrl}/Invoices`;
-
     console.log('[XeroPayroll] Creating invoice:', JSON.stringify(invoiceData, null, 2));
 
-    const response = await this.makeRequest('POST', url, tenantId, {
-      Invoices: [invoiceData]
-    });
+    const xero = await this.getXeroClient(tenantId);
 
-    return response.Invoices?.[0] || null;
+    // SDK accepts plain JavaScript objects
+    const response = await xero.accountingApi.createInvoices(tenantId, { invoices: [invoiceData] });
+
+    return response.body.invoices?.[0] || null;
   }
 
   /**
    * Update an existing invoice
    */
   async updateInvoice(tenantId, invoiceId, invoiceData) {
-    const url = `${this.baseUrl}/Invoices/${invoiceId}`;
-
     console.log('[XeroPayroll] Updating invoice:', invoiceId);
 
-    const response = await this.makeRequest('POST', url, tenantId, {
-      Invoices: [{ ...invoiceData, InvoiceID: invoiceId }]
+    const xero = await this.getXeroClient(tenantId);
+
+    // SDK accepts plain JavaScript objects
+    const response = await xero.accountingApi.updateInvoice(tenantId, invoiceId, {
+      invoices: [{
+        ...invoiceData,
+        invoiceID: invoiceId
+      }]
     });
 
-    return response.Invoices?.[0] || null;
+    return response.body.invoices?.[0] || null;
   }
 
   /**
    * Get payroll calendars
    */
   async getPayrollCalendars(tenantId) {
-    const url = `${this.payrollAuUrl}/PayrollCalendars`;
-    const response = await this.makeRequest('GET', url, tenantId);
-    return response.PayrollCalendars || [];
+    const xero = await this.getXeroClient(tenantId);
+    const response = await xero.payrollAUApi.getPayrollCalendars(tenantId);
+    return response.body.payrollCalendars || [];
+  }
+
+  /**
+   * Get leave types for a tenant
+   * Leave types are part of the pay items in Xero Payroll AU
+   */
+  async getLeaveTypes(tenantId) {
+    const xero = await this.getXeroClient(tenantId);
+    const response = await xero.payrollAUApi.getPayItems(tenantId);
+
+    // Extract leave types from pay items (payItems is an object, not an array)
+    const payItems = response.body.payItems;
+    const leaveTypes = payItems?.leaveTypes || [];
+
+    return leaveTypes;
   }
 }
 

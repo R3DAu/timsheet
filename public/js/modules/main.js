@@ -37,6 +37,7 @@ import * as wmsComparison from './features/wms/wms-comparison.js';
 import * as systemTools from './features/system-tools/system-tools.js';
 import * as xeroSetup from './features/xero/xero-setup.js';
 import * as xeroSyncLogs from './features/xero/xero-sync-logs.js';
+import * as xeroLeave from './features/xero/xero-leave.js';
 
 // Validation
 import { validateEntry, getTimesheetById, getTimesheetEntries, formatTime } from './features/entries/entry-validation.js';

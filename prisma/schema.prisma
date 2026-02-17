@@ -62,13 +62,14 @@ model Employee {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  user            User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
-  identifiers     EmployeeIdentifier[]
-  roles           EmployeeRole[]
-  timesheets      Timesheet[]
-  xeroSettings    EmployeeXeroSettings?
-  leaveRequests   LeaveRequest[]
-  xeroInvoices    XeroInvoice[]
+  user                     User                          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  identifiers              EmployeeIdentifier[]
+  roles                    EmployeeRole[]
+  timesheets               Timesheet[]
+  xeroSettings             EmployeeXeroSettings?
+  leaveRequests            LeaveRequest[]
+  xeroInvoices             XeroInvoice[]
+  customEarningsRates      EmployeeRoleEarningsRate[]
 }
 
 model EmployeeIdentifier {
@@ -94,10 +95,11 @@ model Role {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  company              Company                   @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  employeeRoles        EmployeeRole[]
-  timesheetEntries     TimesheetEntry[]
-  xeroEarningsRateMaps XeroEarningsRateMapping[]
+  company                   Company                        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  employeeRoles             EmployeeRole[]
+  timesheetEntries          TimesheetEntry[]
+  xeroEarningsRateMaps      XeroEarningsRateMapping[]
+  employeeCustomEarningsRates EmployeeRoleEarningsRate[]
 
   @@unique([name, companyId])
 }
@@ -310,6 +312,24 @@ model XeroEarningsRateMapping {
   @@unique([roleId, xeroTenantId])
 }
 
+model EmployeeRoleEarningsRate {
+  id                  Int    @id @default(autoincrement())
+  employeeId          Int
+  roleId              Int
+  xeroTenantId        String
+  xeroEarningsRateId  String
+  earningsRateName    String
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  role     Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, roleId, xeroTenantId])
+  @@index([employeeId])
+  @@index([roleId])
+}
+
 model XeroSyncLog {
   id               Int      @id @default(autoincrement())
   xeroTokenId      Int?
@@ -341,6 +361,7 @@ model EmployeeXeroSettings {
   employeeType String  @default("ST") // "ST" (Specialist Tech) or "LT" (Local Tech)
   autoApprove  Boolean @default(false)
   syncEnabled  Boolean @default(true)
+  isSalaried   Boolean @default(false) // Salaried employees skip timesheet sync
 
   employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
 }
@@ -365,6 +386,18 @@ model LeaveRequest {
   approvedBy User?    @relation(fields: [approvedById], references: [id])
 
   @@index([employeeId, status])
+}
+
+model XeroLeaveTypeMapping {
+  id              Int    @id @default(autoincrement())
+  xeroTenantId    String
+  leaveType       String // ANNUAL, SICK, PERSONAL, UNPAID
+  xeroLeaveTypeId String // UUID from Xero
+  leaveTypeName   String // Display name from Xero
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([xeroTenantId, leaveType])
 }
 
 model XeroInvoice {

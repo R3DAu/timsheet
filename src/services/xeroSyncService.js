@@ -39,6 +39,7 @@ class XeroSyncService {
             include: {
               identifiers: true,
               xeroSettings: true,
+              customEarningsRates: true, // Employee-specific earnings rate overrides
               roles: {
                 include: {
                   role: {
@@ -91,6 +92,20 @@ class XeroSyncService {
         return null;
       }
 
+      // 2b. Check if employee is salaried (skip timesheet sync)
+      if (fullTimesheet.employee.xeroSettings?.isSalaried) {
+        console.log(`[XeroSync] Skipping timesheet sync for salaried employee ${fullTimesheet.employee.id}`);
+        await prisma.xeroSyncLog.update({
+          where: { id: syncLog.id },
+          data: {
+            status: 'SUCCESS',
+            completedAt: new Date(),
+            syncDetails: JSON.stringify({ message: 'Employee is salaried - timesheet sync skipped' })
+          }
+        });
+        return null;
+      }
+
       // 3. Get Xero employee ID
       const xeroEmployeeId = fullTimesheet.employee.identifiers.find(
         i => i.identifierType === 'xero_employee_id'
@@ -114,7 +129,11 @@ class XeroSyncService {
       const tenantId = companyMapping.xeroTenantId;
 
       // 5. Group entries by earnings rate and sum hours per day
-      const entriesByRate = this.groupEntriesByEarningsRate(fullTimesheet.entries, tenantId);
+      const entriesByRate = this.groupEntriesByEarningsRate(
+        fullTimesheet.entries,
+        tenantId,
+        fullTimesheet.employee
+      );
 
       if (Object.keys(entriesByRate).length === 0) {
         throw new Error('No earnings rate mappings found for timesheet entries');
@@ -122,16 +141,16 @@ class XeroSyncService {
 
       // 6. Build Xero timesheet data with hours per day (Sun-Sat array)
       const timesheetLines = Object.entries(entriesByRate).map(([earningsRateId, data]) => ({
-        EarningsRateID: earningsRateId,
-        NumberOfUnits: this.buildNumberOfUnits(data.entries, fullTimesheet.weekStarting)
+        earningsRateID: earningsRateId,
+        numberOfUnits: this.buildNumberOfUnits(data.entries, fullTimesheet.weekStarting)
       }));
 
       const xeroTimesheetData = {
-        EmployeeID: xeroEmployeeId.identifierValue,
-        StartDate: this.formatXeroDate(fullTimesheet.weekStarting),
-        EndDate: this.formatXeroDate(fullTimesheet.weekEnding),
-        Status: 'DRAFT',
-        TimesheetLines: timesheetLines
+        employeeID: xeroEmployeeId.identifierValue,
+        startDate: this.formatXeroDate(fullTimesheet.weekStarting),
+        endDate: this.formatXeroDate(fullTimesheet.weekEnding),
+        status: 'DRAFT',
+        timesheetLines: timesheetLines
       };
 
       // 7. Create timesheet in Xero
@@ -139,7 +158,7 @@ class XeroSyncService {
 
       const xeroTimesheet = await xeroPayrollService.createTimesheet(tenantId, xeroTimesheetData);
 
-      if (!xeroTimesheet || !xeroTimesheet.TimesheetID) {
+      if (!xeroTimesheet || !xeroTimesheet.timesheetID) {
         throw new Error('Failed to create Xero timesheet - no ID returned');
       }
 
@@ -147,7 +166,7 @@ class XeroSyncService {
       await prisma.timesheet.update({
         where: { id: fullTimesheet.id },
         data: {
-          xeroTimesheetId: xeroTimesheet.TimesheetID,
+          xeroTimesheetId: xeroTimesheet.timesheetID,
           xeroSyncedAt: new Date()
         }
       });
@@ -166,7 +185,7 @@ class XeroSyncService {
         where: { id: syncLog.id },
         data: {
           status: 'SUCCESS',
-          xeroTimesheetId: xeroTimesheet.TimesheetID,
+          xeroTimesheetId: xeroTimesheet.timesheetID,
           xeroTokenId: companyMapping.xeroTokenId,
           recordsProcessed: fullTimesheet.entries.length,
           recordsSuccess: fullTimesheet.entries.length,
@@ -179,7 +198,7 @@ class XeroSyncService {
         }
       });
 
-      console.log(`[XeroSync] Successfully synced timesheet ${fullTimesheet.id} to Xero (ID: ${xeroTimesheet.TimesheetID})`);
+      console.log(`[XeroSync] Successfully synced timesheet ${fullTimesheet.id} to Xero (ID: ${xeroTimesheet.timesheetID})`);
 
       return xeroTimesheet;
     } catch (error) {
@@ -201,27 +220,43 @@ class XeroSyncService {
 
   /**
    * Group timesheet entries by Xero earnings rate and sum hours
+   * Checks for employee-specific overrides first, then falls back to role default
    */
-  groupEntriesByEarningsRate(entries, tenantId) {
+  groupEntriesByEarningsRate(entries, tenantId, employee) {
     const grouped = {};
 
     for (const entry of entries) {
-      // Find Xero earnings rate mapping for this role
-      const mapping = entry.role.xeroEarningsRateMaps?.find(
-        m => m.xeroTenantId === tenantId
+      // First check for employee-specific earnings rate override
+      const customRate = employee.customEarningsRates?.find(
+        r => r.roleId === entry.role.id && r.xeroTenantId === tenantId
       );
 
-      if (!mapping) {
-        console.warn(`[XeroSync] No earnings rate mapping for role ${entry.role.id} in tenant ${tenantId}`);
-        continue;
-      }
+      let rateId, rateName;
 
-      const rateId = mapping.xeroEarningsRateId;
+      if (customRate) {
+        // Use employee-specific rate
+        rateId = customRate.xeroEarningsRateId;
+        rateName = customRate.earningsRateName;
+        console.log(`[XeroSync] Using custom earnings rate for employee ${employee.id}, role ${entry.role.id}: ${rateName}`);
+      } else {
+        // Fall back to role default
+        const roleMapping = entry.role.xeroEarningsRateMaps?.find(
+          m => m.xeroTenantId === tenantId
+        );
+
+        if (!roleMapping) {
+          console.warn(`[XeroSync] No earnings rate mapping for role ${entry.role.id} in tenant ${tenantId}`);
+          continue;
+        }
+
+        rateId = roleMapping.xeroEarningsRateId;
+        rateName = roleMapping.earningsRateName;
+      }
 
       if (!grouped[rateId]) {
         grouped[rateId] = {
           totalHours: 0,
-          earningsRateName: mapping.earningsRateName,
+          earningsRateName: rateName,
           entries: []
         };
       }
@@ -266,8 +301,8 @@ class XeroSyncService {
       // Check if payrun exists in Xero
       const xeroPayruns = await xeroPayrollService.getPayruns(tenantId);
       const matchingPayrun = xeroPayruns.find(pr => {
-        const prStart = new Date(pr.PaymentDate);
-        const prEnd = new Date(pr.PayPeriodEndDate);
+        const prStart = new Date(pr.paymentDate);
+        const prEnd = new Date(pr.payPeriodEndDate);
         return prStart.getTime() === weekStart.getTime() && prEnd.getTime() === weekEnd.getTime();
       });
 
@@ -276,15 +311,15 @@ class XeroSyncService {
         const payrun = await prisma.xeroPayrun.create({
           data: {
             xeroTenantId: tenantId,
-            xeroPayrunId: matchingPayrun.PayRunID,
-            periodStart: new Date(matchingPayrun.PayPeriodStartDate),
-            periodEnd: new Date(matchingPayrun.PayPeriodEndDate),
-            paymentDate: new Date(matchingPayrun.PaymentDate),
-            status: matchingPayrun.PayRunStatus
+            xeroPayrunId: matchingPayrun.payRunID,
+            periodStart: new Date(matchingPayrun.payPeriodStartDate),
+            periodEnd: new Date(matchingPayrun.payPeriodEndDate),
+            paymentDate: new Date(matchingPayrun.paymentDate),
+            status: matchingPayrun.payRunStatus
           }
         });
 
-        console.log(`[XeroSync] Found existing Xero payrun: ${matchingPayrun.PayRunID}`);
+        console.log(`[XeroSync] Found existing Xero payrun: ${matchingPayrun.payRunID}`);
         return payrun;
       }
 

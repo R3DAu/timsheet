@@ -218,6 +218,7 @@ window.viewSyncLog = async function(logId) {
     const details = log.syncDetails ? JSON.parse(log.syncDetails) : {};
 
     const html = `
+      <h2>Sync Log Details</h2>
       <div style="max-width: 600px;">
         <table style="width: 100%; margin-bottom: 1rem;">
           <tr>
@@ -280,7 +281,7 @@ window.viewSyncLog = async function(logId) {
       </div>
     `;
 
-    showModalWithHTML('Sync Log Details', html);
+    showModalWithHTML(html);
   } catch (error) {
     console.error('Failed to load sync log:', error);
     showAlert('Failed to load sync log: ' + error.message, 'error');

@@ -158,7 +158,7 @@ exports.mapEarningsRate = async (req, res) => {
  */
 exports.updateEmployeeSettings = async (req, res) => {
   try {
-    const { employeeId, employeeType, autoApprove, syncEnabled } = req.body;
+    const { employeeId, employeeType, autoApprove, syncEnabled, isSalaried } = req.body;
 
     if (!employeeId) {
       return res.status(400).json({ error: 'employeeId is required' });
@@ -169,13 +169,15 @@ exports.updateEmployeeSettings = async (req, res) => {
       update: {
         employeeType: employeeType || 'ST',
         autoApprove: autoApprove === true,
-        syncEnabled: syncEnabled !== false
+        syncEnabled: syncEnabled !== false,
+        isSalaried: isSalaried === true
       },
       create: {
         employeeId: parseInt(employeeId),
         employeeType: employeeType || 'ST',
         autoApprove: autoApprove === true,
-        syncEnabled: syncEnabled !== false
+        syncEnabled: syncEnabled !== false,
+        isSalaried: isSalaried === true
       }
     });
 
@@ -246,7 +248,7 @@ exports.mapCompany = async (req, res) => {
  */
 exports.getMappings = async (req, res) => {
   try {
-    const [employeeMappings, earningsRateMappings, companyMappings, employeeSettings] = await Promise.all([
+    const [employeeMappings, earningsRateMappings, companyMappings, employeeSettings, employeeEarningsRates, leaveTypeMappings] = await Promise.all([
       prisma.employeeIdentifier.findMany({
         where: { identifierType: 'xero_employee_id' },
         include: {
@@ -298,6 +300,29 @@ exports.getMappings = async (req, res) => {
             }
           }
         }
+      }),
+      prisma.employeeRoleEarningsRate.findMany({
+        include: {
+          employee: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true
+            }
+          },
+          role: {
+            select: {
+              id: true,
+              name: true,
+              companyId: true
+            }
+          }
+        }
+      }),
+      prisma.xeroLeaveTypeMapping.findMany({
+        orderBy: {
+          leaveType: 'asc'
+        }
       })
     ]);
 
@@ -305,7 +330,9 @@ exports.getMappings = async (req, res) => {
       employees: employeeMappings,
       earningsRates: earningsRateMappings,
       companies: companyMappings,
-      settings: employeeSettings
+      settings: employeeSettings,
+      employeeEarningsRates: employeeEarningsRates,
+      leaveTypes: leaveTypeMappings
     });
   } catch (error) {
     console.error('[XeroSetup] Error fetching mappings:', error);
@@ -333,5 +360,129 @@ exports.getXeroContacts = async (req, res) => {
       error: 'Failed to fetch Xero contacts',
       message: error.message
     });
+  }
+};
+
+/**
+ * POST /api/xero/setup/employee-earnings-rate
+ * Set employee-specific earnings rate override
+ */
+exports.setEmployeeEarningsRate = async (req, res) => {
+  try {
+    const { employeeId, roleId, xeroTenantId, xeroEarningsRateId, earningsRateName } = req.body;
+
+    if (!employeeId || !roleId || !xeroTenantId || !xeroEarningsRateId || !earningsRateName) {
+      return res.status(400).json({
+        error: 'employeeId, roleId, xeroTenantId, xeroEarningsRateId, and earningsRateName are required'
+      });
+    }
+
+    const mapping = await prisma.employeeRoleEarningsRate.upsert({
+      where: {
+        employeeId_roleId_xeroTenantId: {
+          employeeId: parseInt(employeeId),
+          roleId: parseInt(roleId),
+          xeroTenantId
+        }
+      },
+      update: {
+        xeroEarningsRateId,
+        earningsRateName
+      },
+      create: {
+        employeeId: parseInt(employeeId),
+        roleId: parseInt(roleId),
+        xeroTenantId,
+        xeroEarningsRateId,
+        earningsRateName
+      }
+    });
+
+    res.json({
+      success: true,
+      mapping
+    });
+  } catch (error) {
+    console.error('[XeroSetup] Error setting employee earnings rate:', error);
+    res.status(500).json({
+      error: 'Failed to set employee earnings rate',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * DELETE /api/xero/setup/employee-earnings-rate/:id
+ * Remove employee-specific earnings rate override (revert to role default)
+ */
+exports.deleteEmployeeEarningsRate = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    await prisma.employeeRoleEarningsRate.delete({
+      where: { id: parseInt(id) }
+    });
+
+    res.json({
+      success: true,
+      message: 'Employee earnings rate override removed'
+    });
+  } catch (error) {
+    console.error('[XeroSetup] Error deleting employee earnings rate:', error);
+    res.status(500).json({
+      error: 'Failed to delete employee earnings rate',
+      message: error.message
+    });
+  }
+};
+
+/**
+ * GET /api/xero/setup/leave-types/:tenantId
+ * Get Xero leave types for a tenant
+ */
+exports.getXeroLeaveTypes = async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+
+    const leaveTypes = await xeroPayrollService.getLeaveTypes(tenantId);
+
+    res.json(leaveTypes);
+  } catch (error) {
+    console.error('[XeroSetup] Error fetching leave types:', error);
+    res.status(500).json({ error: 'Failed to fetch Xero leave types' });
+  }
+};
+
+/**
+ * POST /api/xero/setup/leave-type-mapping
+ * Map leave type to Xero leave type
+ */
+exports.mapLeaveType = async (req, res) => {
+  try {
+    const { xeroTenantId, leaveType, xeroLeaveTypeId, leaveTypeName } = req.body;
+
+    const mapping = await prisma.xeroLeaveTypeMapping.upsert({
+      where: {
+        xeroTenantId_leaveType: {
+          xeroTenantId,
+          leaveType
+        }
+      },
+      update: {
+        xeroLeaveTypeId,
+        leaveTypeName
+      },
+      create: {
+        xeroTenantId,
+        leaveType,
+        xeroLeaveTypeId,
+        leaveTypeName
+      }
+    });
+
+    res.json(mapping);
+  } catch (error) {
+    console.error('[XeroSetup] Error mapping leave type:', error);
+    res.status(500).json({ error: 'Failed to map leave type' });
   }
 };

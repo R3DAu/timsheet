@@ -2,6 +2,8 @@ require('dotenv').config();
 const cron = require('node-cron');
 const { checkAndSendReminders } = require('./reminder-check');
 const { runTsDataSync } = require('./tsdata-sync');
+const { runXeroSyncJob } = require('./xero-sync');
+const { runReconciliationJob } = require('./xero-reconciliation');
 
 // Parse time from config (format: "HH:MM")
 const parseCronTime = (timeString) => {
@@ -50,6 +52,34 @@ const startScheduler = () => {
     }
   } else {
     console.log('TSDATA sync is disabled');
+  }
+
+  // Xero Sync Job (Sunday nights)
+  if (process.env.XERO_SYNC_ENABLED === 'true') {
+    const syncTime = parseCronTime(process.env.XERO_SYNC_TIME || '22:00');
+    const syncCron = `${syncTime.minutes} ${syncTime.hours} * * 0`; // Sunday (0)
+
+    cron.schedule(syncCron, () => {
+      console.log('Xero sync scheduled task triggered');
+      runXeroSyncJob();
+    });
+    console.log(`Xero sync scheduled for Sundays at ${process.env.XERO_SYNC_TIME || '22:00'}`);
+  } else {
+    console.log('Xero sync is disabled');
+  }
+
+  // Xero Reconciliation Job (Monday mornings)
+  if (process.env.XERO_SYNC_ENABLED === 'true') {
+    const reconTime = parseCronTime(process.env.XERO_RECONCILIATION_TIME || '06:00');
+    const reconCron = `${reconTime.minutes} ${reconTime.hours} * * 1`; // Monday (1)
+
+    cron.schedule(reconCron, () => {
+      console.log('Xero reconciliation scheduled task triggered');
+      runReconciliationJob();
+    });
+    console.log(`Xero reconciliation scheduled for Mondays at ${process.env.XERO_RECONCILIATION_TIME || '06:00'}`);
+  } else {
+    console.log('Xero reconciliation is disabled');
   }
 };
 
