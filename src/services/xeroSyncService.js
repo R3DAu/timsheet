@@ -113,17 +113,17 @@ class XeroSyncService {
 
       const tenantId = companyMapping.xeroTenantId;
 
-      // 5. Group entries by earnings rate and sum hours
+      // 5. Group entries by earnings rate and sum hours per day
       const entriesByRate = this.groupEntriesByEarningsRate(fullTimesheet.entries, tenantId);
 
       if (Object.keys(entriesByRate).length === 0) {
         throw new Error('No earnings rate mappings found for timesheet entries');
       }
 
-      // 6. Build Xero timesheet data
+      // 6. Build Xero timesheet data with hours per day (Sun-Sat array)
       const timesheetLines = Object.entries(entriesByRate).map(([earningsRateId, data]) => ({
         EarningsRateID: earningsRateId,
-        NumberOfUnits: [data.totalHours]
+        NumberOfUnits: this.buildNumberOfUnits(data.entries, fullTimesheet.weekStarting)
       }));
 
       const xeroTimesheetData = {
@@ -302,6 +302,36 @@ class XeroSyncService {
   async processLocalTechInvoice(timesheet, companyMapping) {
     // TODO: Phase 4 - Implement invoice management
     console.log('[XeroSync] LT invoice processing not yet implemented (Phase 4)');
+  }
+
+  /**
+   * Build NumberOfUnits array for Xero (7 days: Sun-Sat)
+   * @param {Array} entries - Timesheet entries for this earnings rate
+   * @param {Date} weekStarting - Start date of the week
+   * @returns {Array} Array of 7 numbers (hours per day, Sun-Sat)
+   */
+  buildNumberOfUnits(entries, weekStarting) {
+    // Initialize array with 7 zeros (Sun-Sat)
+    const hoursPerDay = [0, 0, 0, 0, 0, 0, 0];
+
+    // Group entries by date and sum hours
+    const entriesByDate = {};
+    for (const entry of entries) {
+      const dateKey = new Date(entry.date).toISOString().split('T')[0];
+      if (!entriesByDate[dateKey]) {
+        entriesByDate[dateKey] = 0;
+      }
+      entriesByDate[dateKey] += entry.hours;
+    }
+
+    // Distribute hours to correct day index (0=Sun, 6=Sat)
+    for (const [dateStr, hours] of Object.entries(entriesByDate)) {
+      const date = new Date(dateStr);
+      const dayOfWeek = date.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
+      hoursPerDay[dayOfWeek] += hours;
+    }
+
+    return hoursPerDay;
   }
 
   /**
