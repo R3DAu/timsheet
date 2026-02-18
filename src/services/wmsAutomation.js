@@ -777,14 +777,30 @@ async function fillTasks(page, row, entry) {
 
 /**
  * Build the comment text from entry data.
+ *
+ * Structure:
+ *   [Starting Location]          ← startingLocation header
+ *   - Main note bullet 1         ← entry.notes (belongs to starting location)
+ *   - Main note bullet 2
+ *
+ *   [Additional Location]        ← each locationNote
+ *   - Task bullet
  */
 function buildCommentText(entry) {
   const parts = [];
 
+  // Starting location + main notes (main notes describe activity at the starting location)
   if (entry.startingLocation) {
-    parts.push(`[${entry.startingLocation}]`);
+    const mainNotes = entry.notes ? htmlToBulletPoints(entry.notes) : '';
+    parts.push(mainNotes
+      ? `[${entry.startingLocation}]\n${mainNotes}`
+      : `[${entry.startingLocation}]`
+    );
+  } else if (entry.notes) {
+    parts.push(htmlToPlainText(entry.notes));
   }
 
+  // Additional location note sections
   if (entry.locationNotes) {
     try {
       const locNotes = typeof entry.locationNotes === 'string'
@@ -793,18 +809,14 @@ function buildCommentText(entry) {
 
       if (Array.isArray(locNotes) && locNotes.length > 0) {
         locNotes.forEach(ln => {
-          const location = ln.location || 'General';
+          const displayName = ln.label || ln.location || 'General';
           const tasks = htmlToBulletPoints(ln.description || '');
-          parts.push(`[${location}]\n${tasks}`);
+          parts.push(`[${displayName}]\n${tasks}`);
         });
       }
     } catch (e) {
-      // Fall through to use notes
+      // ignore parse error
     }
-  }
-
-  if (parts.length <= (entry.startingLocation ? 1 : 0) && entry.notes) {
-    parts.push(htmlToPlainText(entry.notes));
   }
 
   return parts.join('\n\n');

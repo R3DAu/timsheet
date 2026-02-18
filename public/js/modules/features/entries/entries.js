@@ -595,6 +595,18 @@ export async function createEntryForTimesheet(timesheetId, prefillDate = null) {
   const defaultDate = prefillDate || smartDefaults.date;
   const defaults = prefillDate ? getTimeDefaultsForTimesheet(timesheetId) : smartDefaults;
 
+  // Set saved locations for the location note label dropdown
+  const currentUser = state.get('currentUser');
+  try {
+    const raw = currentUser?.employee?.presetAddresses;
+    const parsed = raw ? JSON.parse(raw) : [];
+    window._employeeSavedLocations = Array.isArray(parsed)
+      ? parsed
+      : Object.entries(parsed).map(([label, address]) => ({ label, placeName: '', address }));
+  } catch (_) {
+    window._employeeSavedLocations = [];
+  }
+
   const form = `
     <form id="entryFormSlide">
       <div class="form-group">
@@ -935,6 +947,18 @@ export async function editEntrySlideIn(entryId, timesheetId) {
     return;
   }
 
+  // Set saved locations for the location note label dropdown
+  const currentUser = state.get('currentUser');
+  try {
+    const raw = currentUser?.employee?.presetAddresses;
+    const parsed = raw ? JSON.parse(raw) : [];
+    window._employeeSavedLocations = Array.isArray(parsed)
+      ? parsed
+      : Object.entries(parsed).map(([label, address]) => ({ label, placeName: '', address }));
+  } catch (_) {
+    window._employeeSavedLocations = [];
+  }
+
   const dateStr = formatLocalDate(entry.date);
   const isTsData = entry.tsDataSource === true;
   const readonly = isTsData ? 'readonly onclick="return false;" style="background-color: #f5f5f5; cursor: not-allowed;"' : '';
@@ -1071,7 +1095,7 @@ export async function editEntrySlideIn(entryId, timesheetId) {
     try {
       const locNotes = typeof entry.locationNotes === 'string' ? JSON.parse(entry.locationNotes) : entry.locationNotes;
       locNotes.forEach(ln => {
-        addLocationNoteField('slideEditLocationNotesContainer', ln.location, ln.description);
+        addLocationNoteField('slideEditLocationNotesContainer', ln.location, ln.description, ln.label, ln.placeName);
       });
     } catch (e) { /* ignore */ }
   }
