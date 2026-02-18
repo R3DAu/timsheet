@@ -6264,7 +6264,7 @@ Xero will create the next period in sequence after the last existing pay run.`))
                   </div>
                 </div>
                 ${emp.notConfigured || !emp.balances ? `
-                  <p style="color: #9ca3af; font-size: 0.875rem; margin: 0;">${emp.configReason === "sync_disabled" ? "Xero sync not enabled \u2014 enable sync in employee settings." : emp.configReason === "no_xero_id" ? "No Xero Employee ID mapped \u2014 set it in employee settings." : "Leave balance unavailable \u2014 check Xero configuration."}</p>
+                  <p style="color: #9ca3af; font-size: 0.875rem; margin: 0;">${emp.configReason === "sync_disabled" ? "Xero sync not enabled \u2014 enable sync in employee settings." : emp.configReason === "no_xero_id" ? "No Xero Employee ID mapped \u2014 set it in employee settings." : emp.configReason === "no_company_mapping" ? "Employee has no role assigned to a company with Xero configured." : "Leave balance unavailable \u2014 Xero API error (check server logs)."}</p>
                 ` : `
                   <div class="balance-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
                     ${emp.balances.map((bal) => {

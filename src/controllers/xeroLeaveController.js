@@ -295,7 +295,18 @@ exports.getAllEmployeeBalances = async (req, res) => {
           }
         },
         xeroSettings: true,
-        identifiers: true
+        identifiers: true,
+        roles: {
+          include: {
+            role: {
+              include: {
+                company: {
+                  include: { xeroMappings: true }
+                }
+              }
+            }
+          }
+        }
       },
       orderBy: {
         firstName: 'asc'
@@ -308,9 +319,11 @@ exports.getAllEmployeeBalances = async (req, res) => {
       // Determine config reason before calling service so we can surface it
       const hasSyncEnabled = employee.xeroSettings?.syncEnabled === true;
       const hasXeroId = employee.identifiers?.some(i => i.identifierType === 'xero_employee_id');
+      const hasCompanyMapping = employee.roles?.[0]?.role?.company?.xeroMappings?.[0];
       let configReason = null;
       if (!hasSyncEnabled) configReason = 'sync_disabled';
       else if (!hasXeroId) configReason = 'no_xero_id';
+      else if (!hasCompanyMapping) configReason = 'no_company_mapping';
 
       try {
         const balances = await xeroLeaveService.getLeaveBalances(employee.id);

@@ -154,7 +154,9 @@ async function showAdminLeaveView() {
                       ? 'Xero sync not enabled — enable sync in employee settings.'
                       : emp.configReason === 'no_xero_id'
                       ? 'No Xero Employee ID mapped — set it in employee settings.'
-                      : 'Leave balance unavailable — check Xero configuration.'
+                      : emp.configReason === 'no_company_mapping'
+                      ? 'Employee has no role assigned to a company with Xero configured.'
+                      : 'Leave balance unavailable — Xero API error (check server logs).'
                   }</p>
                 ` : `
                   <div class="balance-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
