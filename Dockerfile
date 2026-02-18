@@ -1,6 +1,6 @@
 FROM node:20-slim
 
-# Install build tools for native modules (better-sqlite3, bcrypt)
+# Install build tools for native modules (bcrypt, etc.)
 # AND ca-certificates for HTTPS connections from Chromium
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \

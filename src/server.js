@@ -1,8 +1,8 @@
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
-const Database = require('better-sqlite3');
-const SqliteStore = require('better-sqlite3-session-store')(session);
+const { PrismaSessionStore } = require('@quixo3/prisma-session-store');
+const { PrismaClient } = require('@prisma/client');
 const morgan = require('morgan');
 const cors = require('cors');
 const path = require('path');
@@ -65,11 +65,19 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Session configuration (SQLite-backed, survives restarts)
-const sessionDbPath = process.env.SESSION_DB_PATH || path.join(__dirname, '../prisma/sessions.db');
-const sessionDb = new Database(sessionDbPath);
+// Session configuration (Prisma-backed, works with SQLite and PostgreSQL)
+if (process.env.NODE_ENV === 'development' && !process.env.DATABASE_URL) {
+  console.warn(
+    '[WARN] NODE_ENV=development but DATABASE_URL is not set. ' +
+    'Falling back to production database. ' +
+    'Set DATABASE_URL in .env to use a separate dev database (e.g. DATABASE_URL=file:./dev.db).'
+  );
+}
 app.use(session({
-  store: new SqliteStore({ client: sessionDb, expired: { clear: true, intervalMs: 900000 } }),
+  store: new PrismaSessionStore(new PrismaClient(), {
+    checkPeriod: 2 * 60 * 1000,
+    dbRecordIdIsSessionId: true,
+  }),
   secret: process.env.SESSION_SECRET || 'change-this-secret-key',
   resave: false,
   saveUninitialized: false,
