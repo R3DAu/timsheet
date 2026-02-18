@@ -174,8 +174,11 @@ function showDropdown(input, id, presets, places, query, latField, lngField) {
       item.innerHTML = `<strong>${escapeHtml(p.mainText)}</strong><br><small style="color:#666;">${escapeHtml(p.secondaryText)}</small>`;
       item.onmousedown = (e) => {
         e.preventDefault();
-        // Prefer place name (e.g. "Warrandyte High School") over street address
-        input.value = p.mainText || p.displayName;
+        // Use place name unless it looks like a bare street number or unit/suite
+        // prefix (e.g. "42", "Unit 3", "Suite 5") — in those cases the full
+        // address is more descriptive.
+        const looksLikeStreetNumber = /^(unit|suite|shop|level|lot|apartment|apt|flat)\b/i.test(p.mainText) || /^\d/.test(p.mainText);
+        input.value = (p.mainText && !looksLikeStreetNumber) ? p.mainText : p.displayName;
         // Store coordinates from Nominatim
         if (latField && lngField && p.lat && p.lon) {
           latField.value = p.lat;

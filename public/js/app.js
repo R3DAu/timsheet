@@ -2534,7 +2534,8 @@ var App = (() => {
         item.innerHTML = `<strong>${escapeHtml2(p.mainText)}</strong><br><small style="color:#666;">${escapeHtml2(p.secondaryText)}</small>`;
         item.onmousedown = (e) => {
           e.preventDefault();
-          input.value = p.mainText || p.displayName;
+          const looksLikeStreetNumber = /^(unit|suite|shop|level|lot|apartment|apt|flat)\b/i.test(p.mainText) || /^\d/.test(p.mainText);
+          input.value = p.mainText && !looksLikeStreetNumber ? p.mainText : p.displayName;
           if (latField && lngField && p.lat && p.lon) {
             latField.value = p.lat;
             lngField.value = p.lon;
