@@ -226,6 +226,13 @@ export async function viewEmployee(id) {
         <button class="btn btn-sm btn-primary" onclick="addIdentifierForm(${emp.id})">Add Identifier</button>
         <button class="btn btn-sm btn-primary" onclick="assignRoleForm(${emp.id})">Assign Role</button>
       </div>
+
+      <hr style="margin: 1.5rem 0; border: none; border-top: 1px solid var(--border, #e5e7eb);">
+      <h3 style="margin: 0 0 0.75rem 0; display: flex; align-items: center; gap: 0.5rem;">
+        Xero Configuration
+        <span id="xeroLoadingSpinner" style="font-size:0.75rem; color: var(--muted); font-weight:400;">Loading…</span>
+      </h3>
+      <div id="xeroConfigSection_${emp.id}"></div>
     `;
 
     showModalWithForm(`Employee: ${escapeHtml(emp.firstName)} ${escapeHtml(emp.lastName)}`, html);
@@ -242,9 +249,184 @@ export async function viewEmployee(id) {
         );
       });
     });
+
+    // Async-load the Xero configuration section
+    loadEmployeeXeroSection(emp.id, emp).catch(err => {
+      const el = document.getElementById(`xeroConfigSection_${emp.id}`);
+      if (el) el.innerHTML = `<p style="color:var(--muted); font-size:0.875rem;">Xero not configured or not connected.</p>`;
+      const spinner = document.getElementById('xeroLoadingSpinner');
+      if (spinner) spinner.remove();
+    });
   } catch (error) {
     showAlert(error.message);
   }
+}
+
+/**
+ * Load and render the Xero configuration section inside the employee modal.
+ */
+async function loadEmployeeXeroSection(empId, emp) {
+  const container = document.getElementById(`xeroConfigSection_${empId}`);
+  const spinner = document.getElementById('xeroLoadingSpinner');
+  if (!container) return;
+
+  // Fetch tenants and all mappings in parallel
+  const [tenantsRes, mappingsRes] = await Promise.all([
+    api.get('/xero/auth/tenants'),
+    api.get('/xero/setup/mappings')
+  ]);
+
+  if (spinner) spinner.remove();
+
+  const tenants = tenantsRes.tenants || [];
+  if (tenants.length === 0) {
+    container.innerHTML = `<p style="color:var(--muted); font-size:0.875rem;">No Xero organization connected. Connect one in the Xero Setup tab.</p>`;
+    return;
+  }
+
+  // Find this employee's current Xero mapping and settings
+  const currentMapping = (mappingsRes.employeeMappings || []).find(m => m.employeeId === empId);
+  const currentSettings = (mappingsRes.employeeSettings || []).find(s => s.employeeId === empId);
+
+  // Xero employee ID from the identifier (identifierValue = Xero UUID)
+  const xeroId = currentMapping ? currentMapping.identifierValue : null;
+
+  // Determine which tenant this employee belongs to via their company's Xero mapping
+  const companyMappings = mappingsRes.companyMappings || [];
+  const empRoles = emp.roles || [];
+  const empCompanyIds = empRoles.map(r => r.companyId || r.company?.id).filter(Boolean);
+  const matchedTenant = companyMappings.find(cm => empCompanyIds.includes(cm.companyId));
+  const defaultTenantId = matchedTenant?.xeroToken?.tenantId || tenants[0]?.tenantId;
+
+  // Build tenant options
+  const tenantOptions = tenants.map(t =>
+    `<option value="${escapeHtml(t.tenantId)}" ${t.tenantId === defaultTenantId ? 'selected' : ''}>${escapeHtml(t.tenantName)}</option>`
+  ).join('');
+
+  // Render settings summary
+  const syncEnabled = currentSettings?.syncEnabled ?? false;
+  const empType = currentSettings?.employeeType ?? 'LT';
+  const autoApprove = currentSettings?.autoApprove ?? false;
+  const isSalaried = currentSettings?.isSalaried ?? false;
+
+  container.innerHTML = `
+    <div style="display:grid; gap:1rem;">
+      <!-- Employee ID Mapping -->
+      <div style="background:var(--bg,#f3f4f6); border-radius:8px; padding:1rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+          <strong style="font-size:0.875rem;">Xero Employee Mapping</strong>
+          <button class="btn btn-sm btn-secondary" id="toggleXeroMapForm_${empId}">
+            ${xeroId ? 'Change' : 'Map to Xero'}
+          </button>
+        </div>
+        <p style="margin:0; font-size:0.875rem; color:${xeroId ? 'var(--text)' : 'var(--muted)'};">
+          ${xeroId ? `Mapped — Xero ID: <code>${escapeHtml(xeroId.slice(0,8))}…</code>` : 'Not mapped to a Xero employee.'}
+        </p>
+        <div id="xeroMapForm_${empId}" style="display:none; margin-top:0.75rem; border-top:1px solid var(--border,#e5e7eb); padding-top:0.75rem;">
+          <div style="display:grid; gap:0.5rem;">
+            <label style="font-size:0.8125rem; font-weight:500;">Organisation</label>
+            <select id="xeroTenantPick_${empId}" class="form-control" style="font-size:0.875rem;">
+              ${tenantOptions}
+            </select>
+            <label style="font-size:0.8125rem; font-weight:500; margin-top:0.25rem;">Xero Employee</label>
+            <select id="xeroEmpPick_${empId}" class="form-control" style="font-size:0.875rem;">
+              <option value="">Loading…</option>
+            </select>
+            <button class="btn btn-sm btn-primary" id="saveXeroMap_${empId}" style="margin-top:0.25rem; align-self:start;">Save Mapping</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sync Settings -->
+      <div style="background:var(--bg,#f3f4f6); border-radius:8px; padding:1rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+          <strong style="font-size:0.875rem;">Xero Sync Settings</strong>
+        </div>
+        <form id="xeroSettingsForm_${empId}" style="display:grid; gap:0.5rem;">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
+            <label style="font-size:0.8125rem; font-weight:500;">Employee Type</label>
+            <select name="employeeType" class="form-control" style="font-size:0.875rem;">
+              <option value="LT" ${empType === 'LT' ? 'selected' : ''}>LT (Local Tech)</option>
+              <option value="ST" ${empType === 'ST' ? 'selected' : ''}>ST (Specialist Tech)</option>
+            </select>
+          </div>
+          <label style="display:flex; gap:0.5rem; align-items:center; font-size:0.875rem; cursor:pointer;">
+            <input type="checkbox" name="syncEnabled" ${syncEnabled ? 'checked' : ''}> Enable Xero Sync
+          </label>
+          <label style="display:flex; gap:0.5rem; align-items:center; font-size:0.875rem; cursor:pointer;">
+            <input type="checkbox" name="autoApprove" ${autoApprove ? 'checked' : ''}> Auto-approve timesheets
+          </label>
+          <label style="display:flex; gap:0.5rem; align-items:center; font-size:0.875rem; cursor:pointer;">
+            <input type="checkbox" name="isSalaried" ${isSalaried ? 'checked' : ''}> Salaried employee
+          </label>
+          <button type="submit" class="btn btn-sm btn-primary" style="align-self:start; margin-top:0.25rem;">Save Settings</button>
+        </form>
+      </div>
+    </div>
+  `;
+
+  // ── Wire up mapping form toggle ──
+  const toggleBtn = document.getElementById(`toggleXeroMapForm_${empId}`);
+  const mapForm = document.getElementById(`xeroMapForm_${empId}`);
+  const tenantPick = document.getElementById(`xeroTenantPick_${empId}`);
+  const empPick = document.getElementById(`xeroEmpPick_${empId}`);
+
+  const loadXeroEmployees = async (tenantId) => {
+    empPick.innerHTML = '<option value="">Loading…</option>';
+    try {
+      const res = await api.get(`/xero/setup/employees/${tenantId}`);
+      const xeroEmps = res.employees || [];
+      empPick.innerHTML = '<option value="">— Select Xero employee —</option>' +
+        xeroEmps.map(xe => {
+          const xeId = xe.EmployeeID || xe.employeeID || xe.employeeId || '';
+          const name = `${xe.FirstName || xe.firstName || ''} ${xe.LastName || xe.lastName || ''}`.trim();
+          return `<option value="${escapeHtml(xeId)}" ${xeId === xeroId ? 'selected' : ''}>${escapeHtml(name)}</option>`;
+        }).join('');
+    } catch (e) {
+      empPick.innerHTML = '<option value="">Failed to load</option>';
+    }
+  };
+
+  toggleBtn.addEventListener('click', () => {
+    const open = mapForm.style.display === 'none';
+    mapForm.style.display = open ? 'block' : 'none';
+    if (open && tenantPick.value) loadXeroEmployees(tenantPick.value);
+  });
+
+  tenantPick.addEventListener('change', () => loadXeroEmployees(tenantPick.value));
+
+  document.getElementById(`saveXeroMap_${empId}`).addEventListener('click', async () => {
+    const tenantId = tenantPick.value;
+    const xeroEmployeeId = empPick.value;
+    if (!xeroEmployeeId) { showAlert('Please select a Xero employee', 'warning'); return; }
+    try {
+      await api.post('/xero/setup/employees/map', { employeeId: empId, xeroEmployeeId, tenantId });
+      showAlert('Xero employee mapping saved', 'success');
+      mapForm.style.display = 'none';
+      // Refresh the section
+      await loadEmployeeXeroSection(empId, emp);
+    } catch (e) {
+      showAlert(e.message || 'Failed to save mapping', 'error');
+    }
+  });
+
+  // ── Wire up settings form ──
+  document.getElementById(`xeroSettingsForm_${empId}`).addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const fd = new FormData(e.target);
+    try {
+      await api.post('/xero/setup/employee-settings', {
+        employeeId: empId,
+        employeeType: fd.get('employeeType'),
+        syncEnabled: fd.has('syncEnabled'),
+        autoApprove: fd.has('autoApprove'),
+        isSalaried: fd.has('isSalaried')
+      });
+      showAlert('Xero settings saved', 'success');
+    } catch (err) {
+      showAlert(err.message || 'Failed to save settings', 'error');
+    }
+  });
 }
 
 /**
@@ -308,7 +490,7 @@ export async function editEmployee(id) {
  * Delete employee
  */
 export async function deleteEmployee(id) {
-  if (!showConfirmation('Delete this employee? This will also delete their timesheets.')) return;
+  if (!await showConfirmation('Delete this employee? This will also delete their timesheets.')) return;
 
   try {
     await api.delete(`/employees/${id}`);
@@ -482,7 +664,7 @@ export async function editIdentifierForm(employeeId, identifierId, type, value, 
  * Delete identifier
  */
 export async function deleteIdentifier(employeeId, identifierId) {
-  if (!showConfirmation('Delete this identifier?')) return;
+  if (!await showConfirmation('Delete this identifier?')) return;
   try {
     await api.delete(`/employees/identifiers/${identifierId}`);
     viewEmployee(employeeId);

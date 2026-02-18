@@ -17,6 +17,7 @@ const TAB_TITLES = {
   systemTools: 'System Tools',
   approvals: 'Approvals',
   leaveManagement: 'Leave Requests',
+  xeroDashboard: 'Xero Dashboard',
   xeroSetup: 'Xero Setup',
   xeroSyncLogs: 'Xero Sync Logs',
   xeroInvoices: 'LT Invoices',

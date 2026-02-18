@@ -19,8 +19,8 @@ export PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
 # Write WMS debug screenshots to the persistent data volume
 export WMS_DEBUG_DIR=/app/data/wms-debug
 
-# Ensure data directory exists
-mkdir -p /app/data
+# Ensure data and log directories exist
+mkdir -p /app/data /app/logs
 
 # Run Prisma schema push — works for both SQLite and PostgreSQL
 npx prisma db push

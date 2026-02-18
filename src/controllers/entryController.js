@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const mapsService = require('../services/mapsService');
+const { auditFrom } = require('../utils/auditLog');
 
 const prisma = new PrismaClient();
 
@@ -255,6 +256,12 @@ const createEntry = async (req, res) => {
         role: true,
         company: true
       }
+    });
+
+    await auditFrom(req)('ENTRY_CREATED', 'TimesheetEntry', entry.id, {
+      timesheetId: parseInt(timesheetId),
+      entryType,
+      date
     });
 
     res.status(201).json({ message: 'Entry created successfully', entry });
@@ -517,6 +524,12 @@ const deleteEntry = async (req, res) => {
 
     await prisma.timesheetEntry.delete({
       where: { id: parseInt(id) }
+    });
+
+    await auditFrom(req)('ENTRY_DELETED', 'TimesheetEntry', id, {
+      timesheetId: entry.timesheetId,
+      entryType: entry.entryType,
+      date: entry.date
     });
 
     res.json({ message: 'Entry deleted successfully' });

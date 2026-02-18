@@ -189,7 +189,7 @@ export async function displayAllTimesheets() {
 }
 
 export async function submitTimesheet(id) {
-    if (!showConfirmation('Are you sure you want to submit this timesheet?')) return;
+    if (!await showConfirmation('Are you sure you want to submit this timesheet?')) return;
     try {
         await api.post(`/timesheets/${id}/submit`);
         await refreshTimesheets();
@@ -200,7 +200,7 @@ export async function submitTimesheet(id) {
 }
 
 export async function approveTimesheet(id) {
-    if (!showConfirmation('Approve this timesheet?')) return;
+    if (!await showConfirmation('Approve this timesheet?')) return;
     try {
         await api.post(`/timesheets/${id}/approve`);
         await refreshTimesheets();
@@ -211,7 +211,7 @@ export async function approveTimesheet(id) {
 }
 
 export async function lockTimesheet(id) {
-    if (!showConfirmation('Lock this timesheet? No further edits will be allowed.')) return;
+    if (!await showConfirmation('Lock this timesheet? No further edits will be allowed.')) return;
     try {
         await api.post(`/timesheets/${id}/lock`);
         await refreshTimesheets();
@@ -222,7 +222,7 @@ export async function lockTimesheet(id) {
 }
 
 export async function unlockTimesheet(id) {
-    if (!showConfirmation('Unlock this timesheet? Status will be set to UNLOCKED so it can be edited and re-locked without re-submitting.')) return;
+    if (!await showConfirmation('Unlock this timesheet? Status will be set to UNLOCKED so it can be edited and re-locked without re-submitting.')) return;
     try {
         await api.post(`/timesheets/${id}/unlock`);
         await refreshTimesheets();
@@ -244,7 +244,7 @@ export async function setTimesheetOpen(id) {
 }
 
 export async function deleteTimesheet(id) {
-    if (!showConfirmation('Are you sure you want to delete this timesheet and all its entries?')) return;
+    if (!await showConfirmation('Are you sure you want to delete this timesheet and all its entries?')) return;
     try {
         await api.delete(`/timesheets/${id}`);
         await refreshTimesheets();
@@ -505,6 +505,98 @@ export function toggleDateAccordion(dateId) {
 }
 
 /**
+ * Convert HTML rich-text to WMS-style plain text bullet points.
+ * Mirrors the server-side htmlToBulletPoints() in wmsAutomation.js.
+ */
+function htmlToBulletPoints(html) {
+  if (!html) return '';
+  let text = html;
+  // ul/ol → bullet lines
+  text = text.replace(/<[uo]l[^>]*>([\s\S]*?)<\/[uo]l>/gi, (_, content) =>
+    content.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (__, item) =>
+      `- ${item.replace(/<[^>]*>/g, '').trim()}`
+    )
+  );
+  // remaining li
+  text = text.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_, item) =>
+    `- ${item.replace(/<[^>]*>/g, '').trim()}`
+  );
+  // paragraphs → bullet lines
+  text = text.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, (_, content) => {
+    const stripped = content.replace(/<[^>]*>/g, '').trim();
+    return stripped ? `- ${stripped}` : '';
+  });
+  text = text.replace(/<br\s*\/?>/gi, '\n');
+  text = text.replace(/<[^>]*>/g, '');
+  // decode common HTML entities
+  text = text.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+  return text.replace(/\n{3,}/g, '\n\n').trim();
+}
+
+/**
+ * Format a timesheet entry as a WMS comment string.
+ */
+function formatWmsComment(entry) {
+  const parts = [];
+  if (entry.startingLocation) parts.push(`[${entry.startingLocation}]`);
+
+  if (entry.locationNotes) {
+    try {
+      const notes = typeof entry.locationNotes === 'string'
+        ? JSON.parse(entry.locationNotes)
+        : entry.locationNotes;
+      if (Array.isArray(notes) && notes.length > 0) {
+        notes.forEach(ln => {
+          const loc = ln.location || 'General';
+          const tasks = htmlToBulletPoints(ln.description || '');
+          parts.push(`[${loc}]\n${tasks}`);
+        });
+      }
+    } catch (_) { /* fall through */ }
+  }
+
+  if (parts.length <= (entry.startingLocation ? 1 : 0) && entry.notes) {
+    parts.push(htmlToBulletPoints(entry.notes));
+  }
+
+  return parts.join('\n\n');
+}
+
+/**
+ * Copy WMS-formatted comment for an entry to clipboard.
+ * Called from inline onclick via window.copyWmsEntry.
+ */
+window.copyWmsEntry = async function(entryId) {
+  // Find the entry in combined timesheets state
+  const allTimesheets = state.get('timesheets') || [];
+  let entry = null;
+  for (const ts of allTimesheets) {
+    entry = (ts.entries || []).find(e => e.id === entryId);
+    if (entry) break;
+  }
+  if (!entry) { showAlert('Entry not found', 'error'); return; }
+
+  const text = formatWmsComment(entry);
+  if (!text) { showAlert('No comment text to copy', 'warning'); return; }
+
+  try {
+    await navigator.clipboard.writeText(text);
+    showAlert('WMS comment copied to clipboard', 'success', 2500);
+  } catch (_) {
+    // Fallback for browsers without clipboard API
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+    showAlert('WMS comment copied to clipboard', 'success', 2500);
+  }
+};
+
+/**
  * Render a single entry card (clickable to view details)
  */
 function renderEntryCard(entry, timesheetId, isEditable) {
@@ -534,6 +626,7 @@ function renderEntryCard(entry, timesheetId, isEditable) {
         ${plainNotes ? `<div class="entry-card-description">${escapeHtml(plainNotes)}</div>` : ''}
       </div>
       <div class="entry-card-actions" onclick="event.stopPropagation();">
+        <button class="btn-icon" onclick="copyWmsEntry(${entry.id})" title="Copy WMS comment">&#128203;</button>
         ${isEditable ? `
           <button class="btn-icon" onclick="editEntrySlideIn(${entry.id}, ${timesheetId})" title="Edit">&#9998;</button>
           <button class="btn-icon btn-delete" onclick="deleteEntryFromCard(${entry.id}, ${timesheetId})" title="Delete">&times;</button>

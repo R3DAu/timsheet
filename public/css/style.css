@@ -1719,3 +1719,121 @@ table tr:hover {
 .leave-notes-preview li {
   margin: 0.25rem 0;
 }
+
+/* ─── Toast Notifications ──────────────────────────────────────────────────── */
+
+#toast-container {
+  position: fixed;
+  top: 1.25rem;
+  right: 1.25rem;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  pointer-events: none;
+  max-width: 380px;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  background: #1f2937;
+  color: #f9fafb;
+  font-size: 0.875rem;
+  line-height: 1.4;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  pointer-events: all;
+  opacity: 0;
+  transform: translateX(110%);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  max-width: 100%;
+}
+
+.toast.toast-visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.toast.toast-leaving {
+  opacity: 0;
+  transform: translateX(110%);
+}
+
+.toast-icon {
+  flex-shrink: 0;
+  font-size: 1rem;
+  line-height: 1.4;
+}
+
+.toast-msg {
+  flex: 1;
+  word-break: break-word;
+}
+
+.toast-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0 0 0 0.25rem;
+}
+.toast-close:hover { opacity: 1; }
+
+.toast-success { background: #065f46; border-left: 4px solid #10b981; }
+.toast-error   { background: #7f1d1d; border-left: 4px solid #ef4444; }
+.toast-warning { background: #78350f; border-left: 4px solid #f59e0b; }
+.toast-info    { background: #1e3a5f; border-left: 4px solid #3b82f6; }
+
+/* ─── Confirmation Dialog ──────────────────────────────────────────────────── */
+
+.confirm-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.confirm-overlay.confirm-visible {
+  opacity: 1;
+}
+
+.confirm-dialog {
+  background: var(--surface, #fff);
+  border-radius: 10px;
+  padding: 1.75rem 2rem;
+  max-width: 420px;
+  width: 90%;
+  box-shadow: 0 20px 40px rgba(0,0,0,0.2);
+  transform: scale(0.95);
+  transition: transform 0.2s ease;
+}
+
+.confirm-overlay.confirm-visible .confirm-dialog {
+  transform: scale(1);
+}
+
+.confirm-message {
+  margin: 0 0 1.5rem 0;
+  color: var(--text, #111827);
+  font-size: 0.9375rem;
+  line-height: 1.6;
+  white-space: pre-line;
+}
+
+.confirm-actions {
+  display: flex;
+  gap: 0.75rem;
+  justify-content: flex-end;
+}

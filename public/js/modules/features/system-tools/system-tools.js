@@ -35,6 +35,12 @@ export function initSystemTools() {
   if (mergeBtn) {
     mergeBtn.addEventListener('click', runMergeDuplicateTimesheets);
   }
+
+  const loadAuditBtn = document.getElementById('loadAuditLogBtn');
+  if (loadAuditBtn) {
+    loadAuditBtn.addEventListener('click', loadAuditLog);
+    loadAuditActions();
+  }
 }
 
 /**
@@ -225,6 +231,115 @@ async function runManualSync() {
     // Re-enable button
     btn.disabled = false;
     btn.textContent = '🔄 Run Manual Sync';
+  }
+}
+
+/**
+ * Load distinct action values into the audit filter dropdown
+ */
+async function loadAuditActions() {
+  try {
+    const { actions } = await api.get('/audit-logs/actions');
+    const select = document.getElementById('auditActionFilter');
+    if (!select) return;
+    for (const action of actions) {
+      const opt = document.createElement('option');
+      opt.value = action;
+      opt.textContent = action.replace(/_/g, ' ');
+      select.appendChild(opt);
+    }
+  } catch (e) {
+    // Non-critical — filter just stays as "All Actions"
+  }
+}
+
+const ACTION_ICONS = {
+  USER_LOGIN: '🔑',
+  USER_LOGOUT: '🚪',
+  TIMESHEET_SUBMITTED: '📤',
+  TIMESHEET_APPROVED: '✅',
+  TIMESHEET_LOCKED: '🔒',
+  TIMESHEET_UNLOCKED: '🔓',
+  TIMESHEET_STATUS_CHANGED: '🔄',
+  TIMESHEET_DELETED: '🗑️',
+  ENTRY_CREATED: '➕',
+  ENTRY_DELETED: '🗑️'
+};
+
+/**
+ * Load and render the audit log table
+ */
+async function loadAuditLog() {
+  const btn = document.getElementById('loadAuditLogBtn');
+  const resultDiv = document.getElementById('auditLogResult');
+  const action = document.getElementById('auditActionFilter')?.value || '';
+  const from = document.getElementById('auditFromDate')?.value || '';
+  const to = document.getElementById('auditToDate')?.value || '';
+
+  btn.disabled = true;
+  btn.textContent = 'Loading...';
+  resultDiv.innerHTML = '<p style="color:#6b7280;">Loading audit log...</p>';
+
+  try {
+    const params = new URLSearchParams({ limit: 100 });
+    if (action) params.set('action', action);
+    if (from) params.set('from', from);
+    if (to) params.set('to', to + 'T23:59:59');
+
+    const { logs, pagination } = await api.get(`/audit-logs?${params}`);
+
+    if (!logs.length) {
+      resultDiv.innerHTML = '<p style="color:#6b7280; font-style:italic;">No audit log entries found for the selected filters.</p>';
+      return;
+    }
+
+    const rows = logs.map(log => {
+      const icon = ACTION_ICONS[log.action] || '📝';
+      const ts = new Date(log.createdAt).toLocaleString();
+      const meta = log.metadata ? (() => { try { return JSON.stringify(JSON.parse(log.metadata), null, 0).replace(/"/g, ''); } catch { return log.metadata; } })() : '';
+      return `<tr>
+        <td style="white-space:nowrap;color:#6b7280;font-size:0.8rem;">${ts}</td>
+        <td>${icon} <span style="font-size:0.85rem;">${log.action.replace(/_/g, ' ')}</span></td>
+        <td style="font-size:0.85rem;">${log.userName || log.userId || '—'}</td>
+        <td style="font-size:0.85rem;">${log.entity ? `${log.entity} #${log.entityId}` : '—'}</td>
+        <td style="font-size:0.8rem;color:#6b7280;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${meta}">${meta}</td>
+        <td style="font-size:0.8rem;color:#9ca3af;">${log.ipAddress || '—'}</td>
+      </tr>`;
+    }).join('');
+
+    resultDiv.innerHTML = `
+      <p style="font-size:0.85rem;color:#6b7280;margin-bottom:0.5rem;">Showing ${logs.length} of ${pagination.total} entries</p>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:0.9rem;">
+          <thead>
+            <tr style="background:#f3f4f6;text-align:left;">
+              <th style="padding:0.5rem 0.75rem;border-bottom:1px solid #e5e7eb;">Time</th>
+              <th style="padding:0.5rem 0.75rem;border-bottom:1px solid #e5e7eb;">Action</th>
+              <th style="padding:0.5rem 0.75rem;border-bottom:1px solid #e5e7eb;">User</th>
+              <th style="padding:0.5rem 0.75rem;border-bottom:1px solid #e5e7eb;">Entity</th>
+              <th style="padding:0.5rem 0.75rem;border-bottom:1px solid #e5e7eb;">Details</th>
+              <th style="padding:0.5rem 0.75rem;border-bottom:1px solid #e5e7eb;">IP</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      </div>
+    `;
+    // Apply alternating row styles
+    resultDiv.querySelectorAll('tbody tr').forEach((tr, i) => {
+      tr.style.background = i % 2 === 0 ? '#fff' : '#f9fafb';
+      tr.querySelectorAll('td').forEach(td => { td.style.padding = '0.4rem 0.75rem'; td.style.borderBottom = '1px solid #f3f4f6'; });
+    });
+  } catch (error) {
+    resultDiv.innerHTML = `<div style="background:#fee2e2;border:1px solid #dc2626;border-radius:6px;padding:1rem;color:#991b1b;">
+      <strong>Failed to load audit log</strong>
+      <p style="margin:0.5rem 0 0;font-size:0.9rem;">${error.message}</p>
+    </div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Load Audit Log';
   }
 }
 

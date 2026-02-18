@@ -1,5 +1,7 @@
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcrypt');
+const { audit, auditFrom } = require('../utils/auditLog');
+const logger = require('../utils/logger');
 
 const prisma = new PrismaClient();
 
@@ -100,11 +102,21 @@ const login = async (req, res) => {
     req.session.userId = user.id;
     req.session.isAdmin = user.isAdmin;
     req.session.employeeId = user.employee ? user.employee.id : null;
+    req.session.userName = user.name;
 
-    console.log('✅ Session set on login:', {
+    logger.debug('Session set on login', {
       sessionId: req.sessionID,
       userId: req.session.userId,
       cookieSent: !!res.getHeader('set-cookie')
+    });
+
+    await audit({
+      userId: user.id,
+      userName: user.name,
+      action: 'USER_LOGIN',
+      entity: 'User',
+      entityId: user.id,
+      ipAddress: req.ip || req.headers?.['x-forwarded-for'] || null
     });
 
     // Remove passwordHash from response
@@ -122,17 +134,22 @@ const login = async (req, res) => {
 };
 
 const logout = (req, res) => {
-  req.session.destroy((err) => {
+  const userId = req.session?.userId ?? null;
+  const userName = req.session?.userName ?? null;
+  const ipAddress = req.ip || req.headers?.['x-forwarded-for'] || null;
+
+  req.session.destroy(async (err) => {
     if (err) {
       return res.status(500).json({ error: 'Failed to log out' });
     }
+    await audit({ userId, userName, action: 'USER_LOGOUT', entity: 'User', entityId: userId, ipAddress });
     res.json({ message: 'Logout successful' });
   });
 };
 
 const getCurrentUser = async (req, res) => {
   try {
-    console.log('🔍 getCurrentUser check:', {
+    logger.debug('getCurrentUser check', {
       sessionId: req.sessionID,
       userId: req.session.userId,
       hasCookie: !!req.headers.cookie

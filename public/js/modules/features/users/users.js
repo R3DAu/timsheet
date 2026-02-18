@@ -251,7 +251,7 @@ export async function linkProfileToUser(userId, userName, userEmail) {
  * Delete a user
  */
 export async function deleteUser(id) {
-  if (!showConfirmation('Delete this user? This cannot be undone.')) return;
+  if (!await showConfirmation('Delete this user? This cannot be undone.')) return;
 
   try {
     await api.delete(`/users/${id}`);

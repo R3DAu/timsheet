@@ -1,5 +1,6 @@
 const { PrismaClient } = require('@prisma/client');
 const emailService = require('../services/emailService');
+const { auditFrom } = require('../utils/auditLog');
 
 const prisma = new PrismaClient();
 
@@ -244,6 +245,11 @@ const submitTimesheet = async (req, res) => {
       // Don't fail the submission if email fails
     }
 
+    await auditFrom(req)('TIMESHEET_SUBMITTED', 'Timesheet', id, {
+      employeeId: timesheet.employeeId,
+      weekStarting: timesheet.weekStarting
+    });
+
     res.json({ message: 'Timesheet submitted successfully', timesheet: updatedTimesheet });
   } catch (error) {
     console.error('Submit timesheet error:', error);
@@ -308,6 +314,11 @@ const approveTimesheet = async (req, res) => {
       }
     }
 
+    await auditFrom(req)('TIMESHEET_APPROVED', 'Timesheet', id, {
+      employeeId: timesheet.employeeId,
+      weekStarting: timesheet.weekStarting
+    });
+
     res.json({ message: 'Timesheet approved successfully', timesheet });
   } catch (error) {
     console.error('Approve timesheet error:', error);
@@ -328,6 +339,8 @@ const lockTimesheet = async (req, res) => {
       where: { timesheetId: parseInt(id) },
       data: { status: 'LOCKED' }
     });
+
+    await auditFrom(req)('TIMESHEET_LOCKED', 'Timesheet', id);
 
     res.json({ message: 'Timesheet locked successfully', timesheet });
   } catch (error) {
@@ -354,6 +367,8 @@ const unlockTimesheet = async (req, res) => {
       where: { timesheetId: parseInt(id) },
       data: { status: 'UNLOCKED' }
     });
+
+    await auditFrom(req)('TIMESHEET_UNLOCKED', 'Timesheet', id);
 
     res.json({ message: 'Timesheet unlocked successfully', timesheet });
   } catch (error) {
@@ -391,6 +406,8 @@ const changeTimesheetStatus = async (req, res) => {
       data: { status }
     });
 
+    await auditFrom(req)('TIMESHEET_STATUS_CHANGED', 'Timesheet', id, { status });
+
     res.json({ message: `Timesheet status changed to ${status}`, timesheet });
   } catch (error) {
     console.error('Change timesheet status error:', error);
@@ -405,6 +422,8 @@ const deleteTimesheet = async (req, res) => {
     await prisma.timesheet.delete({
       where: { id: parseInt(id) }
     });
+
+    await auditFrom(req)('TIMESHEET_DELETED', 'Timesheet', id);
 
     res.json({ message: 'Timesheet deleted successfully' });
   } catch (error) {

@@ -137,7 +137,7 @@ export function copyApiKey() {
  * Revoke an API key
  */
 export async function revokeApiKey(id) {
-  if (!showConfirmation('Are you sure you want to revoke this API key? This cannot be undone.')) return;
+  if (!await showConfirmation('Are you sure you want to revoke this API key? This cannot be undone.')) return;
   try {
     await api.delete(`/api-keys/${id}`);
     loadApiKeys();

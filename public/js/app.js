@@ -183,18 +183,89 @@ var App = (() => {
   });
 
   // public/js/modules/core/alerts.js
-  function showAlert(message, type = "info", timeout = 5e3) {
-    alert(message);
-  }
-  function showConfirmation(message, callback) {
-    if (!callback || typeof callback !== "function") {
-      return confirm(message);
+  function getContainer() {
+    if (!toastContainer || !document.body.contains(toastContainer)) {
+      toastContainer = document.createElement("div");
+      toastContainer.id = "toast-container";
+      document.body.appendChild(toastContainer);
     }
-    if (!confirm(message)) return false;
-    return callback();
+    return toastContainer;
   }
+  function showAlert(message, type = "info", timeout = 4e3) {
+    const container = getContainer();
+    const toast = document.createElement("div");
+    toast.className = `toast toast-${type}`;
+    const icons = { success: "\u2713", error: "\u2715", warning: "\u26A0", info: "\u2139" };
+    const icon = icons[type] || icons.info;
+    toast.innerHTML = `
+    <span class="toast-icon">${icon}</span>
+    <span class="toast-msg">${escapeForToast(message)}</span>
+    <button class="toast-close" aria-label="Dismiss">\xD7</button>
+  `;
+    toast.querySelector(".toast-close").addEventListener("click", () => dismissToast(toast));
+    container.appendChild(toast);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => toast.classList.add("toast-visible"));
+    });
+    if (timeout > 0) {
+      setTimeout(() => dismissToast(toast), timeout);
+    }
+  }
+  function showConfirmation(message, opts = {}) {
+    const {
+      confirmLabel = "Confirm",
+      cancelLabel = "Cancel",
+      confirmStyle = "danger"
+    } = opts;
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "confirm-overlay";
+      overlay.innerHTML = `
+      <div class="confirm-dialog" role="dialog" aria-modal="true">
+        <p class="confirm-message">${escapeForToast(message)}</p>
+        <div class="confirm-actions">
+          <button class="btn btn-secondary confirm-cancel">${escapeForToast(cancelLabel)}</button>
+          <button class="btn btn-${confirmStyle} confirm-ok">${escapeForToast(confirmLabel)}</button>
+        </div>
+      </div>
+    `;
+      const close = (result) => {
+        overlay.classList.remove("confirm-visible");
+        setTimeout(() => overlay.remove(), 200);
+        resolve(result);
+      };
+      overlay.querySelector(".confirm-ok").addEventListener("click", () => close(true));
+      overlay.querySelector(".confirm-cancel").addEventListener("click", () => close(false));
+      overlay.addEventListener("click", (e) => {
+        if (e.target === overlay) close(false);
+      });
+      const onKey = (e) => {
+        if (e.key === "Escape") {
+          document.removeEventListener("keydown", onKey);
+          close(false);
+        }
+      };
+      document.addEventListener("keydown", onKey);
+      document.body.appendChild(overlay);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => overlay.classList.add("confirm-visible"));
+      });
+      overlay.querySelector(".confirm-ok").focus();
+    });
+  }
+  function dismissToast(toast) {
+    if (toast.classList.contains("toast-leaving")) return;
+    toast.classList.add("toast-leaving");
+    toast.classList.remove("toast-visible");
+    setTimeout(() => toast.remove(), 300);
+  }
+  function escapeForToast(str) {
+    return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/\n/g, "<br>");
+  }
+  var toastContainer;
   var init_alerts = __esm({
     "public/js/modules/core/alerts.js"() {
+      toastContainer = null;
     }
   });
 
@@ -272,6 +343,16 @@ var App = (() => {
   });
 
   // public/js/modules/core/navigation.js
+  var navigation_exports = {};
+  __export(navigation_exports, {
+    activateTab: () => activateTab,
+    getRequestedTab: () => getRequestedTab,
+    initNavigation: () => initNavigation,
+    isTabAvailable: () => isTabAvailable,
+    registerTabHook: () => registerTabHook,
+    setNavTitle: () => setNavTitle,
+    setRequestedTab: () => setRequestedTab
+  });
   function registerTabHook(tabName, callback) {
     tabHooks[tabName] = callback;
   }
@@ -352,6 +433,7 @@ var App = (() => {
         systemTools: "System Tools",
         approvals: "Approvals",
         leaveManagement: "Leave Requests",
+        xeroDashboard: "Xero Dashboard",
         xeroSetup: "Xero Setup",
         xeroSyncLogs: "Xero Sync Logs",
         xeroInvoices: "LT Invoices"
@@ -500,7 +582,7 @@ var App = (() => {
     };
   }
   async function deleteCompany(id) {
-    if (!showConfirmation("Delete this company? This will also delete all associated roles.")) return;
+    if (!await showConfirmation("Delete this company? This will also delete all associated roles.")) return;
     try {
       await api.delete(`/companies/${id}`);
       await loadCompanies();
@@ -659,7 +741,7 @@ var App = (() => {
     };
   }
   async function deleteRole(id) {
-    if (!showConfirmation("Delete this role?")) return;
+    if (!await showConfirmation("Delete this role?")) return;
     try {
       await api.delete(`/roles/${id}`);
       await loadRoles();
@@ -1117,7 +1199,7 @@ var App = (() => {
     displayUnifiedTimesheets();
   }
   async function submitTimesheet(id) {
-    if (!showConfirmation("Are you sure you want to submit this timesheet?")) return;
+    if (!await showConfirmation("Are you sure you want to submit this timesheet?")) return;
     try {
       await api.post(`/timesheets/${id}/submit`);
       await refreshTimesheets2();
@@ -1127,7 +1209,7 @@ var App = (() => {
     }
   }
   async function approveTimesheet(id) {
-    if (!showConfirmation("Approve this timesheet?")) return;
+    if (!await showConfirmation("Approve this timesheet?")) return;
     try {
       await api.post(`/timesheets/${id}/approve`);
       await refreshTimesheets2();
@@ -1137,7 +1219,7 @@ var App = (() => {
     }
   }
   async function lockTimesheet(id) {
-    if (!showConfirmation("Lock this timesheet? No further edits will be allowed.")) return;
+    if (!await showConfirmation("Lock this timesheet? No further edits will be allowed.")) return;
     try {
       await api.post(`/timesheets/${id}/lock`);
       await refreshTimesheets2();
@@ -1147,7 +1229,7 @@ var App = (() => {
     }
   }
   async function unlockTimesheet(id) {
-    if (!showConfirmation("Unlock this timesheet? Status will be set to UNLOCKED so it can be edited and re-locked without re-submitting.")) return;
+    if (!await showConfirmation("Unlock this timesheet? Status will be set to UNLOCKED so it can be edited and re-locked without re-submitting.")) return;
     try {
       await api.post(`/timesheets/${id}/unlock`);
       await refreshTimesheets2();
@@ -1167,7 +1249,7 @@ var App = (() => {
     }
   }
   async function deleteTimesheet(id) {
-    if (!showConfirmation("Are you sure you want to delete this timesheet and all its entries?")) return;
+    if (!await showConfirmation("Are you sure you want to delete this timesheet and all its entries?")) return;
     try {
       await api.delete(`/timesheets/${id}`);
       await refreshTimesheets2();
@@ -1347,6 +1429,51 @@ var App = (() => {
     const item = document.querySelector(`.date-group[data-date-id="${dateId}"]`);
     if (item) item.classList.toggle("open");
   }
+  function htmlToBulletPoints(html) {
+    if (!html) return "";
+    let text = html;
+    text = text.replace(
+      /<[uo]l[^>]*>([\s\S]*?)<\/[uo]l>/gi,
+      (_, content) => content.replace(
+        /<li[^>]*>([\s\S]*?)<\/li>/gi,
+        (__, item) => `- ${item.replace(/<[^>]*>/g, "").trim()}`
+      )
+    );
+    text = text.replace(
+      /<li[^>]*>([\s\S]*?)<\/li>/gi,
+      (_, item) => `- ${item.replace(/<[^>]*>/g, "").trim()}`
+    );
+    text = text.replace(/<p[^>]*>([\s\S]*?)<\/p>/gi, (_, content) => {
+      const stripped = content.replace(/<[^>]*>/g, "").trim();
+      return stripped ? `- ${stripped}` : "";
+    });
+    text = text.replace(/<br\s*\/?>/gi, "\n");
+    text = text.replace(/<[^>]*>/g, "");
+    text = text.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+    return text.replace(/\n{3,}/g, "\n\n").trim();
+  }
+  function formatWmsComment(entry) {
+    const parts = [];
+    if (entry.startingLocation) parts.push(`[${entry.startingLocation}]`);
+    if (entry.locationNotes) {
+      try {
+        const notes = typeof entry.locationNotes === "string" ? JSON.parse(entry.locationNotes) : entry.locationNotes;
+        if (Array.isArray(notes) && notes.length > 0) {
+          notes.forEach((ln) => {
+            const loc = ln.location || "General";
+            const tasks = htmlToBulletPoints(ln.description || "");
+            parts.push(`[${loc}]
+${tasks}`);
+          });
+        }
+      } catch (_) {
+      }
+    }
+    if (parts.length <= (entry.startingLocation ? 1 : 0) && entry.notes) {
+      parts.push(htmlToBulletPoints(entry.notes));
+    }
+    return parts.join("\n\n");
+  }
   function renderEntryCard(entry, timesheetId, isEditable) {
     const timeRange = entry.startTime && entry.endTime ? `${formatTime(entry.startTime)} - ${formatTime(entry.endTime)}` : "No time set";
     const plainNotes = entry.notes ? entry.notes.replace(/<[^>]*>/g, "").substring(0, 100) : "";
@@ -1368,6 +1495,7 @@ var App = (() => {
         ${plainNotes ? `<div class="entry-card-description">${escapeHtml(plainNotes)}</div>` : ""}
       </div>
       <div class="entry-card-actions" onclick="event.stopPropagation();">
+        <button class="btn-icon" onclick="copyWmsEntry(${entry.id})" title="Copy WMS comment">&#128203;</button>
         ${isEditable ? `
           <button class="btn-icon" onclick="editEntrySlideIn(${entry.id}, ${timesheetId})" title="Edit">&#9998;</button>
           <button class="btn-icon btn-delete" onclick="deleteEntryFromCard(${entry.id}, ${timesheetId})" title="Delete">&times;</button>
@@ -1521,6 +1649,37 @@ var App = (() => {
       init_alerts();
       init_dateTime();
       init_wms_sync();
+      window.copyWmsEntry = async function(entryId) {
+        const allTimesheets = state.get("timesheets") || [];
+        let entry = null;
+        for (const ts of allTimesheets) {
+          entry = (ts.entries || []).find((e) => e.id === entryId);
+          if (entry) break;
+        }
+        if (!entry) {
+          showAlert("Entry not found", "error");
+          return;
+        }
+        const text = formatWmsComment(entry);
+        if (!text) {
+          showAlert("No comment text to copy", "warning");
+          return;
+        }
+        try {
+          await navigator.clipboard.writeText(text);
+          showAlert("WMS comment copied to clipboard", "success", 2500);
+        } catch (_) {
+          const ta = document.createElement("textarea");
+          ta.value = text;
+          ta.style.position = "fixed";
+          ta.style.opacity = "0";
+          document.body.appendChild(ta);
+          ta.select();
+          document.execCommand("copy");
+          ta.remove();
+          showAlert("WMS comment copied to clipboard", "success", 2500);
+        }
+      };
       _employeeSelectorInitialized = false;
       registerTabHook("timesheets", displayUnifiedTimesheets);
       registerTabHook("myTimesheets", displayMyTimesheets);
@@ -1741,7 +1900,7 @@ var App = (() => {
     };
   }
   async function deleteUser(id) {
-    if (!showConfirmation("Delete this user? This cannot be undone.")) return;
+    if (!await showConfirmation("Delete this user? This cannot be undone.")) return;
     try {
       await api.delete(`/users/${id}`);
       await loadUsers();
@@ -1965,6 +2124,13 @@ var App = (() => {
         <button class="btn btn-sm btn-primary" onclick="addIdentifierForm(${emp.id})">Add Identifier</button>
         <button class="btn btn-sm btn-primary" onclick="assignRoleForm(${emp.id})">Assign Role</button>
       </div>
+
+      <hr style="margin: 1.5rem 0; border: none; border-top: 1px solid var(--border, #e5e7eb);">
+      <h3 style="margin: 0 0 0.75rem 0; display: flex; align-items: center; gap: 0.5rem;">
+        Xero Configuration
+        <span id="xeroLoadingSpinner" style="font-size:0.75rem; color: var(--muted); font-weight:400;">Loading\u2026</span>
+      </h3>
+      <div id="xeroConfigSection_${emp.id}"></div>
     `;
       showModalWithForm(`Employee: ${escapeHtml(emp.firstName)} ${escapeHtml(emp.lastName)}`, html);
       document.querySelectorAll(".emp-edit-id-btn").forEach((btn) => {
@@ -1978,9 +2144,156 @@ var App = (() => {
           );
         });
       });
+      loadEmployeeXeroSection(emp.id, emp).catch((err) => {
+        const el = document.getElementById(`xeroConfigSection_${emp.id}`);
+        if (el) el.innerHTML = `<p style="color:var(--muted); font-size:0.875rem;">Xero not configured or not connected.</p>`;
+        const spinner = document.getElementById("xeroLoadingSpinner");
+        if (spinner) spinner.remove();
+      });
     } catch (error) {
       showAlert(error.message);
     }
+  }
+  async function loadEmployeeXeroSection(empId, emp) {
+    const container = document.getElementById(`xeroConfigSection_${empId}`);
+    const spinner = document.getElementById("xeroLoadingSpinner");
+    if (!container) return;
+    const [tenantsRes, mappingsRes] = await Promise.all([
+      api.get("/xero/auth/tenants"),
+      api.get("/xero/setup/mappings")
+    ]);
+    if (spinner) spinner.remove();
+    const tenants = tenantsRes.tenants || [];
+    if (tenants.length === 0) {
+      container.innerHTML = `<p style="color:var(--muted); font-size:0.875rem;">No Xero organization connected. Connect one in the Xero Setup tab.</p>`;
+      return;
+    }
+    const currentMapping = (mappingsRes.employeeMappings || []).find((m) => m.employeeId === empId);
+    const currentSettings = (mappingsRes.employeeSettings || []).find((s) => s.employeeId === empId);
+    const xeroId = currentMapping ? currentMapping.identifierValue : null;
+    const companyMappings = mappingsRes.companyMappings || [];
+    const empRoles = emp.roles || [];
+    const empCompanyIds = empRoles.map((r) => r.companyId || r.company?.id).filter(Boolean);
+    const matchedTenant = companyMappings.find((cm) => empCompanyIds.includes(cm.companyId));
+    const defaultTenantId = matchedTenant?.xeroToken?.tenantId || tenants[0]?.tenantId;
+    const tenantOptions = tenants.map(
+      (t) => `<option value="${escapeHtml(t.tenantId)}" ${t.tenantId === defaultTenantId ? "selected" : ""}>${escapeHtml(t.tenantName)}</option>`
+    ).join("");
+    const syncEnabled = currentSettings?.syncEnabled ?? false;
+    const empType = currentSettings?.employeeType ?? "LT";
+    const autoApprove = currentSettings?.autoApprove ?? false;
+    const isSalaried = currentSettings?.isSalaried ?? false;
+    container.innerHTML = `
+    <div style="display:grid; gap:1rem;">
+      <!-- Employee ID Mapping -->
+      <div style="background:var(--bg,#f3f4f6); border-radius:8px; padding:1rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+          <strong style="font-size:0.875rem;">Xero Employee Mapping</strong>
+          <button class="btn btn-sm btn-secondary" id="toggleXeroMapForm_${empId}">
+            ${xeroId ? "Change" : "Map to Xero"}
+          </button>
+        </div>
+        <p style="margin:0; font-size:0.875rem; color:${xeroId ? "var(--text)" : "var(--muted)"};">
+          ${xeroId ? `Mapped \u2014 Xero ID: <code>${escapeHtml(xeroId.slice(0, 8))}\u2026</code>` : "Not mapped to a Xero employee."}
+        </p>
+        <div id="xeroMapForm_${empId}" style="display:none; margin-top:0.75rem; border-top:1px solid var(--border,#e5e7eb); padding-top:0.75rem;">
+          <div style="display:grid; gap:0.5rem;">
+            <label style="font-size:0.8125rem; font-weight:500;">Organisation</label>
+            <select id="xeroTenantPick_${empId}" class="form-control" style="font-size:0.875rem;">
+              ${tenantOptions}
+            </select>
+            <label style="font-size:0.8125rem; font-weight:500; margin-top:0.25rem;">Xero Employee</label>
+            <select id="xeroEmpPick_${empId}" class="form-control" style="font-size:0.875rem;">
+              <option value="">Loading\u2026</option>
+            </select>
+            <button class="btn btn-sm btn-primary" id="saveXeroMap_${empId}" style="margin-top:0.25rem; align-self:start;">Save Mapping</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Sync Settings -->
+      <div style="background:var(--bg,#f3f4f6); border-radius:8px; padding:1rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+          <strong style="font-size:0.875rem;">Xero Sync Settings</strong>
+        </div>
+        <form id="xeroSettingsForm_${empId}" style="display:grid; gap:0.5rem;">
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.5rem;">
+            <label style="font-size:0.8125rem; font-weight:500;">Employee Type</label>
+            <select name="employeeType" class="form-control" style="font-size:0.875rem;">
+              <option value="LT" ${empType === "LT" ? "selected" : ""}>LT (Local Tech)</option>
+              <option value="ST" ${empType === "ST" ? "selected" : ""}>ST (Specialist Tech)</option>
+            </select>
+          </div>
+          <label style="display:flex; gap:0.5rem; align-items:center; font-size:0.875rem; cursor:pointer;">
+            <input type="checkbox" name="syncEnabled" ${syncEnabled ? "checked" : ""}> Enable Xero Sync
+          </label>
+          <label style="display:flex; gap:0.5rem; align-items:center; font-size:0.875rem; cursor:pointer;">
+            <input type="checkbox" name="autoApprove" ${autoApprove ? "checked" : ""}> Auto-approve timesheets
+          </label>
+          <label style="display:flex; gap:0.5rem; align-items:center; font-size:0.875rem; cursor:pointer;">
+            <input type="checkbox" name="isSalaried" ${isSalaried ? "checked" : ""}> Salaried employee
+          </label>
+          <button type="submit" class="btn btn-sm btn-primary" style="align-self:start; margin-top:0.25rem;">Save Settings</button>
+        </form>
+      </div>
+    </div>
+  `;
+    const toggleBtn = document.getElementById(`toggleXeroMapForm_${empId}`);
+    const mapForm = document.getElementById(`xeroMapForm_${empId}`);
+    const tenantPick = document.getElementById(`xeroTenantPick_${empId}`);
+    const empPick = document.getElementById(`xeroEmpPick_${empId}`);
+    const loadXeroEmployees = async (tenantId) => {
+      empPick.innerHTML = '<option value="">Loading\u2026</option>';
+      try {
+        const res = await api.get(`/xero/setup/employees/${tenantId}`);
+        const xeroEmps = res.employees || [];
+        empPick.innerHTML = '<option value="">\u2014 Select Xero employee \u2014</option>' + xeroEmps.map((xe) => {
+          const xeId = xe.EmployeeID || xe.employeeID || xe.employeeId || "";
+          const name = `${xe.FirstName || xe.firstName || ""} ${xe.LastName || xe.lastName || ""}`.trim();
+          return `<option value="${escapeHtml(xeId)}" ${xeId === xeroId ? "selected" : ""}>${escapeHtml(name)}</option>`;
+        }).join("");
+      } catch (e) {
+        empPick.innerHTML = '<option value="">Failed to load</option>';
+      }
+    };
+    toggleBtn.addEventListener("click", () => {
+      const open = mapForm.style.display === "none";
+      mapForm.style.display = open ? "block" : "none";
+      if (open && tenantPick.value) loadXeroEmployees(tenantPick.value);
+    });
+    tenantPick.addEventListener("change", () => loadXeroEmployees(tenantPick.value));
+    document.getElementById(`saveXeroMap_${empId}`).addEventListener("click", async () => {
+      const tenantId = tenantPick.value;
+      const xeroEmployeeId = empPick.value;
+      if (!xeroEmployeeId) {
+        showAlert("Please select a Xero employee", "warning");
+        return;
+      }
+      try {
+        await api.post("/xero/setup/employees/map", { employeeId: empId, xeroEmployeeId, tenantId });
+        showAlert("Xero employee mapping saved", "success");
+        mapForm.style.display = "none";
+        await loadEmployeeXeroSection(empId, emp);
+      } catch (e) {
+        showAlert(e.message || "Failed to save mapping", "error");
+      }
+    });
+    document.getElementById(`xeroSettingsForm_${empId}`).addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const fd = new FormData(e.target);
+      try {
+        await api.post("/xero/setup/employee-settings", {
+          employeeId: empId,
+          employeeType: fd.get("employeeType"),
+          syncEnabled: fd.has("syncEnabled"),
+          autoApprove: fd.has("autoApprove"),
+          isSalaried: fd.has("isSalaried")
+        });
+        showAlert("Xero settings saved", "success");
+      } catch (err) {
+        showAlert(err.message || "Failed to save settings", "error");
+      }
+    });
   }
   async function editEmployee(id) {
     const employees = state.get("employees");
@@ -2033,7 +2346,7 @@ var App = (() => {
     };
   }
   async function deleteEmployee(id) {
-    if (!showConfirmation("Delete this employee? This will also delete their timesheets.")) return;
+    if (!await showConfirmation("Delete this employee? This will also delete their timesheets.")) return;
     try {
       await api.delete(`/employees/${id}`);
       await loadEmployees();
@@ -2185,7 +2498,7 @@ var App = (() => {
     };
   }
   async function deleteIdentifier(employeeId, identifierId) {
-    if (!showConfirmation("Delete this identifier?")) return;
+    if (!await showConfirmation("Delete this identifier?")) return;
     try {
       await api.delete(`/employees/identifiers/${identifierId}`);
       viewEmployee(employeeId);
@@ -2364,7 +2677,7 @@ var App = (() => {
     });
   }
   async function revokeApiKey(id) {
-    if (!showConfirmation("Are you sure you want to revoke this API key? This cannot be undone.")) return;
+    if (!await showConfirmation("Are you sure you want to revoke this API key? This cannot be undone.")) return;
     try {
       await api.delete(`/api-keys/${id}`);
       loadApiKeys();
@@ -3107,7 +3420,7 @@ var App = (() => {
         return;
       }
       if (validation.warnings && validation.warnings.length > 0) {
-        if (!showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
+        if (!await showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
           return;
         }
       }
@@ -3295,7 +3608,7 @@ var App = (() => {
         return;
       }
       if (validation.warnings && validation.warnings.length > 0) {
-        if (!showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
+        if (!await showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
           return;
         }
       }
@@ -3327,7 +3640,7 @@ var App = (() => {
     };
   }
   async function deleteEntry(id) {
-    if (!showConfirmation("Delete this entry?")) return;
+    if (!await showConfirmation("Delete this entry?")) return;
     try {
       await api.delete(`/entries/${id}`);
       const timesheetId = document.getElementById("timesheetSelect").value;
@@ -3900,7 +4213,7 @@ var App = (() => {
         return;
       }
       if (validation.warnings && validation.warnings.length > 0) {
-        if (!showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
+        if (!await showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
           return;
         }
       }
@@ -4211,7 +4524,7 @@ var App = (() => {
         return;
       }
       if (validation.warnings && validation.warnings.length > 0) {
-        if (!showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
+        if (!await showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
           return;
         }
       }
@@ -4249,7 +4562,7 @@ var App = (() => {
     };
   }
   async function deleteEntryFromCard(entryId, timesheetId) {
-    if (!showConfirmation("Delete this entry?")) return;
+    if (!await showConfirmation("Delete this entry?")) return;
     try {
       await api.delete(`/entries/${entryId}`);
       hideSlidePanel();
@@ -4540,6 +4853,11 @@ var App = (() => {
     if (mergeBtn) {
       mergeBtn.addEventListener("click", runMergeDuplicateTimesheets);
     }
+    const loadAuditBtn = document.getElementById("loadAuditLogBtn");
+    if (loadAuditBtn) {
+      loadAuditBtn.addEventListener("click", loadAuditLog);
+      loadAuditActions();
+    }
   }
   async function runCleanupDuplicates() {
     const btn = document.getElementById("cleanupDuplicatesBtn");
@@ -4682,6 +5000,107 @@ var App = (() => {
     } finally {
       btn.disabled = false;
       btn.textContent = "\u{1F504} Run Manual Sync";
+    }
+  }
+  async function loadAuditActions() {
+    try {
+      const { actions } = await api.get("/audit-logs/actions");
+      const select = document.getElementById("auditActionFilter");
+      if (!select) return;
+      for (const action of actions) {
+        const opt = document.createElement("option");
+        opt.value = action;
+        opt.textContent = action.replace(/_/g, " ");
+        select.appendChild(opt);
+      }
+    } catch (e) {
+    }
+  }
+  var ACTION_ICONS = {
+    USER_LOGIN: "\u{1F511}",
+    USER_LOGOUT: "\u{1F6AA}",
+    TIMESHEET_SUBMITTED: "\u{1F4E4}",
+    TIMESHEET_APPROVED: "\u2705",
+    TIMESHEET_LOCKED: "\u{1F512}",
+    TIMESHEET_UNLOCKED: "\u{1F513}",
+    TIMESHEET_STATUS_CHANGED: "\u{1F504}",
+    TIMESHEET_DELETED: "\u{1F5D1}\uFE0F",
+    ENTRY_CREATED: "\u2795",
+    ENTRY_DELETED: "\u{1F5D1}\uFE0F"
+  };
+  async function loadAuditLog() {
+    const btn = document.getElementById("loadAuditLogBtn");
+    const resultDiv = document.getElementById("auditLogResult");
+    const action = document.getElementById("auditActionFilter")?.value || "";
+    const from = document.getElementById("auditFromDate")?.value || "";
+    const to = document.getElementById("auditToDate")?.value || "";
+    btn.disabled = true;
+    btn.textContent = "Loading...";
+    resultDiv.innerHTML = '<p style="color:#6b7280;">Loading audit log...</p>';
+    try {
+      const params = new URLSearchParams({ limit: 100 });
+      if (action) params.set("action", action);
+      if (from) params.set("from", from);
+      if (to) params.set("to", to + "T23:59:59");
+      const { logs, pagination } = await api.get(`/audit-logs?${params}`);
+      if (!logs.length) {
+        resultDiv.innerHTML = '<p style="color:#6b7280; font-style:italic;">No audit log entries found for the selected filters.</p>';
+        return;
+      }
+      const rows = logs.map((log) => {
+        const icon = ACTION_ICONS[log.action] || "\u{1F4DD}";
+        const ts = new Date(log.createdAt).toLocaleString();
+        const meta = log.metadata ? (() => {
+          try {
+            return JSON.stringify(JSON.parse(log.metadata), null, 0).replace(/"/g, "");
+          } catch {
+            return log.metadata;
+          }
+        })() : "";
+        return `<tr>
+        <td style="white-space:nowrap;color:#6b7280;font-size:0.8rem;">${ts}</td>
+        <td>${icon} <span style="font-size:0.85rem;">${log.action.replace(/_/g, " ")}</span></td>
+        <td style="font-size:0.85rem;">${log.userName || log.userId || "\u2014"}</td>
+        <td style="font-size:0.85rem;">${log.entity ? `${log.entity} #${log.entityId}` : "\u2014"}</td>
+        <td style="font-size:0.8rem;color:#6b7280;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${meta}">${meta}</td>
+        <td style="font-size:0.8rem;color:#9ca3af;">${log.ipAddress || "\u2014"}</td>
+      </tr>`;
+      }).join("");
+      resultDiv.innerHTML = `
+      <p style="font-size:0.85rem;color:#6b7280;margin-bottom:0.5rem;">Showing ${logs.length} of ${pagination.total} entries</p>
+      <div style="overflow-x:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:0.9rem;">
+          <thead>
+            <tr style="background:#f3f4f6;text-align:left;">
+              <th style="padding:0.5rem 0.75rem;border-bottom:1px solid #e5e7eb;">Time</th>
+              <th style="padding:0.5rem 0.75rem;border-bottom:1px solid #e5e7eb;">Action</th>
+              <th style="padding:0.5rem 0.75rem;border-bottom:1px solid #e5e7eb;">User</th>
+              <th style="padding:0.5rem 0.75rem;border-bottom:1px solid #e5e7eb;">Entity</th>
+              <th style="padding:0.5rem 0.75rem;border-bottom:1px solid #e5e7eb;">Details</th>
+              <th style="padding:0.5rem 0.75rem;border-bottom:1px solid #e5e7eb;">IP</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      </div>
+    `;
+      resultDiv.querySelectorAll("tbody tr").forEach((tr, i) => {
+        tr.style.background = i % 2 === 0 ? "#fff" : "#f9fafb";
+        tr.querySelectorAll("td").forEach((td) => {
+          td.style.padding = "0.4rem 0.75rem";
+          td.style.borderBottom = "1px solid #f3f4f6";
+        });
+      });
+    } catch (error) {
+      resultDiv.innerHTML = `<div style="background:#fee2e2;border:1px solid #dc2626;border-radius:6px;padding:1rem;color:#991b1b;">
+      <strong>Failed to load audit log</strong>
+      <p style="margin:0.5rem 0 0;font-size:0.9rem;">${error.message}</p>
+    </div>`;
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Load Audit Log";
     }
   }
   async function runMergeDuplicateTimesheets() {
@@ -6580,6 +6999,336 @@ Xero will create the next period in sequence after the last existing pay run.`))
     adminDeleteLeaveRequest
   };
   registerTabHook("leaveManagement", initLeaveManagement);
+
+  // public/js/modules/features/xero/xero-dashboard.js
+  init_api();
+  init_state();
+  init_alerts();
+  init_dom();
+  init_navigation();
+  async function initXeroDashboard() {
+    const currentUser2 = state.get("currentUser");
+    if (!currentUser2?.isAdmin) return;
+    setupEventListeners3();
+    await loadDashboard();
+  }
+  function setupEventListeners3() {
+    const btn = document.getElementById("xeroDashboardRefreshBtn");
+    if (btn && !btn.dataset.bound) {
+      btn.dataset.bound = "1";
+      btn.addEventListener("click", loadDashboard);
+    }
+  }
+  async function loadDashboard() {
+    setLoadingState();
+    try {
+      const [overview, stats, invoiceData, leaveData] = await Promise.all([
+        api.get("/xero/reporting/overview"),
+        api.get("/xero/sync/stats"),
+        api.get("/xero/invoice/list").catch(() => ({ invoices: [] })),
+        api.get("/xero/leave/requests").catch(() => [])
+      ]);
+      const invoices = invoiceData.invoices || invoiceData || [];
+      const leaveRequests = Array.isArray(leaveData) ? leaveData : leaveData.requests || [];
+      const pendingLeave = leaveRequests.filter((r) => r.status === "PENDING");
+      renderHealthCards(stats, overview, pendingLeave.length);
+      renderEmployeeTable(overview);
+      renderPayPeriods();
+      renderRecentFailures(stats);
+      renderInvoiceSummary(invoices);
+    } catch (error) {
+      console.error("[XeroDashboard] Load error:", error);
+      showAlert("Failed to load dashboard: " + error.message, "error");
+    }
+  }
+  function setLoadingState() {
+    const ids = [
+      "xeroDashboardCards",
+      "xeroDashboardEmployeeTable",
+      "xeroDashboardPayPeriods",
+      "xeroDashboardFailures",
+      "xeroDashboardInvoiceSummary"
+    ];
+    ids.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) el.innerHTML = '<p style="color:#9ca3af;padding:0.5rem 0;">Loading\u2026</p>';
+    });
+  }
+  function renderHealthCards(stats, overview, leavePendingCount) {
+    const container = document.getElementById("xeroDashboardCards");
+    if (!container) return;
+    const successRate = stats.total > 0 ? Math.round(stats.successRate) : 0;
+    const pendingApprovals = overview.reduce((s, e) => s + e.pendingApprovalCount, 0);
+    const pendingSync = overview.reduce((s, e) => s + e.pendingSyncCount, 0);
+    container.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;">
+
+      <div style="padding:1.25rem;background:linear-gradient(135deg,#667eea,#764ba2);border-radius:8px;color:#fff;">
+        <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:.08em;opacity:.85;margin-bottom:.4rem;">Sync Health</div>
+        <div style="font-size:2rem;font-weight:700;line-height:1;">${successRate}%</div>
+        <div style="font-size:0.8rem;opacity:.85;margin-top:.2rem;">${stats.failed || 0} failed of ${stats.total || 0}</div>
+        <div style="margin-top:.75rem;height:4px;background:rgba(255,255,255,.3);border-radius:2px;">
+          <div style="height:100%;width:${successRate}%;background:#fff;border-radius:2px;"></div>
+        </div>
+      </div>
+
+      <div style="padding:1.25rem;background:linear-gradient(135deg,#f59e0b,#d97706);border-radius:8px;color:#fff;">
+        <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:.08em;opacity:.85;margin-bottom:.4rem;">Pending Approval</div>
+        <div style="font-size:2rem;font-weight:700;line-height:1;">${pendingApprovals}</div>
+        <div style="font-size:0.8rem;opacity:.85;margin-top:.2rem;">timesheets submitted</div>
+      </div>
+
+      <div style="padding:1.25rem;background:linear-gradient(135deg,#0ea5e9,#0284c7);border-radius:8px;color:#fff;">
+        <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:.08em;opacity:.85;margin-bottom:.4rem;">Pending Sync</div>
+        <div style="font-size:2rem;font-weight:700;line-height:1;">${pendingSync}</div>
+        <div style="font-size:0.8rem;opacity:.85;margin-top:.2rem;">approved, not yet synced</div>
+      </div>
+
+      <div style="padding:1.25rem;background:linear-gradient(135deg,#10b981,#059669);border-radius:8px;color:#fff;">
+        <div style="font-size:0.72rem;text-transform:uppercase;letter-spacing:.08em;opacity:.85;margin-bottom:.4rem;">Leave Pending</div>
+        <div style="font-size:2rem;font-weight:700;line-height:1;">${leavePendingCount}</div>
+        <div style="font-size:0.8rem;opacity:.85;margin-top:.2rem;">awaiting approval</div>
+      </div>
+
+    </div>
+  `;
+  }
+  function renderEmployeeTable(overview) {
+    const container = document.getElementById("xeroDashboardEmployeeTable");
+    if (!container) return;
+    if (!overview || overview.length === 0) {
+      container.innerHTML = '<p style="color:#6b7280;font-size:.875rem;">No employees found.</p>';
+      return;
+    }
+    const syncStatusColours = {
+      SUCCESS: "#10b981",
+      ERROR: "#ef4444",
+      PARTIAL: "#3b82f6",
+      PENDING: "#f59e0b"
+    };
+    const rows = overview.map((emp, i) => {
+      const name = `${escapeHtml(emp.firstName)} ${escapeHtml(emp.lastName)}`;
+      const type = emp.xeroSettings?.employeeType;
+      const typeBadge = type ? `<span style="padding:.15rem .4rem;border-radius:3px;font-size:.72rem;font-weight:600;background:${type === "LT" ? "#dbeafe" : "#f3e8ff"};color:${type === "LT" ? "#1e40af" : "#6b21a8"};">${type}</span>` : '<span style="color:#9ca3af;font-size:.8rem;">\u2014</span>';
+      const syncBadge = emp.xeroSettings === null ? '<span style="color:#9ca3af;font-size:.8rem;">Not configured</span>' : emp.xeroSettings.syncEnabled ? '<span style="padding:.15rem .4rem;border-radius:3px;font-size:.72rem;background:#d1fae5;color:#065f46;">Enabled</span>' : '<span style="padding:.15rem .4rem;border-radius:3px;font-size:.72rem;background:#fee2e2;color:#991b1b;">Disabled</span>';
+      const mappedBadge = emp.isMapped ? '<span style="padding:.15rem .4rem;border-radius:3px;font-size:.72rem;background:#d1fae5;color:#065f46;">Yes</span>' : '<span style="padding:.15rem .4rem;border-radius:3px;font-size:.72rem;background:#fef3c7;color:#92400e;">No</span>';
+      let lastSyncHtml = '<span style="color:#9ca3af;font-size:.8rem;">Never</span>';
+      if (emp.lastSync) {
+        const c = syncStatusColours[emp.lastSync.status] || "#6b7280";
+        lastSyncHtml = `
+        <span style="font-size:.8rem;color:#374151;">${relativeTime(emp.lastSync.startedAt)}</span>
+        <span style="display:inline-block;margin-left:.3rem;padding:.1rem .35rem;border-radius:3px;font-size:.7rem;font-weight:600;background:${c}22;color:${c};">${emp.lastSync.status}</span>
+      `;
+      }
+      const approvalCell = emp.pendingApprovalCount > 0 ? `<span style="font-weight:600;color:#d97706;">${emp.pendingApprovalCount}</span>` : '<span style="color:#9ca3af;">0</span>';
+      const syncCell = emp.pendingSyncCount > 0 ? `<span style="font-weight:600;color:#0284c7;">${emp.pendingSyncCount}</span>` : '<span style="color:#9ca3af;">0</span>';
+      return `
+      <tr style="background:${i % 2 === 0 ? "#fff" : "#f9fafb"};border-bottom:1px solid #f3f4f6;">
+        <td style="padding:.55rem .75rem;font-size:.875rem;">${name}</td>
+        <td style="padding:.55rem .75rem;">${typeBadge}</td>
+        <td style="padding:.55rem .75rem;">${syncBadge}</td>
+        <td style="padding:.55rem .75rem;">${mappedBadge}</td>
+        <td style="padding:.55rem .75rem;">${lastSyncHtml}</td>
+        <td style="padding:.55rem .75rem;text-align:center;">${approvalCell}</td>
+        <td style="padding:.55rem .75rem;text-align:center;">${syncCell}</td>
+        <td style="padding:.55rem .75rem;">
+          <button class="btn btn-sm btn-secondary" onclick="window.xeroDashboard.viewLogs()">Logs</button>
+        </td>
+      </tr>
+    `;
+    }).join("");
+    container.innerHTML = `
+    <div style="overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr style="background:#f9fafb;border-bottom:2px solid #e5e7eb;">
+            <th style="padding:.6rem .75rem;text-align:left;font-size:.8rem;font-weight:600;">Employee</th>
+            <th style="padding:.6rem .75rem;text-align:left;font-size:.8rem;font-weight:600;">Type</th>
+            <th style="padding:.6rem .75rem;text-align:left;font-size:.8rem;font-weight:600;">Sync</th>
+            <th style="padding:.6rem .75rem;text-align:left;font-size:.8rem;font-weight:600;">Mapped</th>
+            <th style="padding:.6rem .75rem;text-align:left;font-size:.8rem;font-weight:600;">Last Sync</th>
+            <th style="padding:.6rem .75rem;text-align:center;font-size:.8rem;font-weight:600;">Pending Approval</th>
+            <th style="padding:.6rem .75rem;text-align:center;font-size:.8rem;font-weight:600;">Pending Sync</th>
+            <th style="padding:.6rem .75rem;font-size:.8rem;"></th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  `;
+  }
+  async function renderPayPeriods() {
+    const container = document.getElementById("xeroDashboardPayPeriods");
+    if (!container) return;
+    try {
+      const tenants = await api.get("/xero/auth/tenants");
+      if (!Array.isArray(tenants) || tenants.length === 0) {
+        container.innerHTML = '<p style="color:#9ca3af;font-size:.875rem;">No Xero tenants connected.</p>';
+        return;
+      }
+      const calendarsByTenant = await Promise.all(
+        tenants.map(
+          (t) => api.get(`/xero/setup/payroll-calendars/${t.tenantId}`).then((data) => ({ tenant: t, calendars: Array.isArray(data) ? data : [] })).catch(() => ({ tenant: t, calendars: [] }))
+        )
+      );
+      const today = /* @__PURE__ */ new Date();
+      today.setHours(0, 0, 0, 0);
+      const statusStyles = {
+        DRAFT: "background:#fef3c7;color:#92400e;",
+        POSTED: "background:#dbeafe;color:#1e40af;",
+        PAID: "background:#d1fae5;color:#065f46;"
+      };
+      let html = "";
+      for (const { tenant, calendars } of calendarsByTenant) {
+        const tenantLabel = `<div style="font-size:.8rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:#6b7280;margin-bottom:.5rem;">${escapeHtml(tenant.tenantName)}</div>`;
+        if (calendars.length === 0) {
+          html += `<div style="margin-bottom:1.25rem;">${tenantLabel}<p style="color:#9ca3af;font-size:.85rem;">No payroll calendars found.</p></div>`;
+          continue;
+        }
+        const calRows = calendars.map((cal) => {
+          const runs = cal.recentPayRuns || [];
+          const currentRun = runs.find((r) => new Date(r.periodEnd) >= today) || runs[0] || null;
+          let statusHtml;
+          if (currentRun) {
+            const style = statusStyles[currentRun.status] || "background:#f3f4f6;color:#374151;";
+            statusHtml = `
+            <span style="padding:.15rem .5rem;border-radius:9999px;font-size:.72rem;font-weight:600;${style}">${escapeHtml(currentRun.status)}</span>
+            <span style="font-size:.8rem;color:#6b7280;margin-left:.5rem;">${formatDateShort(currentRun.periodStart)} \u2013 ${formatDateShort(currentRun.periodEnd)}</span>
+          `;
+          } else {
+            statusHtml = `<span style="padding:.15rem .5rem;border-radius:9999px;font-size:.72rem;font-weight:600;background:#fee2e2;color:#991b1b;">No Pay Run</span>`;
+          }
+          return `
+          <div style="display:flex;justify-content:space-between;align-items:center;padding:.5rem 0;border-bottom:1px solid #f3f4f6;">
+            <span style="font-size:.875rem;font-weight:500;">${escapeHtml(cal.name || cal.calendarName || "Calendar")}</span>
+            <div>${statusHtml}</div>
+          </div>
+        `;
+        }).join("");
+        html += `
+        <div style="margin-bottom:1.25rem;">
+          ${tenantLabel}
+          <div style="background:#fff;border:1px solid #e5e7eb;border-radius:6px;padding:.5rem .75rem;">${calRows}</div>
+        </div>
+      `;
+      }
+      container.innerHTML = html || '<p style="color:#9ca3af;font-size:.875rem;">No calendar data available.</p>';
+    } catch (error) {
+      console.error("[XeroDashboard] Pay periods error:", error);
+      container.innerHTML = '<p style="color:#ef4444;font-size:.875rem;">Failed to load pay period data.</p>';
+    }
+  }
+  function renderRecentFailures(stats) {
+    const container = document.getElementById("xeroDashboardFailures");
+    if (!container) return;
+    const failures = stats.recentFailures || [];
+    if (failures.length === 0) {
+      container.innerHTML = `
+      <div style="padding:1rem;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:6px;color:#166534;font-size:.875rem;">
+        No recent sync failures.
+      </div>
+    `;
+      return;
+    }
+    const rows = failures.slice(0, 5).map((f) => {
+      const emp = f.timesheet?.employee;
+      const empName = emp ? `${escapeHtml(emp.firstName)} ${escapeHtml(emp.lastName)}` : "Unknown Employee";
+      const weekStr = f.timesheet?.weekStarting ? "Week of " + new Date(f.timesheet.weekStarting).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" }) : "";
+      const retryBtn = f.timesheetId ? `<button class="btn btn-sm btn-primary" onclick="window.xeroDashboard.retrySync(${f.timesheetId})">Retry</button>` : "";
+      return `
+      <div style="padding:.75rem;border-bottom:1px solid #fecaca;display:flex;align-items:flex-start;gap:.75rem;">
+        <div style="flex:1;">
+          <div style="font-weight:500;font-size:.875rem;">${empName}</div>
+          ${weekStr ? `<div style="font-size:.8rem;color:#6b7280;margin-top:.1rem;">${weekStr}</div>` : ""}
+          <div style="font-size:.8rem;color:#991b1b;margin-top:.25rem;font-family:monospace;white-space:pre-wrap;max-width:600px;">
+            ${escapeHtml(f.errorMessage || "Unknown error")}
+          </div>
+        </div>
+        <div>${retryBtn}</div>
+      </div>
+    `;
+    }).join("");
+    container.innerHTML = `
+    <div style="background:#fef2f2;border:1px solid #fecaca;border-radius:8px;overflow:hidden;">
+      ${rows}
+    </div>
+  `;
+  }
+  function renderInvoiceSummary(invoices) {
+    const container = document.getElementById("xeroDashboardInvoiceSummary");
+    if (!container) return;
+    if (!invoices || invoices.length === 0) {
+      container.innerHTML = '<p style="color:#9ca3af;font-size:.875rem;">No invoices found.</p>';
+      return;
+    }
+    const groups = {};
+    for (const inv of invoices) {
+      if (!groups[inv.status]) groups[inv.status] = { count: 0, total: 0 };
+      groups[inv.status].count++;
+      groups[inv.status].total += Number(inv.totalAmount) || 0;
+    }
+    const statusOrder = ["DRAFT", "SUBMITTED", "SENT", "PAID", "VOIDED"];
+    const statusStyles = {
+      DRAFT: { bg: "#fef3c7", color: "#92400e", border: "#fde68a" },
+      SUBMITTED: { bg: "#dbeafe", color: "#1e40af", border: "#bfdbfe" },
+      SENT: { bg: "#d1fae5", color: "#065f46", border: "#a7f3d0" },
+      PAID: { bg: "#f0fdf4", color: "#166534", border: "#bbf7d0" },
+      VOIDED: { bg: "#fee2e2", color: "#991b1b", border: "#fecaca" }
+    };
+    const totalCount = invoices.length;
+    const totalAmount = invoices.reduce((s, i) => s + (Number(i.totalAmount) || 0), 0);
+    const statusCards = statusOrder.filter((s) => groups[s]).map((status) => {
+      const g = groups[status];
+      const st = statusStyles[status] || { bg: "#f3f4f6", color: "#374151", border: "#e5e7eb" };
+      return `
+        <div style="padding:1rem 1.25rem;background:${st.bg};border:1px solid ${st.border};border-radius:8px;min-width:130px;">
+          <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:${st.color};margin-bottom:.35rem;">${status}</div>
+          <div style="font-size:1.5rem;font-weight:700;color:${st.color};line-height:1;">${g.count}</div>
+          <div style="font-size:.8rem;color:${st.color};margin-top:.2rem;opacity:.85;">$${g.total.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+        </div>
+      `;
+    }).join("");
+    container.innerHTML = `
+    <div style="display:flex;gap:1rem;flex-wrap:wrap;align-items:flex-start;">
+      ${statusCards}
+      <div style="padding:1rem 1.25rem;background:#f9fafb;border:1px solid #e5e7eb;border-radius:8px;min-width:130px;">
+        <div style="font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#374151;margin-bottom:.35rem;">Total</div>
+        <div style="font-size:1.5rem;font-weight:700;color:#111827;line-height:1;">${totalCount}</div>
+        <div style="font-size:.8rem;color:#4b5563;margin-top:.2rem;">$${totalAmount.toLocaleString("en-AU", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+      </div>
+    </div>
+  `;
+  }
+  function relativeTime(dateStr) {
+    if (!dateStr) return "Never";
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 6e4);
+    if (mins < 1) return "Just now";
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    if (days < 30) return `${days}d ago`;
+    return new Date(dateStr).toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+  }
+  function formatDateShort(dateStr) {
+    return new Date(dateStr).toLocaleDateString("en-AU", { day: "numeric", month: "short" });
+  }
+  window.xeroDashboard = {
+    viewLogs() {
+      Promise.resolve().then(() => (init_navigation(), navigation_exports)).then(({ activateTab: activateTab2 }) => activateTab2("xeroSyncLogs"));
+    },
+    async retrySync(timesheetId) {
+      try {
+        await api.post(`/xero/sync/timesheet/${timesheetId}`);
+        showAlert("Sync initiated. Refreshing in 2s\u2026", "success");
+        setTimeout(loadDashboard, 2e3);
+      } catch (error) {
+        showAlert("Failed to retry sync: " + error.message, "error");
+      }
+    }
+  };
+  registerTabHook("xeroDashboard", initXeroDashboard);
 
   // public/js/modules/features/xero/xero-invoices.js
   init_api();

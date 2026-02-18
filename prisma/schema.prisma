@@ -457,3 +457,19 @@ model Session {
   data      String
   expiresAt DateTime
 }
+
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?     // null for system/background actions
+  userName  String?  // snapshot of user name at time of action
+  action    String   // e.g. TIMESHEET_APPROVED, ENTRY_DELETED
+  entity    String?  // e.g. Timesheet, TimesheetEntry
+  entityId  String?  // stringified PK of affected entity
+  metadata  String?  // JSON: extra context (old/new values, etc.)
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+}
