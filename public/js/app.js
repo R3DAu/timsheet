@@ -2724,11 +2724,17 @@ ${tasks}`);
     if (currentUser2 && currentUser2.employee && currentUser2.employee.presetAddresses) {
       try {
         const pa = typeof currentUser2.employee.presetAddresses === "string" ? JSON.parse(currentUser2.employee.presetAddresses) : currentUser2.employee.presetAddresses;
-        if (pa && typeof pa === "object") {
+        if (Array.isArray(pa)) {
+          for (const item of pa) {
+            if (item.address) {
+              presets.push({ label: item.label || item.address, address: item.address });
+            }
+          }
+        } else if (pa && typeof pa === "object") {
           for (const [label, addr] of Object.entries(pa)) {
             if (typeof addr === "string") {
               presets.push({ label, address: addr });
-            } else if (addr.address) {
+            } else if (addr && addr.address) {
               presets.push({ label, address: addr.address, lat: addr.lat, lng: addr.lng });
             }
           }
@@ -2884,23 +2890,66 @@ ${tasks}`);
       });
     });
   }
-  function addLocationNoteField(containerId, location, description) {
+  function addLocationNoteField(containerId, location, description, label, placeName) {
     const container = document.getElementById(containerId);
     const index = locationNoteCounter++;
     const editorId = `locationEditor_${index}`;
     const div = document.createElement("div");
     div.className = "location-note-item";
     div.id = `locationNote_${index}`;
+    const savedLocs = window._employeeSavedLocations || [];
+    const savedOptions = savedLocs.map(
+      (s) => `<option value="${(s.label || "").replace(/"/g, "&quot;")}">${escapeHtml(s.label || s.address)}</option>`
+    ).join("");
     div.innerHTML = `
-    <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem;">
-      <input type="text" class="form-control location-name-input" placeholder="School / Location name" value="${(location || "").replace(/"/g, "&quot;")}" style="flex: 1;">
+    <div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem;">
+      <select class="form-control location-label-select" style="width:180px;">
+        <option value="">-- Saved label --</option>
+        ${savedOptions}
+        <option value="__custom__">Custom\u2026</option>
+      </select>
+      <input type="text" class="form-control location-label-custom" placeholder="Custom label"
+             style="display:none; width:160px;">
       <button type="button" class="btn btn-sm btn-danger" onclick="removeLocationNote(${index})">Remove</button>
     </div>
+    <input type="text" class="form-control location-placename-input"
+           placeholder="Place name (e.g. Warrandyte High School)"
+           value="${(placeName || "").replace(/"/g, "&quot;")}"
+           style="margin-bottom:0.5rem;">
+    <input type="text" class="form-control location-name-input"
+           placeholder="Full address"
+           value="${(location || "").replace(/"/g, "&quot;")}"
+           style="margin-bottom:0.5rem;">
     <div class="quill-wrapper">
       <div id="${editorId}"></div>
     </div>
   `;
     container.appendChild(div);
+    const sel = div.querySelector(".location-label-select");
+    const customInput = div.querySelector(".location-label-custom");
+    sel.addEventListener("change", () => {
+      const saved = savedLocs.find((s) => s.label === sel.value);
+      if (sel.value === "__custom__") {
+        customInput.style.display = "";
+        customInput.focus();
+      } else {
+        customInput.style.display = "none";
+        if (saved) {
+          div.querySelector(".location-placename-input").value = saved.placeName || "";
+          div.querySelector(".location-name-input").value = saved.address || "";
+        }
+      }
+    });
+    if (label) {
+      const matchedSaved = savedLocs.find((s) => s.label === label);
+      if (matchedSaved) {
+        sel.value = label;
+      } else {
+        sel.value = "__custom__";
+        customInput.style.display = "";
+        customInput.value = label;
+      }
+    }
     const editor = initQuillEditor(editorId, "What was done at this location...");
     if (description) {
       editor.root.innerHTML = description;
@@ -2922,6 +2971,13 @@ ${tasks}`);
     const notes = [];
     items.forEach((item) => {
       const location = item.querySelector(".location-name-input").value.trim();
+      const placeName = item.querySelector(".location-placename-input")?.value.trim() || "";
+      const sel = item.querySelector(".location-label-select");
+      const customInput = item.querySelector(".location-label-custom");
+      let label = "";
+      if (sel) {
+        label = sel.value === "__custom__" ? customInput ? customInput.value.trim() : "" : sel.value;
+      }
       const editorDiv = item.querySelector('[id^="locationEditor_"]');
       if (editorDiv) {
         const editor = getQuillEditor(editorDiv.id);
@@ -2929,7 +2985,10 @@ ${tasks}`);
           const html = editor.root.innerHTML;
           const description = html === "<p><br></p>" ? "" : html;
           if (location || description) {
-            notes.push({ location, description });
+            const note = { location, description };
+            if (label) note.label = label;
+            if (placeName) note.placeName = placeName;
+            notes.push(note);
           }
         }
       }
@@ -3594,6 +3653,14 @@ ${tasks}`);
     const smartDefaults = getSmartDefaultsForTimesheet(timesheetId);
     const defaultDate = prefillDate || smartDefaults.date;
     const defaults = prefillDate ? getTimeDefaultsForTimesheet(timesheetId) : smartDefaults;
+    const currentUser2 = state.get("currentUser");
+    try {
+      const raw = currentUser2?.employee?.presetAddresses;
+      const parsed = raw ? JSON.parse(raw) : [];
+      window._employeeSavedLocations = Array.isArray(parsed) ? parsed : Object.entries(parsed).map(([label, address]) => ({ label, placeName: "", address }));
+    } catch (_) {
+      window._employeeSavedLocations = [];
+    }
     const form = `
     <form id="entryFormSlide">
       <div class="form-group">
@@ -3879,6 +3946,14 @@ ${tasks}`);
       showAlert("Entry not found");
       return;
     }
+    const currentUser2 = state.get("currentUser");
+    try {
+      const raw = currentUser2?.employee?.presetAddresses;
+      const parsed = raw ? JSON.parse(raw) : [];
+      window._employeeSavedLocations = Array.isArray(parsed) ? parsed : Object.entries(parsed).map(([label, address]) => ({ label, placeName: "", address }));
+    } catch (_) {
+      window._employeeSavedLocations = [];
+    }
     const dateStr = formatLocalDate(entry.date);
     const isTsData = entry.tsDataSource === true;
     const readonly = isTsData ? 'readonly onclick="return false;" style="background-color: #f5f5f5; cursor: not-allowed;"' : "";
@@ -4010,7 +4085,7 @@ ${tasks}`);
       try {
         const locNotes = typeof entry.locationNotes === "string" ? JSON.parse(entry.locationNotes) : entry.locationNotes;
         locNotes.forEach((ln) => {
-          addLocationNoteField("slideEditLocationNotesContainer", ln.location, ln.description);
+          addLocationNoteField("slideEditLocationNotesContainer", ln.location, ln.description, ln.label, ln.placeName);
         });
       } catch (e) {
       }
@@ -4260,33 +4335,33 @@ ${tasks}`);
     showSlidePanel("My Profile", form);
     if (emp) {
       const container = document.getElementById("presetAddressesContainer");
-      let presets = {};
+      let presets = [];
       if (emp.presetAddresses) {
         try {
-          presets = typeof emp.presetAddresses === "string" ? JSON.parse(emp.presetAddresses) : emp.presetAddresses;
+          const parsed = typeof emp.presetAddresses === "string" ? JSON.parse(emp.presetAddresses) : emp.presetAddresses;
+          presets = Array.isArray(parsed) ? parsed : Object.entries(parsed).map(([label, address]) => ({ label, placeName: "", address }));
         } catch (e) {
         }
       }
       let presetIndex = 0;
-      const addPresetRow = (label = "", address = "") => {
+      const addPresetRow = (label = "", placeName = "", address = "") => {
         const idx = presetIndex++;
         const row = document.createElement("div");
         row.className = "preset-address-row";
         row.id = `presetRow_${idx}`;
-        row.style.cssText = "display:flex;gap:0.5rem;align-items:center;margin-bottom:0.5rem;";
+        row.style.cssText = "display:flex;gap:0.5rem;align-items:center;margin-bottom:0.5rem;flex-wrap:wrap;";
         row.innerHTML = `
-        <input type="text" class="form-control preset-label" placeholder="Label (e.g. Home)" value="${escapeHtml(label || "")}" style="flex:1;">
-        <input type="text" class="form-control preset-address" placeholder="Address" value="${escapeHtml(address || "")}" style="flex:2;">
+        <input type="text" class="form-control preset-label" placeholder="Label (e.g. Office)" value="${escapeHtml(label || "")}" style="flex:1;min-width:110px;">
+        <input type="text" class="form-control preset-placename" placeholder="Place name (e.g. Burwood Tech Centre)" value="${escapeHtml(placeName || "")}" style="flex:2;min-width:160px;">
+        <input type="text" class="form-control preset-address" placeholder="Full address" value="${escapeHtml(address || "")}" style="flex:3;min-width:200px;">
         <button type="button" class="btn btn-sm btn-danger" onclick="document.getElementById('presetRow_${idx}').remove()">X</button>
       `;
         container.appendChild(row);
         const addrInput = row.querySelector(".preset-address");
         if (addrInput) attachLocationAutocomplete(addrInput);
       };
-      if (presets && typeof presets === "object") {
-        for (const [label, addr] of Object.entries(presets)) {
-          addPresetRow(label, addr);
-        }
+      for (const preset of presets) {
+        addPresetRow(preset.label || "", preset.placeName || "", preset.address || "");
       }
       document.getElementById("addPresetAddressBtn").onclick = () => addPresetRow();
     }
@@ -4302,13 +4377,14 @@ ${tasks}`);
         data.morningEnd = formData.get("morningEnd");
         data.afternoonStart = formData.get("afternoonStart");
         data.afternoonEnd = formData.get("afternoonEnd");
-        const presetObj = {};
+        const presetArr = [];
         document.querySelectorAll(".preset-address-row").forEach((row) => {
           const label = row.querySelector(".preset-label").value.trim();
+          const placeName = row.querySelector(".preset-placename").value.trim();
           const address = row.querySelector(".preset-address").value.trim();
-          if (label && address) presetObj[label] = address;
+          if (label || address) presetArr.push({ label, placeName, address });
         });
-        data.presetAddresses = Object.keys(presetObj).length > 0 ? presetObj : null;
+        data.presetAddresses = presetArr.length > 0 ? JSON.stringify(presetArr) : null;
       }
       try {
         const result = await api.put("/auth/profile", data);

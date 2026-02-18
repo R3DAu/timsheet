@@ -187,11 +187,14 @@ class TsDataSyncService {
         const weekStatus = this.highestStatus(week.rows.map(r => tsDataService.mapStatus(r.status)));
 
         // Ensure local timesheet
-        const { timesheet, created } = await this.ensureTimesheet(
+        const { timesheet, created, skipEntries } = await this.ensureTimesheet(
           worker, week.weekStarting, week.weekEnding, periodId, weekStatus
         );
         if (created) results.timesheetsCreated++;
         else results.timesheetsUpdated++;
+
+        // Skip entry import for APPROVED or higher timesheets (already finalised)
+        if (skipEntries) continue;
 
         // Upsert each entry
         for (const row of week.rows) {
@@ -215,12 +218,26 @@ class TsDataSyncService {
   }
 
   /**
-   * Ensure a local Timesheet exists for employee + weekStarting. Returns { timesheet, created }.
+   * Ensure a local Timesheet exists for employee + weekStarting. Returns { timesheet, created, skipEntries }.
+   *
+   * Uses a date-range lookup (±1 day window) instead of an exact timestamp match to avoid
+   * timezone-offset mismatches where the stored weekStarting differs by UTC offset but
+   * represents the same Monday (e.g. 2026-02-09T00:00 local vs 2026-02-08T13:00Z UTC).
+   *
+   * Sets skipEntries=true when the existing timesheet is APPROVED or higher — those are
+   * "done" timesheets (Xero-synced, etc.) and should not have TSDATA entries imported into them.
    */
   async ensureTimesheet(worker, weekStarting, weekEnding, periodId, tsDataStatus) {
-    const existing = await prisma.timesheet.findUnique({
+    // Date-range window covers the full local Monday regardless of UTC offset stored
+    const dayStart = new Date(weekStarting);
+    dayStart.setHours(0, 0, 0, 0);
+    const dayEnd = new Date(weekStarting);
+    dayEnd.setHours(23, 59, 59, 999);
+
+    const existing = await prisma.timesheet.findFirst({
       where: {
-        employeeId_weekStarting: { employeeId: worker.id, weekStarting }
+        employeeId: worker.id,
+        weekStarting: { gte: dayStart, lte: dayEnd }
       }
     });
 
@@ -230,11 +247,21 @@ class TsDataSyncService {
         tsDataStatus,
         tsDataSyncedAt: new Date()
       };
-      if (this.shouldUpdateStatus(existing.status, tsDataStatus)) {
+
+      // Don't touch the status of APPROVED or higher timesheets — they're finalised
+      const isApprovedOrHigher = (STATUS_PRIORITY[existing.status] ?? 0) >= STATUS_PRIORITY['APPROVED'];
+      if (!isApprovedOrHigher && this.shouldUpdateStatus(existing.status, tsDataStatus)) {
         updateData.status = tsDataStatus;
       }
+
       const timesheet = await prisma.timesheet.update({ where: { id: existing.id }, data: updateData });
-      return { timesheet, created: false };
+
+      if (isApprovedOrHigher) {
+        console.log(`[TSDATA Sync] Skipping entry import for timesheet ${existing.id} — status is ${existing.status}`);
+        return { timesheet, created: false, skipEntries: true };
+      }
+
+      return { timesheet, created: false, skipEntries: false };
     }
 
     const timesheet = await prisma.timesheet.create({

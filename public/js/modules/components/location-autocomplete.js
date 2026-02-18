@@ -51,12 +51,19 @@ export function attachLocationAutocomplete(input) {
       const pa = typeof currentUser.employee.presetAddresses === 'string'
         ? JSON.parse(currentUser.employee.presetAddresses)
         : currentUser.employee.presetAddresses;
-      if (pa && typeof pa === 'object') {
+      if (Array.isArray(pa)) {
+        // New array format: [{ label, placeName, address }]
+        for (const item of pa) {
+          if (item.address) {
+            presets.push({ label: item.label || item.address, address: item.address });
+          }
+        }
+      } else if (pa && typeof pa === 'object') {
+        // Old object format: { label: address } or { label: {address, lat, lng} }
         for (const [label, addr] of Object.entries(pa)) {
-          // Presets can be string or {address, lat, lng}
           if (typeof addr === 'string') {
             presets.push({ label, address: addr });
-          } else if (addr.address) {
+          } else if (addr && addr.address) {
             presets.push({ label, address: addr.address, lat: addr.lat, lng: addr.lng });
           }
         }
@@ -270,34 +277,88 @@ export function attachAllLocationAutocompletes() {
 }
 
 /**
- * Add a location note field
+ * Add a location note field with 3 ordered fields: label dropdown, place name, full address
  * @param {string} containerId - Container element ID
- * @param {string} location - Pre-filled location name
+ * @param {string} location - Pre-filled full address
  * @param {string} description - Pre-filled description HTML
+ * @param {string} label - Pre-filled label (matched against saved locations or shown as custom)
+ * @param {string} placeName - Pre-filled place name
  * @returns {Object} - { index, editorId }
  */
-export function addLocationNoteField(containerId, location, description) {
+export function addLocationNoteField(containerId, location, description, label, placeName) {
   const container = document.getElementById(containerId);
   const index = locationNoteCounter++;
   const editorId = `locationEditor_${index}`;
   const div = document.createElement('div');
   div.className = 'location-note-item';
   div.id = `locationNote_${index}`;
+
+  // Build saved locations dropdown options
+  const savedLocs = window._employeeSavedLocations || [];
+  const savedOptions = savedLocs.map(s =>
+    `<option value="${(s.label || '').replace(/"/g, '&quot;')}">${escapeHtml(s.label || s.address)}</option>`
+  ).join('');
+
   div.innerHTML = `
-    <div style="display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem;">
-      <input type="text" class="form-control location-name-input" placeholder="School / Location name" value="${(location || '').replace(/"/g, '&quot;')}" style="flex: 1;">
+    <div style="display:flex; gap:0.5rem; align-items:center; margin-bottom:0.5rem;">
+      <select class="form-control location-label-select" style="width:180px;">
+        <option value="">-- Saved label --</option>
+        ${savedOptions}
+        <option value="__custom__">Custom…</option>
+      </select>
+      <input type="text" class="form-control location-label-custom" placeholder="Custom label"
+             style="display:none; width:160px;">
       <button type="button" class="btn btn-sm btn-danger" onclick="removeLocationNote(${index})">Remove</button>
     </div>
+    <input type="text" class="form-control location-placename-input"
+           placeholder="Place name (e.g. Warrandyte High School)"
+           value="${(placeName || '').replace(/"/g, '&quot;')}"
+           style="margin-bottom:0.5rem;">
+    <input type="text" class="form-control location-name-input"
+           placeholder="Full address"
+           value="${(location || '').replace(/"/g, '&quot;')}"
+           style="margin-bottom:0.5rem;">
     <div class="quill-wrapper">
       <div id="${editorId}"></div>
     </div>
   `;
   container.appendChild(div);
+
+  // Wire up label select change handler
+  const sel = div.querySelector('.location-label-select');
+  const customInput = div.querySelector('.location-label-custom');
+
+  sel.addEventListener('change', () => {
+    const saved = savedLocs.find(s => s.label === sel.value);
+    if (sel.value === '__custom__') {
+      customInput.style.display = '';
+      customInput.focus();
+    } else {
+      customInput.style.display = 'none';
+      if (saved) {
+        div.querySelector('.location-placename-input').value = saved.placeName || '';
+        div.querySelector('.location-name-input').value = saved.address || '';
+      }
+    }
+  });
+
+  // Pre-fill label: match against saved locations, or use custom
+  if (label) {
+    const matchedSaved = savedLocs.find(s => s.label === label);
+    if (matchedSaved) {
+      sel.value = label;
+    } else {
+      sel.value = '__custom__';
+      customInput.style.display = '';
+      customInput.value = label;
+    }
+  }
+
   const editor = initQuillEditor(editorId, 'What was done at this location...');
   if (description) {
     editor.root.innerHTML = description;
   }
-  // Attach location autocomplete to the new input
+  // Attach location autocomplete to the address input
   const locInput = div.querySelector('.location-name-input');
   if (locInput) attachLocationAutocomplete(locInput);
   return { index, editorId };
@@ -326,6 +387,15 @@ export function collectLocationNotes(containerId) {
   const notes = [];
   items.forEach(item => {
     const location = item.querySelector('.location-name-input').value.trim();
+    const placeName = item.querySelector('.location-placename-input')?.value.trim() || '';
+    const sel = item.querySelector('.location-label-select');
+    const customInput = item.querySelector('.location-label-custom');
+    let label = '';
+    if (sel) {
+      label = sel.value === '__custom__'
+        ? (customInput ? customInput.value.trim() : '')
+        : sel.value;
+    }
     const editorDiv = item.querySelector('[id^="locationEditor_"]');
     if (editorDiv) {
       const editor = getQuillEditor(editorDiv.id);
@@ -333,7 +403,10 @@ export function collectLocationNotes(containerId) {
         const html = editor.root.innerHTML;
         const description = html === '<p><br></p>' ? '' : html;
         if (location || description) {
-          notes.push({ location, description });
+          const note = { location, description };
+          if (label) note.label = label;
+          if (placeName) note.placeName = placeName;
+          notes.push(note);
         }
       }
     }

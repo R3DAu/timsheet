@@ -88,24 +88,27 @@ export async function showMyProfile() {
   // Populate preset addresses
   if (emp) {
     const container = document.getElementById('presetAddressesContainer');
-    let presets = {};
+    let presets = [];
     if (emp.presetAddresses) {
       try {
-        presets = typeof emp.presetAddresses === 'string' ? JSON.parse(emp.presetAddresses) : emp.presetAddresses;
+        const parsed = typeof emp.presetAddresses === 'string' ? JSON.parse(emp.presetAddresses) : emp.presetAddresses;
+        presets = Array.isArray(parsed)
+          ? parsed
+          : Object.entries(parsed).map(([label, address]) => ({ label, placeName: '', address }));
       } catch (e) { /* ignore */ }
     }
 
     let presetIndex = 0;
-    const addPresetRow = (label = '', address = '') => {
+    const addPresetRow = (label = '', placeName = '', address = '') => {
       const idx = presetIndex++;
       const row = document.createElement('div');
       row.className = 'preset-address-row';
       row.id = `presetRow_${idx}`;
-      row.style.cssText = 'display:flex;gap:0.5rem;align-items:center;margin-bottom:0.5rem;';
-      // XSS FIX: Use escapeHtml for both label and address
+      row.style.cssText = 'display:flex;gap:0.5rem;align-items:center;margin-bottom:0.5rem;flex-wrap:wrap;';
       row.innerHTML = `
-        <input type="text" class="form-control preset-label" placeholder="Label (e.g. Home)" value="${escapeHtml(label || '')}" style="flex:1;">
-        <input type="text" class="form-control preset-address" placeholder="Address" value="${escapeHtml(address || '')}" style="flex:2;">
+        <input type="text" class="form-control preset-label" placeholder="Label (e.g. Office)" value="${escapeHtml(label || '')}" style="flex:1;min-width:110px;">
+        <input type="text" class="form-control preset-placename" placeholder="Place name (e.g. Burwood Tech Centre)" value="${escapeHtml(placeName || '')}" style="flex:2;min-width:160px;">
+        <input type="text" class="form-control preset-address" placeholder="Full address" value="${escapeHtml(address || '')}" style="flex:3;min-width:200px;">
         <button type="button" class="btn btn-sm btn-danger" onclick="document.getElementById('presetRow_${idx}').remove()">X</button>
       `;
       container.appendChild(row);
@@ -115,10 +118,8 @@ export async function showMyProfile() {
     };
 
     // Add existing presets
-    if (presets && typeof presets === 'object') {
-      for (const [label, addr] of Object.entries(presets)) {
-        addPresetRow(label, addr);
-      }
+    for (const preset of presets) {
+      addPresetRow(preset.label || '', preset.placeName || '', preset.address || '');
     }
 
     document.getElementById('addPresetAddressBtn').onclick = () => addPresetRow();
@@ -138,14 +139,15 @@ export async function showMyProfile() {
       data.afternoonStart = formData.get('afternoonStart');
       data.afternoonEnd = formData.get('afternoonEnd');
 
-      // Collect preset addresses
-      const presetObj = {};
+      // Collect preset addresses (new array format: [{label, placeName, address}])
+      const presetArr = [];
       document.querySelectorAll('.preset-address-row').forEach(row => {
         const label = row.querySelector('.preset-label').value.trim();
+        const placeName = row.querySelector('.preset-placename').value.trim();
         const address = row.querySelector('.preset-address').value.trim();
-        if (label && address) presetObj[label] = address;
+        if (label || address) presetArr.push({ label, placeName, address });
       });
-      data.presetAddresses = Object.keys(presetObj).length > 0 ? presetObj : null;
+      data.presetAddresses = presetArr.length > 0 ? JSON.stringify(presetArr) : null;
     }
 
     try {
