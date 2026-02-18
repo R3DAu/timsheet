@@ -4,6 +4,7 @@ const xeroAuthController = require('../controllers/xeroAuthController');
 const xeroSetupController = require('../controllers/xeroSetupController');
 const xeroSyncController = require('../controllers/xeroSyncController');
 const xeroLeaveController = require('../controllers/xeroLeaveController');
+const xeroInvoiceController = require('../controllers/xeroInvoiceController');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 
 // All Xero routes require authentication
@@ -107,5 +108,14 @@ router.post('/leave/approve/:id', requireAdmin, xeroLeaveController.approveLeave
 
 // Reject leave request (admin only)
 router.post('/leave/reject/:id', requireAdmin, xeroLeaveController.rejectLeaveRequest);
+
+// === Invoice Management ===
+// (Admin only)
+
+// List all invoices
+router.get('/invoice/list', requireAdmin, xeroInvoiceController.listInvoices);
+
+// Get a specific invoice
+router.get('/invoice/:id', requireAdmin, xeroInvoiceController.getInvoice);
 
 module.exports = router;

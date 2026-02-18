@@ -19,6 +19,16 @@ export async function initLeaveManagement() {
   const currentUser = state.get('currentUser');
   if (!currentUser) return;
 
+  // Always clear both containers to prevent stale content from a previous session
+  const employeeContainer = document.getElementById('xero-leave-employee');
+  const adminContainer = document.getElementById('xero-leave-admin');
+  if (employeeContainer) employeeContainer.innerHTML = '';
+  if (adminContainer) {
+    adminContainer.innerHTML = '';
+    // Only show the divider for admins
+    adminContainer.style.borderTop = currentUser.isAdmin ? '1px solid #e5e7eb' : 'none';
+  }
+
   // If user is employee, show employee view
   if (currentUser.employeeId) {
     await showEmployeeLeaveView();
@@ -156,8 +166,6 @@ async function showAdminLeaveView() {
         </div>
       ` : ''}
 
-      <h2>Leave Request Management (Admin)</h2>
-
       <div class="leave-section">
         <h3>Pending Approval (${pending.length})</h3>
         ${pending.length > 0 ? `
@@ -213,6 +221,7 @@ async function showAdminLeaveView() {
                 <th>Status</th>
                 <th>Processed By</th>
                 <th>Xero Sync</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -226,6 +235,16 @@ async function showAdminLeaveView() {
                   <td><span class="status-badge status-${req.status.toLowerCase()}">${req.status}</span></td>
                   <td>${req.approvedBy ? req.approvedBy.name : '-'}</td>
                   <td>${req.xeroLeaveId ? '✓ Synced' : '-'}</td>
+                  <td>
+                    ${req.status === 'APPROVED' ? `
+                      <button class="btn btn-sm btn-warning" onclick="xeroLeave.rejectLeaveRequest(${req.id})" title="Reject and cancel in Xero">
+                        Reject
+                      </button>
+                    ` : ''}
+                    <button class="btn btn-sm btn-danger" onclick="xeroLeave.adminDeleteLeaveRequest(${req.id})" title="${req.xeroLeaveId ? 'Delete locally and cancel in Xero' : 'Delete'}">
+                      Delete
+                    </button>
+                  </td>
                 </tr>
               `).join('')}
             </tbody>
@@ -347,7 +366,7 @@ export async function approveLeaveRequest(id) {
   try {
     await api.post(`/xero/leave/approve/${id}`);
     showAlert('Leave request approved and synced to Xero!', 'success');
-    await showAdminLeaveView();
+    await initLeaveManagement();
   } catch (error) {
     console.error('Error approving leave request:', error);
     showAlert(error.message || 'Failed to approve leave request', 'error');
@@ -365,7 +384,7 @@ export async function rejectLeaveRequest(id) {
   try {
     await api.post(`/xero/leave/reject/${id}`);
     showAlert('Leave request rejected.', 'success');
-    await showAdminLeaveView();
+    await initLeaveManagement();
   } catch (error) {
     console.error('Error rejecting leave request:', error);
     showAlert(error.message || 'Failed to reject leave request', 'error');
@@ -373,7 +392,7 @@ export async function rejectLeaveRequest(id) {
 }
 
 /**
- * Delete leave request
+ * Delete leave request (employee's own pending request)
  */
 export async function deleteLeaveRequest(id) {
   if (!confirm('Delete this leave request?')) {
@@ -383,7 +402,25 @@ export async function deleteLeaveRequest(id) {
   try {
     await api.delete(`/xero/leave/request/${id}`);
     showAlert('Leave request deleted.', 'success');
-    await showEmployeeLeaveView();
+    await initLeaveManagement();
+  } catch (error) {
+    console.error('Error deleting leave request:', error);
+    showAlert(error.message || 'Failed to delete leave request', 'error');
+  }
+}
+
+/**
+ * Admin: delete any leave request (with optional Xero cancellation)
+ */
+export async function adminDeleteLeaveRequest(id) {
+  if (!confirm('Delete this leave request? If it was synced to Xero, the leave application will also be cancelled.')) {
+    return;
+  }
+
+  try {
+    await api.delete(`/xero/leave/request/${id}`);
+    showAlert('Leave request deleted.', 'success');
+    await initLeaveManagement();
   } catch (error) {
     console.error('Error deleting leave request:', error);
     showAlert(error.message || 'Failed to delete leave request', 'error');
@@ -496,7 +533,8 @@ window.xeroLeave = {
   showNewLeaveRequestPanel,
   approveLeaveRequest,
   rejectLeaveRequest,
-  deleteLeaveRequest
+  deleteLeaveRequest,
+  adminDeleteLeaveRequest
 };
 
 // Register tab hook

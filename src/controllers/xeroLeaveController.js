@@ -196,14 +196,14 @@ exports.approveLeaveRequest = async (req, res) => {
 };
 
 /**
- * Reject leave request
+ * Reject leave request (admin can reject PENDING or APPROVED)
+ * If already synced to Xero, attempts to cancel the Xero leave application
  */
 exports.rejectLeaveRequest = async (req, res) => {
   try {
     const { id } = req.params;
     const userId = req.session.userId;
 
-    // Check if request exists and is pending
     const leaveRequest = await prisma.leaveRequest.findUnique({
       where: { id: parseInt(id) }
     });
@@ -212,8 +212,13 @@ exports.rejectLeaveRequest = async (req, res) => {
       return res.status(404).json({ error: 'Leave request not found' });
     }
 
-    if (leaveRequest.status !== 'PENDING') {
+    if (!['PENDING', 'APPROVED'].includes(leaveRequest.status)) {
       return res.status(400).json({ error: `Leave request is already ${leaveRequest.status.toLowerCase()}` });
+    }
+
+    // If synced to Xero, attempt to cancel there first
+    if (leaveRequest.xeroLeaveId) {
+      await xeroLeaveService.cancelLeave(leaveRequest.id);
     }
 
     // Update status to REJECTED
@@ -360,6 +365,11 @@ exports.deleteLeaveRequest = async (req, res) => {
     // 2. User owns the request AND it's still pending
     if (!isAdmin && (leaveRequest.employeeId !== employeeId || leaveRequest.status !== 'PENDING')) {
       return res.status(403).json({ error: 'Cannot delete this leave request' });
+    }
+
+    // If synced to Xero, attempt to cancel the leave application there first
+    if (leaveRequest.xeroLeaveId) {
+      await xeroLeaveService.cancelLeave(leaveRequest.id);
     }
 
     await prisma.leaveRequest.delete({

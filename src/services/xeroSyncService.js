@@ -106,16 +106,7 @@ class XeroSyncService {
         return null;
       }
 
-      // 3. Get Xero employee ID
-      const xeroEmployeeId = fullTimesheet.employee.identifiers.find(
-        i => i.identifierType === 'xero_employee_id'
-      );
-
-      if (!xeroEmployeeId) {
-        throw new Error('Employee not mapped to Xero employee ID');
-      }
-
-      // 4. Determine which Xero tenant to use (from first company mapping)
+      // 3. Determine which Xero tenant to use (from first company mapping)
       const firstEntry = fullTimesheet.entries[0];
       if (!firstEntry) {
         throw new Error('No timesheet entries found');
@@ -127,78 +118,100 @@ class XeroSyncService {
       }
 
       const tenantId = companyMapping.xeroTenantId;
-
-      // 5. Group entries by earnings rate and sum hours per day
-      const entriesByRate = this.groupEntriesByEarningsRate(
-        fullTimesheet.entries,
-        tenantId,
-        fullTimesheet.employee
-      );
-
-      if (Object.keys(entriesByRate).length === 0) {
-        throw new Error('No earnings rate mappings found for timesheet entries');
-      }
-
-      // 6. Build Xero timesheet data with hours per day (Sun-Sat array)
-      const timesheetLines = Object.entries(entriesByRate).map(([earningsRateId, data]) => ({
-        earningsRateID: earningsRateId,
-        numberOfUnits: this.buildNumberOfUnits(data.entries, fullTimesheet.weekStarting)
-      }));
-
-      const xeroTimesheetData = {
-        employeeID: xeroEmployeeId.identifierValue,
-        startDate: this.formatXeroDate(fullTimesheet.weekStarting),
-        endDate: this.formatXeroDate(fullTimesheet.weekEnding),
-        status: 'DRAFT',
-        timesheetLines: timesheetLines
-      };
-
-      // 7. Create timesheet in Xero
-      console.log(`[XeroSync] Syncing timesheet ${fullTimesheet.id} to Xero tenant ${tenantId}`);
-
-      const xeroTimesheet = await xeroPayrollService.createTimesheet(tenantId, xeroTimesheetData);
-
-      if (!xeroTimesheet || !xeroTimesheet.timesheetID) {
-        throw new Error('Failed to create Xero timesheet - no ID returned');
-      }
-
-      // 8. Update local timesheet with Xero ID
-      await prisma.timesheet.update({
-        where: { id: fullTimesheet.id },
-        data: {
-          xeroTimesheetId: xeroTimesheet.timesheetID,
-          xeroSyncedAt: new Date()
-        }
-      });
-
-      // 9. Ensure payrun exists for this week
-      await this.ensurePayrun(tenantId, fullTimesheet.weekStarting, fullTimesheet.weekEnding);
-
-      // 10. Handle Local Technician invoicing (if applicable)
       const employeeType = fullTimesheet.employee.xeroSettings?.employeeType || 'ST';
+
+      // 4. Payroll timesheet sync (ST and LT both need this to get paid)
+      let xeroTimesheet = null;
+      try {
+        // Get Xero employee ID
+        const xeroEmployeeId = fullTimesheet.employee.identifiers.find(
+          i => i.identifierType === 'xero_employee_id'
+        );
+
+        if (!xeroEmployeeId) {
+          throw new Error('Employee not mapped to Xero employee ID');
+        }
+
+        // Group entries by earnings rate and sum hours per day
+        const entriesByRate = this.groupEntriesByEarningsRate(
+          fullTimesheet.entries,
+          tenantId,
+          fullTimesheet.employee
+        );
+
+        if (Object.keys(entriesByRate).length === 0) {
+          throw new Error('No earnings rate mappings found for timesheet entries');
+        }
+
+        const timesheetLines = Object.entries(entriesByRate).map(([earningsRateId, data]) => ({
+          earningsRateID: earningsRateId,
+          numberOfUnits: this.buildNumberOfUnits(data.entries, fullTimesheet.weekStarting)
+        }));
+
+        const xeroTimesheetData = {
+          employeeID: xeroEmployeeId.identifierValue,
+          startDate: this.formatXeroDate(fullTimesheet.weekStarting),
+          endDate: this.formatXeroDate(fullTimesheet.weekEnding),
+          status: 'DRAFT',
+          timesheetLines
+        };
+
+        console.log(`[XeroSync] Syncing timesheet ${fullTimesheet.id} to Xero tenant ${tenantId}`);
+        xeroTimesheet = await xeroPayrollService.createTimesheet(tenantId, xeroTimesheetData);
+
+        if (!xeroTimesheet || !xeroTimesheet.timesheetID) {
+          throw new Error('Failed to create Xero timesheet - no ID returned');
+        }
+
+        await prisma.timesheet.update({
+          where: { id: fullTimesheet.id },
+          data: {
+            xeroTimesheetId: xeroTimesheet.timesheetID,
+            xeroSyncedAt: new Date()
+          }
+        });
+
+        await this.ensurePayrun(tenantId, fullTimesheet.weekStarting, fullTimesheet.weekEnding);
+
+        await prisma.xeroSyncLog.update({
+          where: { id: syncLog.id },
+          data: {
+            status: 'SUCCESS',
+            xeroTimesheetId: xeroTimesheet.timesheetID,
+            xeroTokenId: companyMapping.xeroTokenId,
+            recordsProcessed: fullTimesheet.entries.length,
+            recordsSuccess: fullTimesheet.entries.length,
+            completedAt: new Date(),
+            syncDetails: JSON.stringify({
+              employeeType,
+              tenantId,
+              timesheetLines: timesheetLines.length,
+              totalHours: Object.values(entriesByRate).reduce((sum, data) => sum + data.totalHours, 0)
+            })
+          }
+        });
+
+        console.log(`[XeroSync] Successfully synced timesheet ${fullTimesheet.id} to Xero (ID: ${xeroTimesheet.timesheetID})`);
+      } catch (payrollError) {
+        console.error(`[XeroSync] Payroll sync failed for timesheet ${timesheet.id}:`, payrollError);
+
+        await prisma.xeroSyncLog.update({
+          where: { id: syncLog.id },
+          data: {
+            status: 'ERROR',
+            errorMessage: payrollError.message,
+            completedAt: new Date()
+          }
+        });
+
+        // For ST: stop here. For LT: fall through to invoice processing.
+        if (employeeType !== 'LT') return null;
+      }
+
+      // 5. LT only: create/update monthly invoice regardless of payroll sync outcome
       if (employeeType === 'LT') {
         await this.processLocalTechInvoice(fullTimesheet, companyMapping);
       }
-
-      // 11. Update sync log
-      await prisma.xeroSyncLog.update({
-        where: { id: syncLog.id },
-        data: {
-          status: 'SUCCESS',
-          xeroTimesheetId: xeroTimesheet.timesheetID,
-          xeroTokenId: companyMapping.xeroTokenId,
-          recordsProcessed: fullTimesheet.entries.length,
-          recordsSuccess: fullTimesheet.entries.length,
-          completedAt: new Date(),
-          syncDetails: JSON.stringify({
-            tenantId,
-            timesheetLines: timesheetLines.length,
-            totalHours: Object.values(entriesByRate).reduce((sum, data) => sum + data.totalHours, 0)
-          })
-        }
-      });
-
-      console.log(`[XeroSync] Successfully synced timesheet ${fullTimesheet.id} to Xero (ID: ${xeroTimesheet.timesheetID})`);
 
       return xeroTimesheet;
     } catch (error) {
@@ -213,7 +226,6 @@ class XeroSyncService {
         }
       });
 
-      // Don't throw - we don't want to block timesheet approval
       return null;
     }
   }
@@ -332,11 +344,182 @@ class XeroSyncService {
   }
 
   /**
-   * Process Local Technician invoice (Phase 4 feature)
+   * Process Local Technician invoice
+   * Called for LT employees after timesheet sync
    */
   async processLocalTechInvoice(timesheet, companyMapping) {
-    // TODO: Phase 4 - Implement invoice management
-    console.log('[XeroSync] LT invoice processing not yet implemented (Phase 4)');
+    // Guard clauses: skip if missing required invoice fields
+    if (!companyMapping.invoiceRate || !companyMapping.xeroContactId) {
+      console.log(`[XeroSync] Skipping LT invoice for timesheet ${timesheet.id}: missing invoiceRate or xeroContactId on company mapping`);
+      return;
+    }
+
+    const weekStart = new Date(timesheet.weekStarting);
+    const invoiceMonth = new Date(weekStart.getFullYear(), weekStart.getMonth(), 1);
+    const tenantId = companyMapping.xeroTenantId;
+    const employeeId = timesheet.employee.id;
+    const companyId = companyMapping.companyId;
+    const { firstName, lastName } = timesheet.employee;
+
+    // Calculate total hours for this timesheet
+    const timesheetHours = timesheet.entries.reduce((sum, e) => sum + e.hours, 0);
+
+    const monthName = invoiceMonth.toLocaleString('en-AU', { month: 'long', year: 'numeric' });
+
+    // Find existing invoice for this employee+company+month
+    const existingInvoice = await prisma.xeroInvoice.findUnique({
+      where: {
+        employeeId_companyId_invoiceMonth: {
+          employeeId,
+          companyId,
+          invoiceMonth
+        }
+      },
+      include: { entries: true }
+    });
+
+    if (existingInvoice) {
+      const existingEntry = existingInvoice.entries.find(e => e.timesheetId === timesheet.id);
+
+      if (existingEntry) {
+        // Timesheet already linked — check if hours changed (re-approval after unlock)
+        if (existingEntry.hours === timesheetHours) {
+          console.log(`[XeroSync] Timesheet ${timesheet.id} already linked to invoice ${existingInvoice.id} with same hours — skipping`);
+          return;
+        }
+
+        // Hours changed: update the entry and recalculate the invoice total
+        const hoursDiff = timesheetHours - existingEntry.hours;
+        const newTotalHours = existingInvoice.totalHours + hoursDiff;
+        const newTotalAmount = newTotalHours * companyMapping.invoiceRate;
+
+        await prisma.xeroInvoiceEntry.update({
+          where: { id: existingEntry.id },
+          data: { hours: timesheetHours }
+        });
+
+        await prisma.xeroInvoice.update({
+          where: { id: existingInvoice.id },
+          data: { totalHours: newTotalHours, totalAmount: newTotalAmount }
+        });
+
+        if (existingInvoice.xeroInvoiceId) {
+          await xeroPayrollService.updateInvoice(tenantId, existingInvoice.xeroInvoiceId, {
+            lineItems: [{
+              description: `Local Tech Services - ${firstName} ${lastName} - ${monthName}`,
+              quantity: newTotalHours,
+              unitAmount: companyMapping.invoiceRate,
+              accountCode: '200'
+            }]
+          });
+        }
+
+        console.log(`[XeroSync] Re-approval: updated invoice ${existingInvoice.id} timesheet ${timesheet.id} hours ${existingEntry.hours} → ${timesheetHours}`);
+        return;
+      }
+
+      // New timesheet for an existing invoice month — add an entry
+      await prisma.xeroInvoiceEntry.create({
+        data: {
+          invoiceId: existingInvoice.id,
+          timesheetId: timesheet.id,
+          hours: timesheetHours,
+          description: `Week of ${this.formatXeroDate(timesheet.weekStarting)}`
+        }
+      });
+
+      // Recalculate cumulative totals
+      const newTotalHours = existingInvoice.totalHours + timesheetHours;
+      const newTotalAmount = newTotalHours * companyMapping.invoiceRate;
+
+      await prisma.xeroInvoice.update({
+        where: { id: existingInvoice.id },
+        data: { totalHours: newTotalHours, totalAmount: newTotalAmount }
+      });
+
+      // If already pushed to Xero, update the line item in-place
+      if (existingInvoice.xeroInvoiceId) {
+        await xeroPayrollService.updateInvoice(tenantId, existingInvoice.xeroInvoiceId, {
+          lineItems: [{
+            description: `Local Tech Services - ${firstName} ${lastName} - ${monthName}`,
+            quantity: newTotalHours,
+            unitAmount: companyMapping.invoiceRate,
+            accountCode: '200'
+          }]
+        });
+      }
+
+      console.log(`[XeroSync] Updated invoice ${existingInvoice.id} with timesheet ${timesheet.id}: total hours now ${newTotalHours}`);
+    } else {
+      // No invoice yet — create in Xero first, then store locally
+      const lastDayOfMonth = new Date(invoiceMonth.getFullYear(), invoiceMonth.getMonth() + 1, 0);
+
+      const invoiceData = {
+        type: 'ACCREC',
+        contact: { contactID: companyMapping.xeroContactId },
+        lineItems: [{
+          description: `Local Tech Services - ${firstName} ${lastName} - ${monthName}`,
+          quantity: timesheetHours,
+          unitAmount: companyMapping.invoiceRate,
+          accountCode: '200'
+        }],
+        date: this.formatXeroDate(invoiceMonth),
+        dueDate: this.formatXeroDate(lastDayOfMonth),
+        status: 'DRAFT'
+      };
+
+      const xeroInvoice = await xeroPayrollService.createInvoice(tenantId, invoiceData);
+
+      // Store XeroInvoice + XeroInvoiceEntry atomically
+      const newInvoice = await prisma.$transaction(async (tx) => {
+        const invoice = await tx.xeroInvoice.create({
+          data: {
+            employeeId,
+            companyId,
+            xeroTenantId: tenantId,
+            xeroInvoiceId: xeroInvoice?.invoiceID || null,
+            invoiceMonth,
+            totalHours: timesheetHours,
+            hourlyRate: companyMapping.invoiceRate,
+            totalAmount: timesheetHours * companyMapping.invoiceRate,
+            status: 'DRAFT'
+          }
+        });
+
+        await tx.xeroInvoiceEntry.create({
+          data: {
+            invoiceId: invoice.id,
+            timesheetId: timesheet.id,
+            hours: timesheetHours,
+            description: `Week of ${this.formatXeroDate(timesheet.weekStarting)}`
+          }
+        });
+
+        return invoice;
+      });
+
+      // Log the operation
+      await prisma.xeroSyncLog.create({
+        data: {
+          xeroTokenId: companyMapping.xeroTokenId,
+          syncType: 'INVOICE_CREATE',
+          status: 'SUCCESS',
+          timesheetId: timesheet.id,
+          xeroInvoiceId: xeroInvoice?.invoiceID || null,
+          recordsProcessed: 1,
+          recordsSuccess: 1,
+          completedAt: new Date(),
+          syncDetails: JSON.stringify({
+            invoiceId: newInvoice.id,
+            monthName,
+            hours: timesheetHours,
+            amount: timesheetHours * companyMapping.invoiceRate
+          })
+        }
+      });
+
+      console.log(`[XeroSync] Created Xero DRAFT invoice for ${firstName} ${lastName} - ${monthName} (Xero ID: ${xeroInvoice?.invoiceID})`);
+    }
   }
 
   /**

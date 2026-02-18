@@ -199,11 +199,16 @@ exports.getTimesheetSyncStatus = async (req, res) => {
  */
 exports.getSyncStats = async (req, res) => {
   try {
-    const [totalSyncs, successfulSyncs, failedSyncs, pendingSyncs] = await Promise.all([
+    const [
+      totalSyncs, successfulSyncs, failedSyncs, pendingSyncs,
+      invoicesCreated, invoicesFailed
+    ] = await Promise.all([
       prisma.xeroSyncLog.count(),
       prisma.xeroSyncLog.count({ where: { status: 'SUCCESS' } }),
       prisma.xeroSyncLog.count({ where: { status: 'ERROR' } }),
-      prisma.xeroSyncLog.count({ where: { status: 'PENDING' } })
+      prisma.xeroSyncLog.count({ where: { status: 'PENDING' } }),
+      prisma.xeroSyncLog.count({ where: { syncType: 'INVOICE_CREATE', status: 'SUCCESS' } }),
+      prisma.xeroSyncLog.count({ where: { syncType: 'INVOICE_CREATE', status: 'ERROR' } })
     ]);
 
     const recentFailures = await prisma.xeroSyncLog.findMany({
@@ -232,6 +237,8 @@ exports.getSyncStats = async (req, res) => {
       failed: failedSyncs,
       pending: pendingSyncs,
       successRate: totalSyncs > 0 ? (successfulSyncs / totalSyncs) * 100 : 0,
+      invoicesCreated,
+      invoicesFailed,
       recentFailures
     });
   } catch (error) {

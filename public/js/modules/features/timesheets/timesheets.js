@@ -499,12 +499,15 @@ function renderEntryCard(entry, timesheetId, isEditable) {
 
 // ==================== ADMIN EMPLOYEE SELECTOR ====================
 
+let _employeeSelectorInitialized = false;
+
 /**
  * Initialize employee selector for admins
  */
 export function initEmployeeSelector() {
   const currentUser = state.get('currentUser');
   if (!currentUser.isAdmin) return;
+  if (_employeeSelectorInitialized) return;
 
   const wrapper = document.getElementById('employeeSelectorWrapper');
   const input = document.getElementById('employeeSearchInput');
@@ -512,6 +515,7 @@ export function initEmployeeSelector() {
 
   if (!wrapper || !input || !dropdown) return;
 
+  _employeeSelectorInitialized = true;
   wrapper.style.display = '';
   input.placeholder = 'My Timesheets - Search to switch employee...';
 

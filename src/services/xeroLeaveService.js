@@ -77,8 +77,8 @@ class XeroLeaveService {
 
       const tenantId = firstRole.role.company.xeroMappings[0].xeroTenantId;
 
-      // Map leave type to Xero leave type
-      const xeroLeaveType = await this.mapLeaveType(fullLeave.leaveType, tenantId);
+      // Map leave type to Xero leave type (returns { xeroLeaveTypeId, leaveTypeName })
+      const { xeroLeaveTypeId, leaveTypeName } = await this.mapLeaveType(fullLeave.leaveType, tenantId);
 
       // Strip HTML tags from notes (Quill stores HTML, Xero only accepts plain text)
       const plainNotes = fullLeave.notes
@@ -86,13 +86,14 @@ class XeroLeaveService {
         : '';
 
       // Build Xero leave application data
+      // Note: Xero's UI "Description" field maps to the API `title` field.
+      // There is no separate `description` field in Xero's Leave Application API.
       const xeroLeaveData = {
         employeeID: xeroEmployeeId.identifierValue,
-        leaveTypeID: xeroLeaveType,
-        title: `${fullLeave.leaveType} Leave`,
+        leaveTypeID: xeroLeaveTypeId,
+        title: plainNotes || leaveTypeName,
         startDate: this.formatXeroDate(fullLeave.startDate),
-        endDate: this.formatXeroDate(fullLeave.endDate),
-        description: plainNotes
+        endDate: this.formatXeroDate(fullLeave.endDate)
       };
 
       // Create leave application in Xero
@@ -142,10 +143,61 @@ class XeroLeaveService {
         throw new Error(`Leave type ${leaveType} not mapped to Xero for tenant ${tenantId}. Please configure in Xero Setup.`);
       }
 
-      return mapping.xeroLeaveTypeId;
+      return { xeroLeaveTypeId: mapping.xeroLeaveTypeId, leaveTypeName: mapping.leaveTypeName };
     } catch (error) {
       console.error(`[XeroLeave] Error mapping leave type ${leaveType}:`, error);
       throw error;
+    }
+  }
+
+  /**
+   * Cancel a leave application in Xero and mark as rejected locally
+   */
+  async cancelLeave(leaveRequestId) {
+    try {
+      const leaveRequest = await prisma.leaveRequest.findUnique({
+        where: { id: leaveRequestId },
+        include: {
+          employee: {
+            include: {
+              roles: {
+                include: {
+                  role: {
+                    include: {
+                      company: {
+                        include: { xeroMappings: true }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      });
+
+      if (!leaveRequest) {
+        throw new Error('Leave request not found');
+      }
+
+      if (leaveRequest.xeroLeaveId) {
+        const firstRole = leaveRequest.employee.roles[0];
+        const tenantId = firstRole?.role?.company?.xeroMappings?.[0]?.xeroTenantId;
+        if (tenantId) {
+          try {
+            await xeroPayrollService.deleteLeaveApplication(tenantId, leaveRequest.xeroLeaveId);
+            console.log(`[XeroLeave] Cancelled Xero leave ${leaveRequest.xeroLeaveId}`);
+          } catch (xeroError) {
+            // Xero may reject deletion of processed leave — log but continue
+            console.error(`[XeroLeave] Could not cancel Xero leave ${leaveRequest.xeroLeaveId}:`, xeroError.message);
+          }
+        }
+      }
+
+      return true;
+    } catch (error) {
+      console.error(`[XeroLeave] Error cancelling leave ${leaveRequestId}:`, error);
+      return false;
     }
   }
 

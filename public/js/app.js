@@ -1326,10 +1326,12 @@ var App = (() => {
   function initEmployeeSelector() {
     const currentUser2 = state.get("currentUser");
     if (!currentUser2.isAdmin) return;
+    if (_employeeSelectorInitialized) return;
     const wrapper = document.getElementById("employeeSelectorWrapper");
     const input = document.getElementById("employeeSearchInput");
     const dropdown = document.getElementById("employeeDropdown");
     if (!wrapper || !input || !dropdown) return;
+    _employeeSelectorInitialized = true;
     wrapper.style.display = "";
     input.placeholder = "My Timesheets - Search to switch employee...";
     input.addEventListener("focus", () => {
@@ -1436,6 +1438,7 @@ var App = (() => {
       }
     }
   }
+  var _employeeSelectorInitialized;
   var init_timesheets = __esm({
     "public/js/modules/features/timesheets/timesheets.js"() {
       init_api();
@@ -1446,6 +1449,7 @@ var App = (() => {
       init_alerts();
       init_dateTime();
       init_wms_sync();
+      _employeeSelectorInitialized = false;
       registerTabHook("timesheets", displayUnifiedTimesheets);
       registerTabHook("myTimesheets", displayMyTimesheets);
       registerTabHook("allTimesheets", displayAllTimesheets);
@@ -2673,7 +2677,7 @@ var App = (() => {
       if (currentUser2.isAdmin) {
         const { loadEmployees: loadEmployees2 } = await Promise.resolve().then(() => (init_employees(), employees_exports));
         const { loadUsers: loadUsers2 } = await Promise.resolve().then(() => (init_users(), users_exports));
-        const { loadAllTimesheets: loadAllTimesheets2 } = await Promise.resolve().then(() => (init_timesheets(), timesheets_exports));
+        const { loadAllTimesheets: loadAllTimesheets2, initEmployeeSelector: initEmployeeSelector2 } = await Promise.resolve().then(() => (init_timesheets(), timesheets_exports));
         const { loadApiKeys: loadApiKeys2 } = await Promise.resolve().then(() => (init_api_keys(), api_keys_exports));
         await Promise.all([
           loadAllTimesheets2(),
@@ -2681,6 +2685,7 @@ var App = (() => {
           loadUsers2(),
           loadApiKeys2()
         ]);
+        initEmployeeSelector2();
         console.log("\u2705 Admin data loaded");
       }
       console.log("\u2705 All data loaded successfully");
@@ -4184,7 +4189,6 @@ var App = (() => {
   // public/js/modules/features/profile/profile.js
   init_api();
   init_state();
-  init_modal();
   init_alerts();
   init_dom();
   async function showMyProfile() {
@@ -4254,7 +4258,7 @@ var App = (() => {
       <button type="submit" class="btn btn-primary" style="margin-top: 1rem;">Save Profile</button>
     </form>
   `;
-    showModalWithForm("My Profile", form);
+    showSlidePanel("My Profile", form);
     if (emp) {
       const container = document.getElementById("presetAddressesContainer");
       let presets = {};
@@ -4312,7 +4316,7 @@ var App = (() => {
         const updatedUser = result.user;
         state.set("currentUser", updatedUser);
         document.getElementById("userDisplay").textContent = updatedUser.name;
-        hideModal();
+        hideSlidePanel();
         showAlert("Profile updated successfully");
       } catch (error) {
         showAlert(error.message);
@@ -5686,7 +5690,7 @@ This will revert to using the role's default rate.`
   function displaySyncStats(stats) {
     const container = document.getElementById("syncStatsCards");
     container.innerHTML = `
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;">
       <div class="stat-card" style="padding: 1rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; color: white;">
         <div style="font-size: 2rem; font-weight: bold;">${stats.total || 0}</div>
         <div style="opacity: 0.9;">Total Syncs</div>
@@ -5708,6 +5712,16 @@ This will revert to using the role's default rate.`
       <div class="stat-card" style="padding: 1rem; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); border-radius: 8px; color: white;">
         <div style="font-size: 2rem; font-weight: bold;">${stats.pending || 0}</div>
         <div style="opacity: 0.9;">Pending</div>
+      </div>
+
+      <div class="stat-card" style="padding: 1rem; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); border-radius: 8px; color: white;">
+        <div style="font-size: 2rem; font-weight: bold;">${stats.invoicesCreated || 0}</div>
+        <div style="opacity: 0.9;">Invoices Created</div>
+        ${stats.invoicesFailed > 0 ? `
+          <div style="font-size: 0.875rem; opacity: 0.8; margin-top: 0.25rem;">
+            ${stats.invoicesFailed} failed
+          </div>
+        ` : ""}
       </div>
     </div>
 
@@ -5754,7 +5768,7 @@ This will revert to using the role's default rate.`
           <th>Date/Time</th>
           <th>Type</th>
           <th>Employee</th>
-          <th>Week</th>
+          <th>Week / Month</th>
           <th>Records</th>
           <th>Status</th>
           <th>Duration</th>
@@ -5771,16 +5785,28 @@ This will revert to using the role's default rate.`
       };
       const statusColor = statusColors[log.status] || "#6b7280";
       const duration = log.completedAt && log.startedAt ? Math.round((new Date(log.completedAt) - new Date(log.startedAt)) / 1e3) : null;
+      const isInvoice = log.syncType === "INVOICE_CREATE";
+      let invoiceMonth = null;
+      if (isInvoice && log.syncDetails) {
+        try {
+          const details = JSON.parse(log.syncDetails);
+          if (details.monthName) invoiceMonth = details.monthName;
+        } catch (_) {
+        }
+      }
+      const contextCell = isInvoice ? invoiceMonth || (log.xeroInvoiceId ? log.xeroInvoiceId.slice(0, 8) + "\u2026" : "-") : log.timesheet?.weekStarting ? new Date(log.timesheet.weekStarting).toLocaleDateString() : "-";
       return `
             <tr>
               <td>${new Date(log.startedAt).toLocaleString()}</td>
-              <td>${escapeHtml(log.syncType)}</td>
+              <td>
+                <span style="font-size: 0.8rem; padding: 0.15rem 0.4rem; border-radius: 3px; background: ${isInvoice ? "#dbeafe" : "#f3f4f6"}; color: ${isInvoice ? "#1e40af" : "#374151"};">
+                  ${escapeHtml(log.syncType)}
+                </span>
+              </td>
               <td>
                 ${log.timesheet?.employee ? `${escapeHtml(log.timesheet.employee.firstName)} ${escapeHtml(log.timesheet.employee.lastName)}` : "-"}
               </td>
-              <td>
-                ${log.timesheet?.weekStarting ? new Date(log.timesheet.weekStarting).toLocaleDateString() : "-"}
-              </td>
+              <td>${escapeHtml(contextCell)}</td>
               <td>
                 <span title="Processed: ${log.recordsProcessed}, Success: ${log.recordsSuccess}, Failed: ${log.recordsFailed}">
                   ${log.recordsSuccess}/${log.recordsProcessed}
@@ -5794,7 +5820,7 @@ This will revert to using the role's default rate.`
               <td>${duration !== null ? `${duration}s` : "-"}</td>
               <td>
                 <button class="btn btn-sm btn-secondary" onclick="window.viewSyncLog(${log.id})">View</button>
-                ${log.timesheet ? `
+                ${log.timesheetId ? `
                   <button class="btn btn-sm btn-primary" onclick="window.retrySyncLog(${log.timesheetId})">Retry</button>
                 ` : ""}
               </td>
@@ -5848,6 +5874,12 @@ This will revert to using the role's default rate.`
             <tr>
               <td style="font-weight: 500; padding: 0.5rem 0;">Xero Timesheet ID:</td>
               <td style="font-family: monospace; font-size: 0.875rem;">${escapeHtml(log.xeroTimesheetId)}</td>
+            </tr>
+          ` : ""}
+          ${log.xeroInvoiceId ? `
+            <tr>
+              <td style="font-weight: 500; padding: 0.5rem 0;">Xero Invoice ID:</td>
+              <td style="font-family: monospace; font-size: 0.875rem;">${escapeHtml(log.xeroInvoiceId)}</td>
             </tr>
           ` : ""}
           ${log.xeroToken ? `
@@ -5904,6 +5936,13 @@ This will revert to using the role's default rate.`
   async function initLeaveManagement() {
     const currentUser2 = state.get("currentUser");
     if (!currentUser2) return;
+    const employeeContainer = document.getElementById("xero-leave-employee");
+    const adminContainer = document.getElementById("xero-leave-admin");
+    if (employeeContainer) employeeContainer.innerHTML = "";
+    if (adminContainer) {
+      adminContainer.innerHTML = "";
+      adminContainer.style.borderTop = currentUser2.isAdmin ? "1px solid #e5e7eb" : "none";
+    }
     if (currentUser2.employeeId) {
       await showEmployeeLeaveView();
     }
@@ -6017,8 +6056,6 @@ This will revert to using the role's default rate.`
         </div>
       ` : ""}
 
-      <h2>Leave Request Management (Admin)</h2>
-
       <div class="leave-section">
         <h3>Pending Approval (${pending.length})</h3>
         ${pending.length > 0 ? `
@@ -6074,6 +6111,7 @@ This will revert to using the role's default rate.`
                 <th>Status</th>
                 <th>Processed By</th>
                 <th>Xero Sync</th>
+                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -6087,6 +6125,16 @@ This will revert to using the role's default rate.`
                   <td><span class="status-badge status-${req.status.toLowerCase()}">${req.status}</span></td>
                   <td>${req.approvedBy ? req.approvedBy.name : "-"}</td>
                   <td>${req.xeroLeaveId ? "\u2713 Synced" : "-"}</td>
+                  <td>
+                    ${req.status === "APPROVED" ? `
+                      <button class="btn btn-sm btn-warning" onclick="xeroLeave.rejectLeaveRequest(${req.id})" title="Reject and cancel in Xero">
+                        Reject
+                      </button>
+                    ` : ""}
+                    <button class="btn btn-sm btn-danger" onclick="xeroLeave.adminDeleteLeaveRequest(${req.id})" title="${req.xeroLeaveId ? "Delete locally and cancel in Xero" : "Delete"}">
+                      Delete
+                    </button>
+                  </td>
                 </tr>
               `).join("")}
             </tbody>
@@ -6181,7 +6229,7 @@ This will revert to using the role's default rate.`
     try {
       await api.post(`/xero/leave/approve/${id}`);
       showAlert("Leave request approved and synced to Xero!", "success");
-      await showAdminLeaveView();
+      await initLeaveManagement();
     } catch (error) {
       console.error("Error approving leave request:", error);
       showAlert(error.message || "Failed to approve leave request", "error");
@@ -6194,7 +6242,7 @@ This will revert to using the role's default rate.`
     try {
       await api.post(`/xero/leave/reject/${id}`);
       showAlert("Leave request rejected.", "success");
-      await showAdminLeaveView();
+      await initLeaveManagement();
     } catch (error) {
       console.error("Error rejecting leave request:", error);
       showAlert(error.message || "Failed to reject leave request", "error");
@@ -6207,7 +6255,20 @@ This will revert to using the role's default rate.`
     try {
       await api.delete(`/xero/leave/request/${id}`);
       showAlert("Leave request deleted.", "success");
-      await showEmployeeLeaveView();
+      await initLeaveManagement();
+    } catch (error) {
+      console.error("Error deleting leave request:", error);
+      showAlert(error.message || "Failed to delete leave request", "error");
+    }
+  }
+  async function adminDeleteLeaveRequest(id) {
+    if (!confirm("Delete this leave request? If it was synced to Xero, the leave application will also be cancelled.")) {
+      return;
+    }
+    try {
+      await api.delete(`/xero/leave/request/${id}`);
+      showAlert("Leave request deleted.", "success");
+      await initLeaveManagement();
     } catch (error) {
       console.error("Error deleting leave request:", error);
       showAlert(error.message || "Failed to delete leave request", "error");
@@ -6285,9 +6346,220 @@ This will revert to using the role's default rate.`
     showNewLeaveRequestPanel,
     approveLeaveRequest,
     rejectLeaveRequest,
-    deleteLeaveRequest
+    deleteLeaveRequest,
+    adminDeleteLeaveRequest
   };
   registerTabHook("leaveManagement", initLeaveManagement);
+
+  // public/js/modules/features/xero/xero-invoices.js
+  init_api();
+  init_state();
+  init_alerts();
+  init_dom();
+  init_navigation();
+  async function initInvoices() {
+    const currentUser2 = state.get("currentUser");
+    if (!currentUser2?.isAdmin) return;
+    await loadInvoices();
+  }
+  async function loadInvoices() {
+    const container = document.getElementById("xero-invoices-admin");
+    if (!container) return;
+    container.innerHTML = '<p style="padding: 1rem; color: #6b7280;">Loading invoices...</p>';
+    try {
+      const invoices = await api.get("/xero/invoice/list");
+      renderInvoiceList(container, invoices);
+    } catch (error) {
+      console.error("Failed to load invoices:", error);
+      container.innerHTML = '<p style="padding: 1rem; color: #ef4444;">Failed to load invoices.</p>';
+    }
+  }
+  function renderInvoiceList(container, invoices) {
+    if (!invoices || invoices.length === 0) {
+      container.innerHTML = `
+      <div style="padding: 2rem; text-align: center; color: #6b7280;">
+        <p>No invoices found.</p>
+        <p style="font-size: 0.875rem; margin-top: 0.5rem;">
+          Invoices are created automatically when an LT employee's timesheet is approved.
+        </p>
+      </div>
+    `;
+      return;
+    }
+    const rows = invoices.map((inv) => {
+      const employeeName = escapeHtml(`${inv.employee.firstName} ${inv.employee.lastName}`);
+      const companyName = escapeHtml(inv.company.name);
+      const month = formatMonth(inv.invoiceMonth);
+      const hours = Number(inv.totalHours).toFixed(2);
+      const rate = Number(inv.hourlyRate).toFixed(2);
+      const amount = Number(inv.totalAmount).toFixed(2);
+      const entryCount = inv.entries.length;
+      const statusBadge = renderStatusBadge(inv.status);
+      const xeroId = inv.xeroInvoiceId ? `<span style="font-family: monospace; font-size: 0.8rem;">${escapeHtml(inv.xeroInvoiceId)}</span>` : '<span style="color: #9ca3af;">\u2014</span>';
+      return `
+      <tr>
+        <td>${employeeName}</td>
+        <td>${companyName}</td>
+        <td>${month}</td>
+        <td style="text-align: right;">${hours}</td>
+        <td style="text-align: right;">$${rate}/hr</td>
+        <td style="text-align: right; font-weight: 600;">$${amount}</td>
+        <td>${statusBadge}</td>
+        <td>${xeroId}</td>
+        <td style="text-align: center;">${entryCount}</td>
+        <td>
+          <button class="btn btn-sm btn-secondary" onclick="window.xeroInvoices.viewInvoice(${inv.id})">
+            View
+          </button>
+        </td>
+      </tr>
+    `;
+    }).join("");
+    container.innerHTML = `
+    <div style="padding: 1.5rem;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+        <h3 style="margin: 0;">LT Monthly Invoices</h3>
+        <button class="btn btn-secondary" onclick="window.xeroInvoices.refresh()">Refresh</button>
+      </div>
+      <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse;">
+          <thead>
+            <tr style="background: #f9fafb; border-bottom: 2px solid #e5e7eb;">
+              <th style="padding: 0.75rem; text-align: left; font-size: 0.875rem; white-space: nowrap;">Employee</th>
+              <th style="padding: 0.75rem; text-align: left; font-size: 0.875rem; white-space: nowrap;">Company</th>
+              <th style="padding: 0.75rem; text-align: left; font-size: 0.875rem; white-space: nowrap;">Month</th>
+              <th style="padding: 0.75rem; text-align: right; font-size: 0.875rem; white-space: nowrap;">Total Hours</th>
+              <th style="padding: 0.75rem; text-align: right; font-size: 0.875rem; white-space: nowrap;">Rate</th>
+              <th style="padding: 0.75rem; text-align: right; font-size: 0.875rem; white-space: nowrap;">Amount</th>
+              <th style="padding: 0.75rem; text-align: left; font-size: 0.875rem; white-space: nowrap;">Status</th>
+              <th style="padding: 0.75rem; text-align: left; font-size: 0.875rem; white-space: nowrap;">Xero Invoice ID</th>
+              <th style="padding: 0.75rem; text-align: center; font-size: 0.875rem; white-space: nowrap;">Timesheets</th>
+              <th style="padding: 0.75rem; text-align: left; font-size: 0.875rem;"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${rows}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+    container.querySelectorAll("tbody tr").forEach((row, i) => {
+      row.style.background = i % 2 === 0 ? "#fff" : "#f9fafb";
+      row.style.borderBottom = "1px solid #e5e7eb";
+      row.querySelectorAll("td").forEach((td) => {
+        td.style.padding = "0.75rem";
+        td.style.fontSize = "0.875rem";
+      });
+    });
+  }
+  async function viewInvoice(invoiceId) {
+    try {
+      const inv = await api.get(`/xero/invoice/${invoiceId}`);
+      const employeeName = escapeHtml(`${inv.employee.firstName} ${inv.employee.lastName}`);
+      const companyName = escapeHtml(inv.company.name);
+      const month = formatMonth(inv.invoiceMonth);
+      const hours = Number(inv.totalHours).toFixed(2);
+      const rate = Number(inv.hourlyRate).toFixed(2);
+      const amount = Number(inv.totalAmount).toFixed(2);
+      const entriesHtml = inv.entries.length > 0 ? `
+      <table style="width: 100%; border-collapse: collapse; margin-top: 0.5rem;">
+        <thead>
+          <tr style="background: #f9fafb; border-bottom: 1px solid #e5e7eb;">
+            <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 0.8rem;">Week</th>
+            <th style="padding: 0.5rem 0.75rem; text-align: right; font-size: 0.8rem;">Hours</th>
+            <th style="padding: 0.5rem 0.75rem; text-align: left; font-size: 0.8rem;">Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${inv.entries.map((e) => `
+            <tr style="border-bottom: 1px solid #f3f4f6;">
+              <td style="padding: 0.5rem 0.75rem; font-size: 0.85rem;">
+                ${formatDate2(e.timesheet.weekStarting)} \u2013 ${formatDate2(e.timesheet.weekEnding)}
+              </td>
+              <td style="padding: 0.5rem 0.75rem; text-align: right; font-size: 0.85rem;">${Number(e.hours).toFixed(2)}</td>
+              <td style="padding: 0.5rem 0.75rem; font-size: 0.85rem; color: #6b7280;">${escapeHtml(e.description || "")}</td>
+            </tr>
+          `).join("")}
+        </tbody>
+      </table>
+    ` : '<p style="color: #9ca3af; font-size: 0.875rem; margin: 0.5rem 0;">No entries.</p>';
+      showSlidePanel("Invoice Details", `
+      <div style="padding: 1.5rem;">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem 1.5rem; margin-bottom: 1.5rem;">
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em;">Employee</div>
+            <div style="margin-top: 0.25rem;">${employeeName}</div>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em;">Company</div>
+            <div style="margin-top: 0.25rem;">${companyName}</div>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em;">Month</div>
+            <div style="margin-top: 0.25rem;">${month}</div>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em;">Status</div>
+            <div style="margin-top: 0.25rem;">${renderStatusBadge(inv.status)}</div>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em;">Total Hours</div>
+            <div style="margin-top: 0.25rem; font-size: 1.25rem; font-weight: 600;">${hours} hrs</div>
+          </div>
+          <div>
+            <div style="font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em;">Hourly Rate</div>
+            <div style="margin-top: 0.25rem; font-size: 1.25rem; font-weight: 600;">$${rate}/hr</div>
+          </div>
+          <div style="grid-column: 1 / -1; background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 0.5rem; padding: 0.75rem 1rem;">
+            <div style="font-size: 0.75rem; font-weight: 600; color: #166534; text-transform: uppercase; letter-spacing: 0.05em;">Total Amount</div>
+            <div style="margin-top: 0.25rem; font-size: 1.5rem; font-weight: 700; color: #166534;">$${amount}</div>
+          </div>
+          ${inv.xeroInvoiceId ? `
+            <div style="grid-column: 1 / -1;">
+              <div style="font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em;">Xero Invoice ID</div>
+              <div style="margin-top: 0.25rem; font-family: monospace; font-size: 0.85rem; color: #374151;">${escapeHtml(inv.xeroInvoiceId)}</div>
+            </div>
+          ` : ""}
+        </div>
+
+        <div style="border-top: 1px solid #e5e7eb; padding-top: 1rem;">
+          <h4 style="margin: 0 0 0.75rem 0; font-size: 0.875rem; color: #374151;">
+            Timesheets Included (${inv.entries.length})
+          </h4>
+          ${entriesHtml}
+        </div>
+      </div>
+    `);
+    } catch (error) {
+      console.error("Failed to load invoice details:", error);
+      showAlert("Failed to load invoice details.", "error");
+    }
+  }
+  function formatDate2(dateStr) {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString("en-AU", { day: "numeric", month: "short", year: "numeric" });
+  }
+  function formatMonth(dateStr) {
+    const d = new Date(dateStr);
+    return d.toLocaleString("en-AU", { month: "long", year: "numeric" });
+  }
+  function renderStatusBadge(status) {
+    const colours = {
+      DRAFT: "background: #fef3c7; color: #92400e;",
+      SUBMITTED: "background: #dbeafe; color: #1e40af;",
+      SENT: "background: #d1fae5; color: #065f46;",
+      PAID: "background: #f0fdf4; color: #166534;",
+      VOIDED: "background: #fee2e2; color: #991b1b;"
+    };
+    const style = colours[status] || "background: #f3f4f6; color: #374151;";
+    return `<span style="padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; ${style}">${escapeHtml(status)}</span>`;
+  }
+  window.xeroInvoices = {
+    refresh: loadInvoices,
+    viewInvoice
+  };
+  registerTabHook("xeroInvoices", initInvoices);
 
   // public/js/modules/main.js
   Object.assign(window, {
@@ -6422,10 +6694,6 @@ This will revert to using the role's default rate.`
       createTimesheetBtn.addEventListener("click", () => createTimesheet());
     }
     await checkAuth();
-    const currentUser2 = state.get("currentUser");
-    if (currentUser2 && currentUser2.isAdmin) {
-      initEmployeeSelector();
-    }
     console.log("Application initialized");
   }
   document.addEventListener("DOMContentLoaded", init);

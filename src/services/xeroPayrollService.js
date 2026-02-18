@@ -179,6 +179,15 @@ class XeroPayrollService {
   }
 
   /**
+   * Delete a leave application from Xero
+   * Note: Only SCHEDULED (not yet processed) leave can be deleted
+   */
+  async deleteLeaveApplication(tenantId, leaveApplicationId) {
+    const xero = await this.getXeroClient(tenantId);
+    await xero.payrollAUApi.deleteLeaveApplication(tenantId, leaveApplicationId);
+  }
+
+  /**
    * Get employee leave balances
    */
   async getLeaveBalances(tenantId, employeeId) {

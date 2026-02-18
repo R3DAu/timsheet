@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Comprehensive timesheet management system with approval workflow",
   "main": "src/server.js",
+  "nodemonConfig": {
+    "ignore": ["public/js/app.js", "public/js/app.js.map", "prisma/sessions.db"]
+  },
   "scripts": {
     "dev": "nodemon src/server.js",
     "start": "node src/server.js",

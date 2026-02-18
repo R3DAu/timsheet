@@ -64,7 +64,7 @@ function displaySyncStats(stats) {
   const container = document.getElementById('syncStatsCards');
 
   container.innerHTML = `
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
+    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 1rem;">
       <div class="stat-card" style="padding: 1rem; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; color: white;">
         <div style="font-size: 2rem; font-weight: bold;">${stats.total || 0}</div>
         <div style="opacity: 0.9;">Total Syncs</div>
@@ -86,6 +86,16 @@ function displaySyncStats(stats) {
       <div class="stat-card" style="padding: 1rem; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); border-radius: 8px; color: white;">
         <div style="font-size: 2rem; font-weight: bold;">${stats.pending || 0}</div>
         <div style="opacity: 0.9;">Pending</div>
+      </div>
+
+      <div class="stat-card" style="padding: 1rem; background: linear-gradient(135deg, #0ea5e9 0%, #0284c7 100%); border-radius: 8px; color: white;">
+        <div style="font-size: 2rem; font-weight: bold;">${stats.invoicesCreated || 0}</div>
+        <div style="opacity: 0.9;">Invoices Created</div>
+        ${stats.invoicesFailed > 0 ? `
+          <div style="font-size: 0.875rem; opacity: 0.8; margin-top: 0.25rem;">
+            ${stats.invoicesFailed} failed
+          </div>
+        ` : ''}
       </div>
     </div>
 
@@ -143,7 +153,7 @@ function displaySyncLogs(logs) {
           <th>Date/Time</th>
           <th>Type</th>
           <th>Employee</th>
-          <th>Week</th>
+          <th>Week / Month</th>
           <th>Records</th>
           <th>Status</th>
           <th>Duration</th>
@@ -165,22 +175,36 @@ function displaySyncLogs(logs) {
             Math.round((new Date(log.completedAt) - new Date(log.startedAt)) / 1000) :
             null;
 
+          const isInvoice = log.syncType === 'INVOICE_CREATE';
+
+          // For invoice logs, pull the month from syncDetails if available
+          let invoiceMonth = null;
+          if (isInvoice && log.syncDetails) {
+            try {
+              const details = JSON.parse(log.syncDetails);
+              if (details.monthName) invoiceMonth = details.monthName;
+            } catch (_) {}
+          }
+
+          const contextCell = isInvoice
+            ? (invoiceMonth || (log.xeroInvoiceId ? log.xeroInvoiceId.slice(0, 8) + '…' : '-'))
+            : (log.timesheet?.weekStarting ? new Date(log.timesheet.weekStarting).toLocaleDateString() : '-');
+
           return `
             <tr>
               <td>${new Date(log.startedAt).toLocaleString()}</td>
-              <td>${escapeHtml(log.syncType)}</td>
+              <td>
+                <span style="font-size: 0.8rem; padding: 0.15rem 0.4rem; border-radius: 3px; background: ${isInvoice ? '#dbeafe' : '#f3f4f6'}; color: ${isInvoice ? '#1e40af' : '#374151'};">
+                  ${escapeHtml(log.syncType)}
+                </span>
+              </td>
               <td>
                 ${log.timesheet?.employee ?
                   `${escapeHtml(log.timesheet.employee.firstName)} ${escapeHtml(log.timesheet.employee.lastName)}` :
                   '-'
                 }
               </td>
-              <td>
-                ${log.timesheet?.weekStarting ?
-                  new Date(log.timesheet.weekStarting).toLocaleDateString() :
-                  '-'
-                }
-              </td>
+              <td>${escapeHtml(contextCell)}</td>
               <td>
                 <span title="Processed: ${log.recordsProcessed}, Success: ${log.recordsSuccess}, Failed: ${log.recordsFailed}">
                   ${log.recordsSuccess}/${log.recordsProcessed}
@@ -194,7 +218,7 @@ function displaySyncLogs(logs) {
               <td>${duration !== null ? `${duration}s` : '-'}</td>
               <td>
                 <button class="btn btn-sm btn-secondary" onclick="window.viewSyncLog(${log.id})">View</button>
-                ${log.timesheet ? `
+                ${log.timesheetId ? `
                   <button class="btn btn-sm btn-primary" onclick="window.retrySyncLog(${log.timesheetId})">Retry</button>
                 ` : ''}
               </td>
@@ -255,6 +279,12 @@ window.viewSyncLog = async function(logId) {
             <tr>
               <td style="font-weight: 500; padding: 0.5rem 0;">Xero Timesheet ID:</td>
               <td style="font-family: monospace; font-size: 0.875rem;">${escapeHtml(log.xeroTimesheetId)}</td>
+            </tr>
+          ` : ''}
+          ${log.xeroInvoiceId ? `
+            <tr>
+              <td style="font-weight: 500; padding: 0.5rem 0;">Xero Invoice ID:</td>
+              <td style="font-family: monospace; font-size: 0.875rem;">${escapeHtml(log.xeroInvoiceId)}</td>
             </tr>
           ` : ''}
           ${log.xeroToken ? `
