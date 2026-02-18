@@ -161,7 +161,7 @@ var App = (() => {
   });
 
   // public/js/modules/core/dom.js
-  function escapeHtml(str) {
+  function escapeHtml2(str) {
     if (!str) return "";
     return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
@@ -169,12 +169,13 @@ var App = (() => {
     if (!html) return "";
     if (typeof DOMPurify === "undefined") {
       console.error("DOMPurify is not loaded");
-      return escapeHtml(html);
+      return escapeHtml2(html);
     }
-    return DOMPurify.sanitize(html, {
-      ALLOWED_TAGS: ["p", "br", "strong", "em", "u", "ol", "ul", "li", "a"],
+    const clean = DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: ["p", "br", "strong", "em", "u", "ul", "li", "a"],
       ALLOWED_ATTR: ["href", "target", "rel"]
     });
+    return clean.replace(/<ol(\s[^>]*)?>/gi, "<ul>").replace(/<\/ol>/gi, "</ul>");
   }
   var init_dom = __esm({
     "public/js/modules/core/dom.js"() {
@@ -400,7 +401,7 @@ var App = (() => {
       <tbody>
         ${companies.map((c) => `
           <tr>
-            <td>${escapeHtml(c.name)}</td>
+            <td>${escapeHtml2(c.name)}</td>
             <td>${c.isBillable ? "Yes" : "No"}</td>
             <td>${c.wmsSyncEnabled ? "Yes" : "No"}</td>
             <td>${c._count.roles}</td>
@@ -463,7 +464,7 @@ var App = (() => {
     <form id="editCompanyForm">
       <div class="form-group">
         <label>Company Name</label>
-        <input type="text" name="name" value="${escapeHtml(company.name)}" required>
+        <input type="text" name="name" value="${escapeHtml2(company.name)}" required>
       </div>
       <div class="form-group">
         <label class="checkbox-label">
@@ -561,8 +562,8 @@ var App = (() => {
       <tbody>
         ${roles.map((r) => `
           <tr>
-            <td>${escapeHtml(r.name)}</td>
-            <td>${escapeHtml(r.company.name)}</td>
+            <td>${escapeHtml2(r.name)}</td>
+            <td>${escapeHtml2(r.company.name)}</td>
             <td>$${r.payRate.toFixed(2)}/hr</td>
             <td>${r._count.employeeRoles}</td>
             <td>
@@ -588,7 +589,7 @@ var App = (() => {
         <label>Company</label>
         <select name="companyId" required>
           <option value="">Select company...</option>
-          ${companies.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")}
+          ${companies.map((c) => `<option value="${c.id}">${escapeHtml2(c.name)}</option>`).join("")}
         </select>
       </div>
       <div class="form-group">
@@ -624,12 +625,12 @@ var App = (() => {
     <form id="editRoleForm">
       <div class="form-group">
         <label>Role Name</label>
-        <input type="text" name="name" value="${escapeHtml(role.name)}" required>
+        <input type="text" name="name" value="${escapeHtml2(role.name)}" required>
       </div>
       <div class="form-group">
         <label>Company</label>
         <select name="companyId" disabled>
-          <option>${escapeHtml(role.company.name)}</option>
+          <option>${escapeHtml2(role.company.name)}</option>
         </select>
         <small>Company cannot be changed after creation</small>
       </div>
@@ -789,7 +790,7 @@ var App = (() => {
     <form id="wmsSyncForm">
       <div class="form-group">
         <label>ADFS Username (e.g. domain\\username or email)</label>
-        <input type="text" name="wmsUsername" required autocomplete="off" placeholder="EDUCATION\\jsmith or jsmith@education.vic.gov.au" value="${escapeHtml(prefillEmail || "")}">
+        <input type="text" name="wmsUsername" required autocomplete="off" placeholder="EDUCATION\\jsmith or jsmith@education.vic.gov.au" value="${escapeHtml2(prefillEmail || "")}">
         ${prefillEmail ? '<small style="color: var(--muted);">Prefilled from your DE profile</small>' : ""}
       </div>
       <div class="form-group">
@@ -915,11 +916,11 @@ var App = (() => {
               if (failedEntries.length > 0) {
                 errorDetails = '<ul style="margin: 0.5rem 0 0; padding-left: 1.25rem; color: #ff6b6b;">';
                 failedEntries.forEach((e) => {
-                  errorDetails += `<li>${escapeHtml(e.date)} ${escapeHtml(e.startTime || "")}-${escapeHtml(e.endTime || "")}: ${escapeHtml(e.error)}</li>`;
+                  errorDetails += `<li>${escapeHtml2(e.date)} ${escapeHtml2(e.startTime || "")}-${escapeHtml2(e.endTime || "")}: ${escapeHtml2(e.error)}</li>`;
                 });
                 errorDetails += "</ul>";
               }
-              detailsEl.innerHTML = `<p style="margin-top: 0.5rem;">${escapeHtml(summary)}</p>${errorDetails}`;
+              detailsEl.innerHTML = `<p style="margin-top: 0.5rem;">${escapeHtml2(summary)}</p>${errorDetails}`;
             } catch (_) {
               alertEl.className = "alert alert-success";
               alertEl.innerHTML = "<strong>Timesheet synced to DE WMS successfully!</strong>";
@@ -933,7 +934,7 @@ var App = (() => {
           clearInterval(interval);
           if (spinnerEl) spinnerEl.style.display = "none";
           alertEl.className = "alert alert-danger";
-          alertEl.innerHTML = "<strong>Sync failed:</strong> " + escapeHtml(log.errorMessage || "Unknown error");
+          alertEl.innerHTML = "<strong>Sync failed:</strong> " + escapeHtml2(log.errorMessage || "Unknown error");
         } else if (attempts >= maxAttempts) {
           clearInterval(interval);
           if (spinnerEl) spinnerEl.style.display = "none";
@@ -960,9 +961,9 @@ var App = (() => {
         <tr>
           <td>${started}</td>
           <td><span class="status-badge status-${sync.status}">${sync.status}</span></td>
-          <td>${escapeHtml(sync.wmsUsername) || "-"}</td>
+          <td>${escapeHtml2(sync.wmsUsername) || "-"}</td>
           <td>${duration}</td>
-          <td>${sync.errorMessage ? escapeHtml(sync.errorMessage) : sync.status === "COMPLETED" ? "OK" : "-"}</td>
+          <td>${sync.errorMessage ? escapeHtml2(sync.errorMessage) : sync.status === "COMPLETED" ? "OK" : "-"}</td>
         </tr>
       `;
       }).join("");
@@ -1048,7 +1049,7 @@ var App = (() => {
     const select = document.getElementById("timesheetSelect");
     let timesheets = state.get("timesheets");
     select.innerHTML = '<option value="">Select a timesheet...</option>' + timesheets.map((ts) => {
-      const label = currentUser.isAdmin ? `${escapeHtml(ts.employee.user.name)} - Week ${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}` : `Week ${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}`;
+      const label = currentUser.isAdmin ? `${escapeHtml2(ts.employee.user.name)} - Week ${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}` : `Week ${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}`;
       return `<option value="${ts.id}">${label}</option>`;
     }).join("");
   }
@@ -1062,7 +1063,7 @@ var App = (() => {
                 <label>Employee</label>
                 <select name="employeeId" required>
                     <option value="">Select employee...</option>
-                    ${employees.filter((e) => e.id !== currentUser2.employeeId).map((e) => `<option value="${e.id}">${escapeHtml(e.user.name)}</option>`).join("")}
+                    ${employees.filter((e) => e.id !== currentUser2.employeeId).map((e) => `<option value="${e.id}">${escapeHtml2(e.user.name)}</option>`).join("")}
                 </select>
             </div>
         `;
@@ -1145,11 +1146,11 @@ var App = (() => {
     }
   }
   async function unlockTimesheet(id) {
-    if (!showConfirmation("Unlock this timesheet and set status to OPEN? All entries will also be set to OPEN.")) return;
+    if (!showConfirmation("Unlock this timesheet? Status will be set to UNLOCKED so it can be edited and re-locked without re-submitting.")) return;
     try {
       await api.post(`/timesheets/${id}/unlock`);
       await refreshTimesheets2();
-      showAlert("Timesheet unlocked and set to OPEN");
+      showAlert("Timesheet unlocked (status: UNLOCKED)");
     } catch (error) {
       showAlert(error.message);
     }
@@ -1191,7 +1192,7 @@ var App = (() => {
     }
     const latestLog = ts.xeroSyncLogs?.[0];
     if (latestLog?.status === "ERROR") {
-      return `<span class="source-badge xero-error-badge" title="${escapeHtml(latestLog.errorMessage || "Sync failed")}">\u2717 Xero</span>`;
+      return `<span class="source-badge xero-error-badge" title="${escapeHtml2(latestLog.errorMessage || "Sync failed")}">\u2717 Xero</span>`;
     }
     return '<span class="source-badge xero-pending-badge" title="Pending Xero sync">\u23F3 Xero</span>';
   }
@@ -1344,15 +1345,15 @@ var App = (() => {
           ${timeRange}
           <span class="entry-hours">${entry.hours.toFixed(2)} hrs &middot; ${entry.entryType}</span>
         </div>
-        <div class="entry-card-role">${escapeHtml(entry.role.name)}</div>
-        <div class="entry-card-company">${escapeHtml(entry.company.name)}</div>
+        <div class="entry-card-role">${escapeHtml2(entry.role.name)}</div>
+        <div class="entry-card-company">${escapeHtml2(entry.company.name)}</div>
         <div class="entry-card-badges">
           <span class="status-badge status-${entry.status}">${entry.status}</span>
           ${entry.tsDataSource ? '<span class="source-badge tsdata-badge">TSDATA</span>' : ""}
           ${entry.privateNotes ? '<span class="private-notes-badge">Private</span>' : ""}
         </div>
-        ${entry.startingLocation ? `<div class="entry-card-location">\u{1F4CD} ${escapeHtml(entry.startingLocation)}</div>` : ""}
-        ${plainNotes ? `<div class="entry-card-description">${escapeHtml(plainNotes)}</div>` : ""}
+        ${entry.startingLocation ? `<div class="entry-card-location">\u{1F4CD} ${escapeHtml2(entry.startingLocation)}</div>` : ""}
+        ${plainNotes ? `<div class="entry-card-description">${escapeHtml2(plainNotes)}</div>` : ""}
       </div>
       <div class="entry-card-actions" onclick="event.stopPropagation();">
         ${isEditable ? `
@@ -1414,7 +1415,7 @@ var App = (() => {
       return `
       <div class="employee-dropdown-item ${selectedId === emp.id ? "selected" : ""}"
            onclick="selectEmployee(${emp.id})">
-        <span class="emp-name">${escapeHtml(emp.user.name)}</span>
+        <span class="emp-name">${escapeHtml2(emp.user.name)}</span>
         <span class="emp-ts-count">${tsCount} timesheets</span>
       </div>
     `;
@@ -1439,11 +1440,16 @@ var App = (() => {
       if (heading) heading.textContent = `Timesheets: ${emp ? emp.user.name : ""}`;
     }
     if (dropdown) dropdown.style.display = "none";
+    const targetId = state.get("selectedEmployeeId");
+    if (targetId) {
+      await autoCreateTimesheets(targetId);
+    }
     displayUnifiedTimesheets();
   }
-  async function autoCreateTimesheets() {
+  async function autoCreateTimesheets(targetEmployeeId) {
     const currentUser2 = state.get("currentUser");
-    if (!currentUser2.employeeId) return;
+    const employeeId = targetEmployeeId || currentUser2.employeeId;
+    if (!employeeId) return;
     const now = /* @__PURE__ */ new Date();
     const dayOfWeek = now.getDay();
     const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
@@ -1460,18 +1466,24 @@ var App = (() => {
       { start: currentMonday, end: currentSunday },
       { start: nextMonday, end: nextSunday }
     ];
-    const myTimesheets = state.get("myTimesheets") || [];
+    let existingTimesheets;
+    if (!targetEmployeeId || targetEmployeeId === currentUser2.employeeId) {
+      existingTimesheets = state.get("myTimesheets") || [];
+    } else {
+      const result = await api.get(`/timesheets?employeeId=${employeeId}`);
+      existingTimesheets = result.timesheets || [];
+    }
     for (const week of weeks) {
       const weekStartStr = week.start.toISOString().split("T")[0];
       const weekEndStr = week.end.toISOString().split("T")[0];
-      const exists = myTimesheets.some((ts) => {
+      const exists = existingTimesheets.some((ts) => {
         const tsStart = formatLocalDate(ts.weekStarting);
         return tsStart === weekStartStr;
       });
       if (!exists) {
         try {
           await api.post("/timesheets", {
-            employeeId: currentUser2.employeeId,
+            employeeId,
             weekStarting: weekStartStr,
             weekEnding: weekEndStr
           });
@@ -1545,17 +1557,17 @@ var App = (() => {
         ${users.map((u) => `
           <tr>
             <td>${u.id}</td>
-            <td>${escapeHtml(u.name)}</td>
-            <td>${escapeHtml(u.email)}</td>
+            <td>${escapeHtml2(u.name)}</td>
+            <td>${escapeHtml2(u.email)}</td>
             <td>${u.isAdmin ? '<span style="color: #27ae60; font-weight: 600;">Yes</span>' : "No"}</td>
-            <td>${u.employee ? `${escapeHtml(u.employee.firstName)} ${escapeHtml(u.employee.lastName)} (ID: ${u.employee.id})` : '<span style="color: #999;">None</span>'}</td>
+            <td>${u.employee ? `${escapeHtml2(u.employee.firstName)} ${escapeHtml2(u.employee.lastName)} (ID: ${u.employee.id})` : '<span style="color: #999;">None</span>'}</td>
             <td>${new Date(u.createdAt).toLocaleDateString()}</td>
             <td>
               <button class="btn btn-sm btn-primary" onclick="editUser(${u.id})">Edit</button>
               ${!u.employee ? `<button class="btn btn-sm btn-success user-link-profile-btn"
                 data-user-id="${u.id}"
-                data-user-name="${escapeHtml(u.name)}"
-                data-user-email="${escapeHtml(u.email)}">Link Profile</button>` : ""}
+                data-user-name="${escapeHtml2(u.name)}"
+                data-user-email="${escapeHtml2(u.email)}">Link Profile</button>` : ""}
               ${u.id !== currentUser2.id ? `<button class="btn btn-sm btn-danger" onclick="deleteUser(${u.id})">Delete</button>` : ""}
             </td>
           </tr>
@@ -1625,11 +1637,11 @@ var App = (() => {
     <form id="editUserForm">
       <div class="form-group">
         <label>Name</label>
-        <input type="text" name="name" value="${escapeHtml(user.name)}" required>
+        <input type="text" name="name" value="${escapeHtml2(user.name)}" required>
       </div>
       <div class="form-group">
         <label>Email</label>
-        <input type="email" name="email" value="${escapeHtml(user.email)}" required>
+        <input type="email" name="email" value="${escapeHtml2(user.email)}" required>
       </div>
       <div class="form-group">
         <label>New Password (leave blank to keep current)</label>
@@ -1669,18 +1681,18 @@ var App = (() => {
     const nameParts = userName.split(" ");
     const form = `
     <form id="linkProfileForm">
-      <p>Create an employee profile for <strong>${escapeHtml(userName)}</strong> (${escapeHtml(userEmail)})</p>
+      <p>Create an employee profile for <strong>${escapeHtml2(userName)}</strong> (${escapeHtml2(userEmail)})</p>
       <div class="form-group">
         <label>First Name</label>
-        <input type="text" name="firstName" value="${escapeHtml(nameParts[0] || "")}" required>
+        <input type="text" name="firstName" value="${escapeHtml2(nameParts[0] || "")}" required>
       </div>
       <div class="form-group">
         <label>Last Name</label>
-        <input type="text" name="lastName" value="${escapeHtml(nameParts.slice(1).join(" ") || "")}" required>
+        <input type="text" name="lastName" value="${escapeHtml2(nameParts.slice(1).join(" ") || "")}" required>
       </div>
       <div class="form-group">
         <label>Email</label>
-        <input type="email" name="email" value="${escapeHtml(userEmail)}" required>
+        <input type="email" name="email" value="${escapeHtml2(userEmail)}" required>
       </div>
       <div class="form-group">
         <label>Phone</label>
@@ -1780,10 +1792,10 @@ var App = (() => {
       <tbody>
         ${employees.map((e) => `
           <tr>
-            <td>${escapeHtml(e.firstName)} ${escapeHtml(e.lastName)}</td>
-            <td>${escapeHtml(e.email)}</td>
-            <td>${escapeHtml(e.phone) || "-"}</td>
-            <td>${e.roles.map((r) => `${escapeHtml(r.role.name)} (${escapeHtml(r.company.name)})`).join(", ") || "-"}</td>
+            <td>${escapeHtml2(e.firstName)} ${escapeHtml2(e.lastName)}</td>
+            <td>${escapeHtml2(e.email)}</td>
+            <td>${escapeHtml2(e.phone) || "-"}</td>
+            <td>${e.roles.map((r) => `${escapeHtml2(r.role.name)} (${escapeHtml2(r.company.name)})`).join(", ") || "-"}</td>
             <td>${e.identifiers.length}</td>
             <td>
               <button class="btn btn-sm btn-primary" onclick="viewEmployee(${e.id})">View</button>
@@ -1806,7 +1818,7 @@ var App = (() => {
         <label>Link to User Account</label>
         <select name="userId" required>
           <option value="">Select user...</option>
-          ${usersWithoutProfiles.map((u) => `<option value="${u.id}">${escapeHtml(u.name)} (${escapeHtml(u.email)})</option>`).join("")}
+          ${usersWithoutProfiles.map((u) => `<option value="${u.id}">${escapeHtml2(u.name)} (${escapeHtml2(u.email)})</option>`).join("")}
         </select>
         ${usersWithoutProfiles.length === 0 ? '<small style="color: #e74c3c;">All users already have profiles. Create a new user first.</small>' : ""}
       </div>
@@ -1873,11 +1885,11 @@ var App = (() => {
         }
       }
       const html = `
-      <p><strong>Name:</strong> ${escapeHtml(emp.firstName)} ${escapeHtml(emp.lastName)}</p>
-      <p><strong>Email:</strong> ${escapeHtml(emp.email)}</p>
-      <p><strong>Phone:</strong> ${escapeHtml(emp.phone) || "-"}</p>
+      <p><strong>Name:</strong> ${escapeHtml2(emp.firstName)} ${escapeHtml2(emp.lastName)}</p>
+      <p><strong>Email:</strong> ${escapeHtml2(emp.email)}</p>
+      <p><strong>Phone:</strong> ${escapeHtml2(emp.phone) || "-"}</p>
       <p><strong>Max Daily Hours:</strong> ${emp.maxDailyHours || 16}h</p>
-      <p><strong>Linked User:</strong> ${escapeHtml(emp.user.name)} (${escapeHtml(emp.user.email)})</p>
+      <p><strong>Linked User:</strong> ${escapeHtml2(emp.user.name)} (${escapeHtml2(emp.user.email)})</p>
 
       <h3>Roles</h3>
       ${emp.roles.length > 0 ? `
@@ -1886,8 +1898,8 @@ var App = (() => {
           <tbody>
             ${emp.roles.map((r) => `
               <tr>
-                <td>${escapeHtml(r.role.name)}</td>
-                <td>${escapeHtml(r.company.name)}</td>
+                <td>${escapeHtml2(r.role.name)}</td>
+                <td>${escapeHtml2(r.company.name)}</td>
                 <td>${r.isActive ? "Yes" : "No"}</td>
               </tr>
             `).join("")}
@@ -1902,15 +1914,15 @@ var App = (() => {
           <tbody>
             ${emp.identifiers.map((i) => `
               <tr>
-                <td>${escapeHtml(i.identifierType)}</td>
-                <td>${escapeHtml(i.identifierValue)}</td>
-                <td>${i.company ? escapeHtml(i.company.name) : "-"}</td>
+                <td>${escapeHtml2(i.identifierType)}</td>
+                <td>${escapeHtml2(i.identifierValue)}</td>
+                <td>${i.company ? escapeHtml2(i.company.name) : "-"}</td>
                 <td>
                   <button class="btn btn-sm btn-primary emp-edit-id-btn"
                     data-emp-id="${emp.id}"
                     data-id="${i.id}"
-                    data-type="${escapeHtml(i.identifierType)}"
-                    data-value="${escapeHtml(i.identifierValue)}"
+                    data-type="${escapeHtml2(i.identifierType)}"
+                    data-value="${escapeHtml2(i.identifierValue)}"
                     data-company-id="${i.companyId || ""}">Edit</button>
                   <button class="btn btn-sm btn-danger" onclick="deleteIdentifier(${emp.id}, ${i.id})">Delete</button>
                 </td>
@@ -1926,7 +1938,7 @@ var App = (() => {
           <thead><tr><th>Label</th><th>Address</th></tr></thead>
           <tbody>
             ${Object.entries(presetAddresses).map(([key, val]) => `
-              <tr><td>${escapeHtml(key)}</td><td>${escapeHtml(val)}</td></tr>
+              <tr><td>${escapeHtml2(key)}</td><td>${escapeHtml2(val)}</td></tr>
             `).join("")}
           </tbody>
         </table>
@@ -1937,7 +1949,7 @@ var App = (() => {
         <button class="btn btn-sm btn-primary" onclick="assignRoleForm(${emp.id})">Assign Role</button>
       </div>
     `;
-      showModalWithForm(`Employee: ${escapeHtml(emp.firstName)} ${escapeHtml(emp.lastName)}`, html);
+      showModalWithForm(`Employee: ${escapeHtml2(emp.firstName)} ${escapeHtml2(emp.lastName)}`, html);
       document.querySelectorAll(".emp-edit-id-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
           editIdentifierForm(
@@ -1961,19 +1973,19 @@ var App = (() => {
     <form id="editEmployeeForm">
       <div class="form-group">
         <label>First Name</label>
-        <input type="text" name="firstName" value="${escapeHtml(emp.firstName)}" required>
+        <input type="text" name="firstName" value="${escapeHtml2(emp.firstName)}" required>
       </div>
       <div class="form-group">
         <label>Last Name</label>
-        <input type="text" name="lastName" value="${escapeHtml(emp.lastName)}" required>
+        <input type="text" name="lastName" value="${escapeHtml2(emp.lastName)}" required>
       </div>
       <div class="form-group">
         <label>Email</label>
-        <input type="email" name="email" value="${escapeHtml(emp.email)}" required>
+        <input type="email" name="email" value="${escapeHtml2(emp.email)}" required>
       </div>
       <div class="form-group">
         <label>Phone</label>
-        <input type="tel" name="phone" value="${escapeHtml(emp.phone) || ""}">
+        <input type="tel" name="phone" value="${escapeHtml2(emp.phone) || ""}">
       </div>
       <div class="form-group">
         <label>Max Daily Hours</label>
@@ -2042,7 +2054,7 @@ var App = (() => {
         <label>Company (optional)</label>
         <select name="companyId">
           <option value="">None</option>
-          ${companies.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")}
+          ${companies.map((c) => `<option value="${c.id}">${escapeHtml2(c.name)}</option>`).join("")}
         </select>
       </div>
       <button type="submit" class="btn btn-primary">Add Identifier</button>
@@ -2103,17 +2115,17 @@ var App = (() => {
       </div>
       <div class="form-group" id="editIdCustomGroup" style="${isCustomType ? "" : "display:none;"}">
         <label>Custom Type Name</label>
-        <input type="text" id="editIdCustomType" value="${escapeHtml(isCustomType ? type : "")}" ${isCustomType ? "required" : ""}>
+        <input type="text" id="editIdCustomType" value="${escapeHtml2(isCustomType ? type : "")}" ${isCustomType ? "required" : ""}>
       </div>
       <div class="form-group">
         <label>Identifier Value</label>
-        <input type="text" name="identifierValue" value="${escapeHtml(value)}" required>
+        <input type="text" name="identifierValue" value="${escapeHtml2(value)}" required>
       </div>
       <div class="form-group">
         <label>Company (optional)</label>
         <select name="companyId">
           <option value="">None</option>
-          ${companies.map((c) => `<option value="${c.id}" ${c.id === companyId ? "selected" : ""}>${escapeHtml(c.name)}</option>`).join("")}
+          ${companies.map((c) => `<option value="${c.id}" ${c.id === companyId ? "selected" : ""}>${escapeHtml2(c.name)}</option>`).join("")}
         </select>
       </div>
       <button type="submit" class="btn btn-primary">Save Changes</button>
@@ -2173,14 +2185,14 @@ var App = (() => {
         <label>Company</label>
         <select name="companyId" id="assignRoleCompanySelect" required>
           <option value="">Select company...</option>
-          ${companies.map((c) => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join("")}
+          ${companies.map((c) => `<option value="${c.id}">${escapeHtml2(c.name)}</option>`).join("")}
         </select>
       </div>
       <div class="form-group">
         <label>Role</label>
         <select name="roleId" id="assignRoleRoleSelect" required>
           <option value="">Select role...</option>
-          ${roles.map((r) => `<option value="${r.id}" data-company="${r.company.id}">${escapeHtml(r.name)} - ${escapeHtml(r.company.name)}</option>`).join("")}
+          ${roles.map((r) => `<option value="${r.id}" data-company="${r.company.id}">${escapeHtml2(r.name)} - ${escapeHtml2(r.company.name)}</option>`).join("")}
         </select>
       </div>
       <button type="submit" class="btn btn-primary">Assign Role</button>
@@ -2191,7 +2203,7 @@ var App = (() => {
       const companyId = parseInt(e.target.value);
       const roleSelect = document.getElementById("assignRoleRoleSelect");
       const filteredRoles = companyId ? roles.filter((r) => r.company.id === companyId) : roles;
-      roleSelect.innerHTML = '<option value="">Select role...</option>' + filteredRoles.map((r) => `<option value="${r.id}">${escapeHtml(r.name)} - ${escapeHtml(r.company.name)}</option>`).join("");
+      roleSelect.innerHTML = '<option value="">Select role...</option>' + filteredRoles.map((r) => `<option value="${r.id}">${escapeHtml2(r.name)} - ${escapeHtml2(r.company.name)}</option>`).join("");
     };
     document.getElementById("assignRoleForm").onsubmit = async (e) => {
       e.preventDefault();
@@ -2264,9 +2276,9 @@ var App = (() => {
       <tbody>
         ${apiKeys.map((k) => `
           <tr>
-            <td>${escapeHtml(k.name)}</td>
-            <td><code>${escapeHtml(k.keyPrefix)}...</code></td>
-            <td>${escapeHtml(k.user.name)}</td>
+            <td>${escapeHtml2(k.name)}</td>
+            <td><code>${escapeHtml2(k.keyPrefix)}...</code></td>
+            <td>${escapeHtml2(k.user.name)}</td>
             <td>${k.lastUsedAt ? new Date(k.lastUsedAt).toLocaleString() : "Never"}</td>
             <td>${k.expiresAt ? new Date(k.expiresAt).toLocaleDateString() : "Never"}</td>
             <td>
@@ -2310,7 +2322,7 @@ var App = (() => {
           <p style="color: #27ae60; font-weight: 600;">API Key created successfully!</p>
           <p><strong>Copy this key now - it will not be shown again:</strong></p>
           <div style="display: flex; gap: 0.5rem; align-items: center; margin-top: 0.5rem;">
-            <input type="text" id="newApiKeyValue" value="${escapeHtml(result.apiKey.key)}" readonly
+            <input type="text" id="newApiKeyValue" value="${escapeHtml2(result.apiKey.key)}" readonly
               style="font-family: monospace; flex: 1; padding: 0.5rem; background: #f8f9fa; border: 1px solid #dee2e6;">
             <button type="button" class="btn btn-primary" onclick="copyApiKey()">Copy</button>
           </div>
@@ -2482,7 +2494,7 @@ var App = (() => {
       for (const p of presets) {
         const item = document.createElement("div");
         item.className = "ac-item";
-        item.innerHTML = `<strong>${escapeHtml(p.label)}</strong><br><small style="color:var(--text);">${escapeHtml(p.address)}</small>`;
+        item.innerHTML = `<strong>${escapeHtml2(p.label)}</strong><br><small style="color:var(--text);">${escapeHtml2(p.address)}</small>`;
         item.onmousedown = async (e) => {
           e.preventDefault();
           input.value = p.address;
@@ -2519,10 +2531,10 @@ var App = (() => {
       for (const p of places.slice(0, 5)) {
         const item = document.createElement("div");
         item.className = "ac-item";
-        item.innerHTML = `<strong>${escapeHtml(p.mainText)}</strong><br><small style="color:#666;">${escapeHtml(p.secondaryText)}</small>`;
+        item.innerHTML = `<strong>${escapeHtml2(p.mainText)}</strong><br><small style="color:#666;">${escapeHtml2(p.secondaryText)}</small>`;
         item.onmousedown = (e) => {
           e.preventDefault();
-          input.value = p.displayName || `${p.mainText}, ${p.secondaryText}`;
+          input.value = p.mainText || p.displayName;
           if (latField && lngField && p.lat && p.lon) {
             latField.value = p.lat;
             lngField.value = p.lon;
@@ -2539,7 +2551,7 @@ var App = (() => {
     if (query && query.length >= 1) {
       const useAsIs = document.createElement("div");
       useAsIs.className = "ac-use-as-is";
-      useAsIs.innerHTML = `Use "<strong>${escapeHtml(query)}</strong>" as entered`;
+      useAsIs.innerHTML = `Use "<strong>${escapeHtml2(query)}</strong>" as entered`;
       useAsIs.onmousedown = (e) => {
         e.preventDefault();
         removeDropdown(id);
@@ -2872,7 +2884,7 @@ var App = (() => {
       companyList = [];
     }
     return companyList.map(
-      (c) => `<option value="${c.id}" ${c.id === selectedId ? "selected" : ""}>${escapeHtml(c.name)}</option>`
+      (c) => `<option value="${c.id}" ${c.id === selectedId ? "selected" : ""}>${escapeHtml2(c.name)}</option>`
     );
   }
   function getEntryRolesForCompany(companyId) {
@@ -2926,11 +2938,11 @@ var App = (() => {
       return `
           <tr>
             <td>${new Date(entry.date).toLocaleDateString()}</td>
-            <td>${entry.entryType}${entry.entryType === "TRAVEL" ? `<br><small>${escapeHtml(entry.travelFrom)} &rarr; ${escapeHtml(entry.travelTo)}</small>` : ""}</td>
+            <td>${entry.entryType}${entry.entryType === "TRAVEL" ? `<br><small>${escapeHtml2(entry.travelFrom)} &rarr; ${escapeHtml2(entry.travelTo)}</small>` : ""}</td>
             <td>${entry.startTime && entry.endTime ? `${formatTime(entry.startTime)}<br>${formatTime(entry.endTime)}` : "-"}</td>
             <td>${entry.hours.toFixed(2)}</td>
-            <td>${escapeHtml(entry.company.name)}</td>
-            <td>${escapeHtml(entry.role.name)}</td>
+            <td>${escapeHtml2(entry.company.name)}</td>
+            <td>${escapeHtml2(entry.role.name)}</td>
             <td>
               <span class="status-badge status-${entry.status}">${entry.status}</span>
               ${entry.privateNotes ? `<br><span class="private-notes-badge">Private</span>` : ""}
@@ -3060,7 +3072,7 @@ var App = (() => {
         return;
       }
       const filteredRoles = getEntryRolesForCompany(companyId);
-      roleSelect.innerHTML = '<option value="">Select role...</option>' + filteredRoles.map((r) => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join("");
+      roleSelect.innerHTML = '<option value="">Select role...</option>' + filteredRoles.map((r) => `<option value="${r.id}">${escapeHtml2(r.name)}</option>`).join("");
     };
     attachAllLocationAutocompletes();
     document.getElementById("entryForm").onsubmit = async (e) => {
@@ -3166,22 +3178,22 @@ var App = (() => {
         <label>Role</label>
         <select name="roleId" id="editEntryRoleSelect" required>
           <option value="">Select role...</option>
-          ${getEntryRolesForCompany(entry.companyId).map((r) => `<option value="${r.id}" ${r.id === entry.roleId ? "selected" : ""}>${escapeHtml(r.name)}</option>`).join("")}
+          ${getEntryRolesForCompany(entry.companyId).map((r) => `<option value="${r.id}" ${r.id === entry.roleId ? "selected" : ""}>${escapeHtml2(r.name)}</option>`).join("")}
         </select>
       </div>
       <div class="form-group">
         <label>Starting Location</label>
-        <input type="text" name="startingLocation" value="${escapeHtml(entry.startingLocation || "")}" placeholder="e.g. School name, Home, Office">
+        <input type="text" name="startingLocation" value="${escapeHtml2(entry.startingLocation || "")}" placeholder="e.g. School name, Home, Office">
         <small style="color: #666;">Where you started from for this entry</small>
       </div>
       <div id="editTravelFields" style="display:${entry.entryType === "TRAVEL" ? "block" : "none"};">
         <div class="form-group">
           <label>Travel From</label>
-          <input type="text" name="travelFrom" value="${escapeHtml(entry.travelFrom || "")}">
+          <input type="text" name="travelFrom" value="${escapeHtml2(entry.travelFrom || "")}">
         </div>
         <div class="form-group">
           <label>Travel To</label>
-          <input type="text" name="travelTo" value="${escapeHtml(entry.travelTo || "")}">
+          <input type="text" name="travelTo" value="${escapeHtml2(entry.travelTo || "")}">
         </div>
       </div>
       <div class="quill-wrapper">
@@ -3198,7 +3210,7 @@ var App = (() => {
       </div>
       <div class="form-group">
         <label>Reason for Deviation</label>
-        <textarea name="reasonForDeviation" rows="2" maxlength="256" style="resize: vertical;" placeholder="If your times differ from your approved schedule, explain why">${escapeHtml(entry.reasonForDeviation || "")}</textarea>
+        <textarea name="reasonForDeviation" rows="2" maxlength="256" style="resize: vertical;" placeholder="If your times differ from your approved schedule, explain why">${escapeHtml2(entry.reasonForDeviation || "")}</textarea>
         <small style="color: #666;">Required by DE WMS if entry times deviate from your default schedule</small>
       </div>
       <div class="private-notes-wrapper">
@@ -3248,7 +3260,7 @@ var App = (() => {
         return;
       }
       const filteredRoles = getEntryRolesForCompany(companyId);
-      roleSelect.innerHTML = '<option value="">Select role...</option>' + filteredRoles.map((r) => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join("");
+      roleSelect.innerHTML = '<option value="">Select role...</option>' + filteredRoles.map((r) => `<option value="${r.id}">${escapeHtml2(r.name)}</option>`).join("");
     };
     attachAllLocationAutocompletes();
     document.getElementById("editEntryForm").onsubmit = async (e) => {
@@ -3313,7 +3325,7 @@ var App = (() => {
     const waypointNames = [];
     waypoints.push({ lat: entry.travelFromLat, lng: entry.travelFromLng });
     waypointNames.push(entry.travelFrom);
-    const fromMarker = L.marker([entry.travelFromLat, entry.travelFromLng]).addTo(map).bindPopup(`<strong>From</strong><br>${escapeHtml(entry.travelFrom || "N/A")}`);
+    const fromMarker = L.marker([entry.travelFromLat, entry.travelFromLng]).addTo(map).bindPopup(`<strong>From</strong><br>${escapeHtml2(entry.travelFrom || "N/A")}`);
     markers.push(fromMarker);
     const locationNotes = [];
     if (entry.locationNotes) {
@@ -3338,7 +3350,7 @@ var App = (() => {
                 html: `<div style="background: #e74c3c; color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">${i + 1}</div>`,
                 iconSize: [30, 30]
               })
-            }).addTo(map).bindPopup(`<strong>Stop ${i + 1}</strong><br>${escapeHtml(ln.location)}`);
+            }).addTo(map).bindPopup(`<strong>Stop ${i + 1}</strong><br>${escapeHtml2(ln.location)}`);
             markers.push(marker);
           }
         } catch (e) {
@@ -3348,13 +3360,13 @@ var App = (() => {
     }
     waypoints.push({ lat: entry.travelToLat, lng: entry.travelToLng });
     waypointNames.push(entry.travelTo);
-    const toMarker = L.marker([entry.travelToLat, entry.travelToLng]).addTo(map).bindPopup(`<strong>To</strong><br>${escapeHtml(entry.travelTo || "N/A")}`);
+    const toMarker = L.marker([entry.travelToLat, entry.travelToLng]).addTo(map).bindPopup(`<strong>To</strong><br>${escapeHtml2(entry.travelTo || "N/A")}`);
     markers.push(toMarker);
     const routeDistanceEl = document.getElementById("routeDistance");
     if (routeDistanceEl && waypointNames.length > 2) {
       const routeText = waypointNames.map((name, i) => {
-        if (i === 0) return escapeHtml(name);
-        if (i === waypointNames.length - 1) return `\u2192 ${escapeHtml(name)}`;
+        if (i === 0) return escapeHtml2(name);
+        if (i === waypointNames.length - 1) return `\u2192 ${escapeHtml2(name)}`;
         return `\u2192 <span style="color: #e74c3c; font-weight: 600;">Stop ${i}</span>`;
       }).join(" ");
       routeDistanceEl.previousElementSibling.innerHTML = routeText;
@@ -3420,7 +3432,7 @@ var App = (() => {
         const locNotes = typeof entry.locationNotes === "string" ? JSON.parse(entry.locationNotes) : entry.locationNotes;
         locationNotesHtml = locNotes.map((ln) => `
         <div style="background: #e8f4fd; padding: 0.75rem; border-radius: 6px; border-left: 3px solid #3498db; margin-bottom: 0.5rem;">
-          <strong>${escapeHtml(ln.location)}</strong>
+          <strong>${escapeHtml2(ln.location)}</strong>
           <div class="rich-text-content">${sanitizeRichText(ln.description)}</div>
         </div>
       `).join("");
@@ -3449,18 +3461,18 @@ var App = (() => {
 
       <div class="entry-detail-row">
         <div class="entry-detail-label">Company</div>
-        <div class="entry-detail-value">${escapeHtml(entry.company.name)}</div>
+        <div class="entry-detail-value">${escapeHtml2(entry.company.name)}</div>
       </div>
 
       <div class="entry-detail-row">
         <div class="entry-detail-label">Role</div>
-        <div class="entry-detail-value">${escapeHtml(entry.role.name)}</div>
+        <div class="entry-detail-value">${escapeHtml2(entry.role.name)}</div>
       </div>
 
       ${entry.startingLocation ? `
         <div class="entry-detail-row">
           <div class="entry-detail-label">Starting Location</div>
-          <div class="entry-detail-value">\u{1F4CD} ${escapeHtml(entry.startingLocation)}</div>
+          <div class="entry-detail-value">\u{1F4CD} ${escapeHtml2(entry.startingLocation)}</div>
         </div>
       ` : ""}
 
@@ -3468,7 +3480,7 @@ var App = (() => {
         <div class="entry-detail-row">
           <div class="entry-detail-label">Travel Route</div>
           <div class="entry-detail-value">
-            <div>${escapeHtml(entry.travelFrom || "N/A")} \u2192 ${escapeHtml(entry.travelTo || "N/A")}</div>
+            <div>${escapeHtml2(entry.travelFrom || "N/A")} \u2192 ${escapeHtml2(entry.travelTo || "N/A")}</div>
             <div id="routeDistance" style="color: var(--muted); font-size: 0.9rem; margin-top: 0.25rem;">
               ${entry.distance ? `Stored: ${entry.distance.toFixed(1)} km \xB7 ` : ""}Calculating route...
             </div>
@@ -3508,7 +3520,7 @@ var App = (() => {
         <div class="entry-detail-row">
           <div class="entry-detail-label">Reason for Deviation</div>
           <div class="entry-detail-value" style="background: #fff3cd; padding: 0.5rem; border-radius: 4px; border-left: 3px solid #ffc107;">
-            ${escapeHtml(entry.reasonForDeviation)}
+            ${escapeHtml2(entry.reasonForDeviation)}
           </div>
         </div>
       ` : ""}
@@ -3574,7 +3586,7 @@ var App = (() => {
         maxZoom: 19
       }).addTo(map);
       if (hasStartingLocation) {
-        L.marker([entry.startingLocationLat, entry.startingLocationLng]).addTo(map).bindPopup(`<strong>Starting Location</strong><br>${escapeHtml(entry.startingLocation || "N/A")}`);
+        L.marker([entry.startingLocationLat, entry.startingLocationLng]).addTo(map).bindPopup(`<strong>Starting Location</strong><br>${escapeHtml2(entry.startingLocation || "N/A")}`);
       }
       if (hasTravelRoute) {
         renderTravelRoute(map, entry);
@@ -3853,7 +3865,7 @@ var App = (() => {
         return;
       }
       const filteredRoles = getEntryRolesForCompany(companyId);
-      roleSelect.innerHTML = '<option value="">Select role...</option>' + filteredRoles.map((r) => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join("");
+      roleSelect.innerHTML = '<option value="">Select role...</option>' + filteredRoles.map((r) => `<option value="${r.id}">${escapeHtml2(r.name)}</option>`).join("");
     };
     attachAllLocationAutocompletes();
     document.getElementById("entryFormSlide").onsubmit = async (e) => {
@@ -3973,12 +3985,12 @@ var App = (() => {
         <label>Role</label>
         <select name="roleId" id="slideEditEntryRoleSelect" required ${disabled}>
           <option value="">Select role...</option>
-          ${getEntryRolesForCompany(entry.companyId).map((r) => `<option value="${r.id}" ${r.id === entry.roleId ? "selected" : ""}>${escapeHtml(r.name)}</option>`).join("")}
+          ${getEntryRolesForCompany(entry.companyId).map((r) => `<option value="${r.id}" ${r.id === entry.roleId ? "selected" : ""}>${escapeHtml2(r.name)}</option>`).join("")}
         </select>
       </div>
       <div id="slideEditStartingLocationField" class="form-group" style="display:${entry.entryType === "TRAVEL" ? "none" : "block"};">
         <label>Starting Location</label>
-        <input type="text" name="startingLocation" value="${escapeHtml(entry.startingLocation || "")}" placeholder="e.g. School name, Home, Office">
+        <input type="text" name="startingLocation" value="${escapeHtml2(entry.startingLocation || "")}" placeholder="e.g. School name, Home, Office">
         <input type="hidden" name="startingLocationLat" value="${entry.startingLocationLat || ""}">
         <input type="hidden" name="startingLocationLng" value="${entry.startingLocationLng || ""}">
         <small style="color: #666;">Where you started from for this entry</small>
@@ -3986,13 +3998,13 @@ var App = (() => {
       <div id="slideEditTravelFields" style="display:${entry.entryType === "TRAVEL" ? "block" : "none"};">
         <div class="form-group">
           <label>Travel From</label>
-          <input type="text" name="travelFrom" value="${escapeHtml(entry.travelFrom || "")}">
+          <input type="text" name="travelFrom" value="${escapeHtml2(entry.travelFrom || "")}">
           <input type="hidden" name="travelFromLat" value="${entry.travelFromLat || ""}">
           <input type="hidden" name="travelFromLng" value="${entry.travelFromLng || ""}">
         </div>
         <div class="form-group">
           <label>Travel To</label>
-          <input type="text" name="travelTo" value="${escapeHtml(entry.travelTo || "")}">
+          <input type="text" name="travelTo" value="${escapeHtml2(entry.travelTo || "")}">
           <input type="hidden" name="travelToLat" value="${entry.travelToLat || ""}">
           <input type="hidden" name="travelToLng" value="${entry.travelToLng || ""}">
         </div>
@@ -4031,7 +4043,7 @@ var App = (() => {
       </div>
       <div class="form-group">
         <label>Reason for Deviation</label>
-        <textarea name="reasonForDeviation" rows="2" maxlength="256" style="resize: vertical;" placeholder="If your times differ from your approved schedule, explain why">${escapeHtml(entry.reasonForDeviation || "")}</textarea>
+        <textarea name="reasonForDeviation" rows="2" maxlength="256" style="resize: vertical;" placeholder="If your times differ from your approved schedule, explain why">${escapeHtml2(entry.reasonForDeviation || "")}</textarea>
         <small style="color: #666;">Required by DE WMS if entry times deviate from your default schedule</small>
       </div>
       <div class="private-notes-wrapper">
@@ -4164,7 +4176,7 @@ var App = (() => {
         return;
       }
       const filteredRoles = getEntryRolesForCompany(companyId);
-      roleSelect.innerHTML = '<option value="">Select role...</option>' + filteredRoles.map((r) => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join("");
+      roleSelect.innerHTML = '<option value="">Select role...</option>' + filteredRoles.map((r) => `<option value="${r.id}">${escapeHtml2(r.name)}</option>`).join("");
     };
     attachAllLocationAutocompletes();
     document.getElementById("editEntryFormSlide").onsubmit = async (e) => {
@@ -4249,11 +4261,11 @@ var App = (() => {
     <form id="profileForm">
       <div class="form-group">
         <label>Name</label>
-        <input type="text" name="name" value="${escapeHtml(currentUser2.name)}" required>
+        <input type="text" name="name" value="${escapeHtml2(currentUser2.name)}" required>
       </div>
       <div class="form-group">
         <label>Email</label>
-        <input type="email" value="${escapeHtml(currentUser2.email)}" disabled>
+        <input type="email" value="${escapeHtml2(currentUser2.email)}" disabled>
         <small>Email cannot be changed</small>
       </div>
       <div class="form-group">
@@ -4265,7 +4277,7 @@ var App = (() => {
         <h3>Employee Details</h3>
         <div class="form-group">
           <label>Phone</label>
-          <input type="tel" name="phone" value="${escapeHtml(emp.phone || "")}">
+          <input type="tel" name="phone" value="${escapeHtml2(emp.phone || "")}">
         </div>
         <h3>Time Templates</h3>
         <p><small>Default start/end times for new entries</small></p>
@@ -4319,8 +4331,8 @@ var App = (() => {
         row.id = `presetRow_${idx}`;
         row.style.cssText = "display:flex;gap:0.5rem;align-items:center;margin-bottom:0.5rem;";
         row.innerHTML = `
-        <input type="text" class="form-control preset-label" placeholder="Label (e.g. Home)" value="${escapeHtml(label || "")}" style="flex:1;">
-        <input type="text" class="form-control preset-address" placeholder="Address" value="${escapeHtml(address || "")}" style="flex:2;">
+        <input type="text" class="form-control preset-label" placeholder="Label (e.g. Home)" value="${escapeHtml2(label || "")}" style="flex:1;">
+        <input type="text" class="form-control preset-address" placeholder="Address" value="${escapeHtml2(address || "")}" style="flex:2;">
         <button type="button" class="btn btn-sm btn-danger" onclick="document.getElementById('presetRow_${idx}').remove()">X</button>
       `;
         container.appendChild(row);
@@ -4440,10 +4452,10 @@ var App = (() => {
             ${i === 0 ? `<td rowspan="${maxRows}">${new Date(date).toLocaleDateString()}</td>` : ""}
             <td>${ourEntry ? `${ourEntry.startTime} - ${ourEntry.endTime}` : "-"}</td>
             <td>${ourEntry ? ourEntry.hours.toFixed(2) : "-"}</td>
-            <td>${ourEntry ? escapeHtml(ourEntry.company) : "-"}</td>
+            <td>${ourEntry ? escapeHtml2(ourEntry.company) : "-"}</td>
             <td>${wmsEntry ? `${wmsEntry.startTime} - ${wmsEntry.endTime}` : "-"}</td>
             <td>${wmsEntry ? Number(wmsEntry.hours).toFixed(2) : "-"}</td>
-            <td>${wmsEntry ? escapeHtml(wmsEntry.company) : "-"}</td>
+            <td>${wmsEntry ? escapeHtml2(wmsEntry.company) : "-"}</td>
             <td>${status}</td>
           </tr>
         `;
@@ -4451,9 +4463,9 @@ var App = (() => {
       }
       const html = `
       <h3>DE WMS Entry Comparison</h3>
-      <p>${escapeHtml(ts.employee.user.name)} &mdash; Week ${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}</p>
-      ${workerId ? `<p><small>DE Worker ID: ${escapeHtml(workerId)}</small></p>` : '<p style="color: #e67e22;"><small>No DE WMS worker identifier found for this employee. Showing all entries for the date range.</small></p>'}
-      ${fetchError ? `<div class="alert alert-danger" style="padding: 0.75rem; background: #f8d7da; border-radius: 4px; margin-bottom: 1rem;">Could not fetch WMS data: ${escapeHtml(fetchError)}</div>` : ""}
+      <p>${escapeHtml2(ts.employee.user.name)} &mdash; Week ${new Date(ts.weekStarting).toLocaleDateString()} - ${new Date(ts.weekEnding).toLocaleDateString()}</p>
+      ${workerId ? `<p><small>DE Worker ID: ${escapeHtml2(workerId)}</small></p>` : '<p style="color: #e67e22;"><small>No DE WMS worker identifier found for this employee. Showing all entries for the date range.</small></p>'}
+      ${fetchError ? `<div class="alert alert-danger" style="padding: 0.75rem; background: #f8d7da; border-radius: 4px; margin-bottom: 1rem;">Could not fetch WMS data: ${escapeHtml2(fetchError)}</div>` : ""}
       ${allDates.length > 0 ? `
         <div class="table-responsive">
         <table>
@@ -4806,7 +4818,7 @@ var App = (() => {
             <strong>Active (${activeTenants.length}):</strong>
           </p>
           <ul style="margin: 0.25rem 0 0 1.5rem; color: ${hasInactive ? "#92400e" : "#065f46"};">
-            ${activeTenants.map((t) => `<li>${escapeHtml(t.tenantName)}</li>`).join("")}
+            ${activeTenants.map((t) => `<li>${escapeHtml2(t.tenantName)}</li>`).join("")}
           </ul>
         ` : ""}
 
@@ -4815,7 +4827,7 @@ var App = (() => {
             <strong>Inactive (${inactiveTenants.length}):</strong>
           </p>
           <ul style="margin: 0.25rem 0 0 1.5rem; color: #dc2626;">
-            ${inactiveTenants.map((t) => `<li>${escapeHtml(t.tenantName)} - Token expired</li>`).join("")}
+            ${inactiveTenants.map((t) => `<li>${escapeHtml2(t.tenantName)} - Token expired</li>`).join("")}
           </ul>
           <p style="margin: 0.75rem 0 0 0; color: #92400e;">
             Click "Reconnect All" below to refresh all tenant tokens.
@@ -4837,7 +4849,7 @@ var App = (() => {
     const employeeSelector = document.getElementById("employeeTenantSelector");
     const roleSelector = document.getElementById("roleTenantSelector");
     const options = tenants.map(
-      (t) => `<option value="${escapeHtml(t.tenantId)}">${escapeHtml(t.tenantName)}</option>`
+      (t) => `<option value="${escapeHtml2(t.tenantId)}">${escapeHtml2(t.tenantName)}</option>`
     ).join("");
     if (employeeSelector) {
       employeeSelector.innerHTML = `<option value="">Select a tenant...</option>${options}`;
@@ -4935,15 +4947,15 @@ var App = (() => {
       const tenant = mapping ? tenants.find((t) => t.id === mapping.xeroTokenId) : null;
       return `
             <tr>
-              <td>${escapeHtml(company.name)}</td>
+              <td>${escapeHtml2(company.name)}</td>
               <td>
-                ${tenant ? escapeHtml(tenant.tenantName) : '<span style="color: #9ca3af;">Not mapped</span>'}
+                ${tenant ? escapeHtml2(tenant.tenantName) : '<span style="color: #9ca3af;">Not mapped</span>'}
               </td>
               <td>
                 ${mapping?.invoiceRate ? `$${mapping.invoiceRate.toFixed(2)}/hr` : "-"}
               </td>
               <td>
-                ${mapping?.xeroContactId ? escapeHtml(mapping.xeroContactId) : "-"}
+                ${mapping?.xeroContactId ? escapeHtml2(mapping.xeroContactId) : "-"}
               </td>
               <td>
                 <button class="btn btn-sm btn-primary" onclick="window.editCompanyMapping(${company.id})">
@@ -4969,15 +4981,15 @@ var App = (() => {
     <form id="companyMappingForm">
       <div class="form-group">
         <label>Company</label>
-        <input type="text" value="${escapeHtml(company.name)}" disabled>
+        <input type="text" value="${escapeHtml2(company.name)}" disabled>
       </div>
       <div class="form-group">
         <label>Xero Tenant *</label>
         <select name="xeroTenantId" required>
           <option value="">Select tenant...</option>
           ${tenants.map((t) => `
-            <option value="${escapeHtml(t.tenantId)}" ${mapping?.xeroTenantId === t.tenantId ? "selected" : ""}>
-              ${escapeHtml(t.tenantName)}
+            <option value="${escapeHtml2(t.tenantId)}" ${mapping?.xeroTenantId === t.tenantId ? "selected" : ""}>
+              ${escapeHtml2(t.tenantName)}
             </option>
           `).join("")}
         </select>
@@ -5055,9 +5067,9 @@ var App = (() => {
         ) : null;
         return `
               <tr>
-                <td>${escapeHtml(employee.firstName)} ${escapeHtml(employee.lastName)}</td>
+                <td>${escapeHtml2(employee.firstName)} ${escapeHtml2(employee.lastName)}</td>
                 <td>
-                  ${xeroEmp ? `${escapeHtml(xeroEmp.FirstName || xeroEmp.firstName || "")} ${escapeHtml(xeroEmp.LastName || xeroEmp.lastName || "")}` : '<span style="color: #9ca3af;">Not mapped</span>'}
+                  ${xeroEmp ? `${escapeHtml2(xeroEmp.FirstName || xeroEmp.firstName || "")} ${escapeHtml2(xeroEmp.LastName || xeroEmp.lastName || "")}` : '<span style="color: #9ca3af;">Not mapped</span>'}
                 </td>
                 <td>
                   ${mapping ? '<span style="color: #10b981;">\u2713 Mapped</span>' : '<span style="color: #f59e0b;">\u26A0 Unmapped</span>'}
@@ -5075,7 +5087,7 @@ var App = (() => {
     `;
     } catch (error) {
       console.error("Failed to load Xero employees:", error);
-      container.innerHTML = `<p style="color: #dc2626;">Failed to load Xero employees: ${escapeHtml(error.message)}</p>`;
+      container.innerHTML = `<p style="color: #dc2626;">Failed to load Xero employees: ${escapeHtml2(error.message)}</p>`;
     }
   }
   window.editEmployeeMapping = async function(employeeId) {
@@ -5097,7 +5109,7 @@ var App = (() => {
       <form id="employeeMappingForm">
         <div class="form-group">
           <label>Local Employee</label>
-          <input type="text" value="${escapeHtml(employee.firstName)} ${escapeHtml(employee.lastName)}" disabled>
+          <input type="text" value="${escapeHtml2(employee.firstName)} ${escapeHtml2(employee.lastName)}" disabled>
         </div>
         <div class="form-group">
           <label>Xero Employee *</label>
@@ -5108,8 +5120,8 @@ var App = (() => {
         const firstName = xe.firstName || xe.FirstName || "";
         const lastName = xe.lastName || xe.LastName || "";
         return `
-                <option value="${escapeHtml(empId)}" ${mapping?.identifierValue === empId ? "selected" : ""}>
-                  ${escapeHtml(firstName)} ${escapeHtml(lastName)} (${escapeHtml(empId.substring(0, 8))})
+                <option value="${escapeHtml2(empId)}" ${mapping?.identifierValue === empId ? "selected" : ""}>
+                  ${escapeHtml2(firstName)} ${escapeHtml2(lastName)} (${escapeHtml2(empId.substring(0, 8))})
                 </option>
               `;
       }).join("")}
@@ -5175,10 +5187,10 @@ var App = (() => {
         ) : null;
         return `
               <tr>
-                <td>${escapeHtml(role.name)}</td>
-                <td>${escapeHtml(role.company?.name || "N/A")}</td>
+                <td>${escapeHtml2(role.name)}</td>
+                <td>${escapeHtml2(role.company?.name || "N/A")}</td>
                 <td>
-                  ${earningsRate ? escapeHtml(earningsRate.Name || earningsRate.name || "(Unnamed)") : '<span style="color: #9ca3af;">Not mapped</span>'}
+                  ${earningsRate ? escapeHtml2(earningsRate.Name || earningsRate.name || "(Unnamed)") : '<span style="color: #9ca3af;">Not mapped</span>'}
                 </td>
                 <td>
                   ${mapping ? '<span style="color: #10b981;">\u2713 Mapped</span>' : '<span style="color: #f59e0b;">\u26A0 Unmapped</span>'}
@@ -5196,7 +5208,7 @@ var App = (() => {
     `;
     } catch (error) {
       console.error("Failed to load earnings rates:", error);
-      container.innerHTML = `<p style="color: #dc2626;">Failed to load earnings rates: ${escapeHtml(error.message)}</p>`;
+      container.innerHTML = `<p style="color: #dc2626;">Failed to load earnings rates: ${escapeHtml2(error.message)}</p>`;
     }
   }
   window.editRoleMapping = async function(roleId) {
@@ -5213,7 +5225,7 @@ var App = (() => {
     <form id="roleMappingForm">
       <div class="form-group">
         <label>Local Role</label>
-        <input type="text" value="${escapeHtml(role.name)} (${escapeHtml(role.company?.name || "N/A")})" disabled>
+        <input type="text" value="${escapeHtml2(role.name)} (${escapeHtml2(role.company?.name || "N/A")})" disabled>
       </div>
       <div class="form-group">
         <label>Xero Earnings Rate *</label>
@@ -5224,8 +5236,8 @@ var App = (() => {
       const name = er.Name || er.name || "(Unnamed)";
       const rateType = er.RateType || er.rateType || "Standard";
       return `
-              <option value="${escapeHtml(rateId)}" ${mapping?.xeroEarningsRateId === rateId ? "selected" : ""}>
-                ${escapeHtml(name)} (${escapeHtml(rateType)})
+              <option value="${escapeHtml2(rateId)}" ${mapping?.xeroEarningsRateId === rateId ? "selected" : ""}>
+                ${escapeHtml2(name)} (${escapeHtml2(rateType)})
               </option>
             `;
     }).join("")}
@@ -5281,7 +5293,7 @@ var App = (() => {
       const empSettings = settings.find((s) => s.employeeId === employee.id);
       return `
             <tr>
-              <td>${escapeHtml(employee.firstName)} ${escapeHtml(employee.lastName)}</td>
+              <td>${escapeHtml2(employee.firstName)} ${escapeHtml2(employee.lastName)}</td>
               <td>
                 ${empSettings?.employeeType === "LT" ? '<span style="color: #3b82f6;">Local Tech</span>' : '<span style="color: #10b981;">Specialist Tech</span>'}
               </td>
@@ -5361,13 +5373,13 @@ var App = (() => {
         const isCustom = !!customRate;
         return `
               <tr>
-                <td>${escapeHtml(employee.firstName)} ${escapeHtml(employee.lastName)}</td>
-                <td>${escapeHtml(role.name)}</td>
-                <td>${escapeHtml(tenant.tenantName)}</td>
+                <td>${escapeHtml2(employee.firstName)} ${escapeHtml2(employee.lastName)}</td>
+                <td>${escapeHtml2(role.name)}</td>
+                <td>${escapeHtml2(tenant.tenantName)}</td>
                 <td>
                   ${currentRate ? `
                     <span style="${isCustom ? "color: #3b82f6; font-weight: 500;" : ""}">
-                      ${escapeHtml(currentRate.earningsRateName)}
+                      ${escapeHtml2(currentRate.earningsRateName)}
                     </span>
                     ${isCustom ? '<span style="color: #3b82f6; font-size: 0.75rem; margin-left: 0.5rem;">(CUSTOM)</span>' : ""}
                     ${!isCustom ? '<span style="color: #6b7280; font-size: 0.75rem; margin-left: 0.5rem;">(default)</span>' : ""}
@@ -5408,15 +5420,15 @@ var App = (() => {
       <form id="customEarningsRateForm">
         <div class="form-group">
           <label>Employee</label>
-          <input type="text" value="${escapeHtml(employee.firstName)} ${escapeHtml(employee.lastName)}" disabled>
+          <input type="text" value="${escapeHtml2(employee.firstName)} ${escapeHtml2(employee.lastName)}" disabled>
         </div>
         <div class="form-group">
           <label>Role</label>
-          <input type="text" value="${escapeHtml(role.name)}" disabled>
+          <input type="text" value="${escapeHtml2(role.name)}" disabled>
         </div>
         <div class="form-group">
           <label>Xero Tenant</label>
-          <input type="text" value="${escapeHtml(tenantName)}" disabled>
+          <input type="text" value="${escapeHtml2(tenantName)}" disabled>
         </div>
         <div class="form-group">
           <label>Custom Earnings Rate *</label>
@@ -5427,8 +5439,8 @@ var App = (() => {
         const name = er.Name || er.name || "(Unnamed)";
         const rateType = er.RateType || er.rateType || "Standard";
         return `
-                <option value="${escapeHtml(rateId)}">
-                  ${escapeHtml(name)} (${escapeHtml(rateType)})
+                <option value="${escapeHtml2(rateId)}">
+                  ${escapeHtml2(name)} (${escapeHtml2(rateType)})
                 </option>
               `;
       }).join("")}
@@ -5500,7 +5512,7 @@ This will revert to using the role's default rate.`
     <form id="employeeSettingsForm">
       <div class="form-group">
         <label>Employee</label>
-        <input type="text" value="${escapeHtml(employee.firstName)} ${escapeHtml(employee.lastName)}" disabled>
+        <input type="text" value="${escapeHtml2(employee.firstName)} ${escapeHtml2(employee.lastName)}" disabled>
       </div>
       <div class="form-group">
         <label>Employee Type *</label>
@@ -5730,7 +5742,7 @@ This will revert to using the role's default rate.`
       container.innerHTML = calendars.map((cal) => renderCalendarCard(cal)).join("");
     } catch (error) {
       console.error("[XeroSetup] Error loading payroll calendars:", error);
-      container.innerHTML = `<p style="color: var(--danger);">Failed to load payroll calendars: ${escapeHtml(error.message)}</p>`;
+      container.innerHTML = `<p style="color: var(--danger);">Failed to load payroll calendars: ${escapeHtml2(error.message)}</p>`;
     }
   }
   function renderCalendarCard(cal) {
@@ -5750,7 +5762,7 @@ This will revert to using the role's default rate.`
       <p style="margin:0.25rem 0 0.5rem; color:#6b7280; font-size:0.875rem;">
         Create the next pay run so timesheets can be synced.
       </p>
-      <button class="btn btn-sm btn-primary" onclick="xeroSetup.createPayRun('${selectedPayrollTenant}', '${cal.payrollCalendarID}', '${escapeHtml(cal.name)}')">
+      <button class="btn btn-sm btn-primary" onclick="xeroSetup.createPayRun('${selectedPayrollTenant}', '${cal.payrollCalendarID}', '${escapeHtml2(cal.name)}')">
         Create Next Pay Run
       </button>
     </div>`;
@@ -5784,7 +5796,7 @@ This will revert to using the role's default rate.`
         <p style="margin:0.5rem 0 0.75rem; color:#6b7280; font-size:0.875rem;">
           A pay run must exist in Xero before timesheets can be synced for this period.
         </p>
-        <button class="btn btn-sm btn-primary" onclick="xeroSetup.createPayRun('${selectedPayrollTenant}', '${cal.payrollCalendarID}', '${escapeHtml(cal.name)}')">
+        <button class="btn btn-sm btn-primary" onclick="xeroSetup.createPayRun('${selectedPayrollTenant}', '${cal.payrollCalendarID}', '${escapeHtml2(cal.name)}')">
           Create Next Pay Run
         </button>
       </div>
@@ -5819,8 +5831,8 @@ This will revert to using the role's default rate.`
       <div style="display:flex; align-items:center; gap:1rem; margin-bottom:0.5rem;">
         <div style="font-size:1.5rem;">\u{1F4C5}</div>
         <div>
-          <div style="font-weight:700; font-size:1rem;">${escapeHtml(cal.name)}</div>
-          <div style="color:var(--muted); font-size:0.875rem;">${typeLabel} \xB7 Payment reference: ${escapeHtml(paymentDay)}</div>
+          <div style="font-weight:700; font-size:1rem;">${escapeHtml2(cal.name)}</div>
+          <div style="color:var(--muted); font-size:0.875rem;">${typeLabel} \xB7 Payment reference: ${escapeHtml2(paymentDay)}</div>
         </div>
       </div>
       ${currentRunHtml}
@@ -5926,9 +5938,9 @@ Xero will create the next period in sequence after the last existing pay run.`))
         <div style="font-size: 0.875rem;">
           ${stats.recentFailures.slice(0, 5).map((failure) => `
             <div style="padding: 0.5rem 0; border-bottom: 1px solid #fecaca;">
-              <strong>${escapeHtml(failure.timesheet?.employee?.firstName || "Unknown")} ${escapeHtml(failure.timesheet?.employee?.lastName || "")}</strong>
+              <strong>${escapeHtml2(failure.timesheet?.employee?.firstName || "Unknown")} ${escapeHtml2(failure.timesheet?.employee?.lastName || "")}</strong>
               - Week ${failure.timesheet?.weekStarting ? new Date(failure.timesheet.weekStarting).toLocaleDateString() : "Unknown"}
-              <div style="color: #991b1b; margin-top: 0.25rem;">${escapeHtml(failure.errorMessage || "Unknown error")}</div>
+              <div style="color: #991b1b; margin-top: 0.25rem;">${escapeHtml2(failure.errorMessage || "Unknown error")}</div>
             </div>
           `).join("")}
         </div>
@@ -5995,13 +6007,13 @@ Xero will create the next period in sequence after the last existing pay run.`))
               <td>${new Date(log.startedAt).toLocaleString()}</td>
               <td>
                 <span style="font-size: 0.8rem; padding: 0.15rem 0.4rem; border-radius: 3px; background: ${isInvoice ? "#dbeafe" : "#f3f4f6"}; color: ${isInvoice ? "#1e40af" : "#374151"};">
-                  ${escapeHtml(log.syncType)}
+                  ${escapeHtml2(log.syncType)}
                 </span>
               </td>
               <td>
-                ${log.timesheet?.employee ? `${escapeHtml(log.timesheet.employee.firstName)} ${escapeHtml(log.timesheet.employee.lastName)}` : "-"}
+                ${log.timesheet?.employee ? `${escapeHtml2(log.timesheet.employee.firstName)} ${escapeHtml2(log.timesheet.employee.lastName)}` : "-"}
               </td>
-              <td>${escapeHtml(contextCell)}</td>
+              <td>${escapeHtml2(contextCell)}</td>
               <td>
                 <span title="Processed: ${log.recordsProcessed}, Success: ${log.recordsSuccess}, Failed: ${log.recordsFailed}">
                   ${log.recordsSuccess}/${log.recordsProcessed}
@@ -6009,7 +6021,7 @@ Xero will create the next period in sequence after the last existing pay run.`))
               </td>
               <td>
                 <span style="display: inline-block; padding: 0.25rem 0.5rem; background: ${statusColor}22; color: ${statusColor}; border-radius: 4px; font-size: 0.875rem; font-weight: 500;">
-                  ${escapeHtml(log.status)}
+                  ${escapeHtml2(log.status)}
                 </span>
               </td>
               <td>${duration !== null ? `${duration}s` : "-"}</td>
@@ -6037,11 +6049,11 @@ Xero will create the next period in sequence after the last existing pay run.`))
         <table style="width: 100%; margin-bottom: 1rem;">
           <tr>
             <td style="font-weight: 500; padding: 0.5rem 0;">Status:</td>
-            <td>${escapeHtml(log.status)}</td>
+            <td>${escapeHtml2(log.status)}</td>
           </tr>
           <tr>
             <td style="font-weight: 500; padding: 0.5rem 0;">Type:</td>
-            <td>${escapeHtml(log.syncType)}</td>
+            <td>${escapeHtml2(log.syncType)}</td>
           </tr>
           <tr>
             <td style="font-weight: 500; padding: 0.5rem 0;">Started:</td>
@@ -6068,19 +6080,19 @@ Xero will create the next period in sequence after the last existing pay run.`))
           ${log.xeroTimesheetId ? `
             <tr>
               <td style="font-weight: 500; padding: 0.5rem 0;">Xero Timesheet ID:</td>
-              <td style="font-family: monospace; font-size: 0.875rem;">${escapeHtml(log.xeroTimesheetId)}</td>
+              <td style="font-family: monospace; font-size: 0.875rem;">${escapeHtml2(log.xeroTimesheetId)}</td>
             </tr>
           ` : ""}
           ${log.xeroInvoiceId ? `
             <tr>
               <td style="font-weight: 500; padding: 0.5rem 0;">Xero Invoice ID:</td>
-              <td style="font-family: monospace; font-size: 0.875rem;">${escapeHtml(log.xeroInvoiceId)}</td>
+              <td style="font-family: monospace; font-size: 0.875rem;">${escapeHtml2(log.xeroInvoiceId)}</td>
             </tr>
           ` : ""}
           ${log.xeroToken ? `
             <tr>
               <td style="font-weight: 500; padding: 0.5rem 0;">Xero Tenant:</td>
-              <td>${escapeHtml(log.xeroToken.tenantName)}</td>
+              <td>${escapeHtml2(log.xeroToken.tenantName)}</td>
             </tr>
           ` : ""}
         </table>
@@ -6088,7 +6100,7 @@ Xero will create the next period in sequence after the last existing pay run.`))
         ${log.errorMessage ? `
           <div style="padding: 1rem; background: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; margin-bottom: 1rem;">
             <strong style="color: #dc2626;">Error:</strong>
-            <pre style="margin: 0.5rem 0 0 0; white-space: pre-wrap; font-size: 0.875rem;">${escapeHtml(log.errorMessage)}</pre>
+            <pre style="margin: 0.5rem 0 0 0; white-space: pre-wrap; font-size: 0.875rem;">${escapeHtml2(log.errorMessage)}</pre>
           </div>
         ` : ""}
 
@@ -6228,23 +6240,27 @@ Xero will create the next period in sequence after the last existing pay run.`))
               <div style="background: white; border-radius: 8px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                   <div>
-                    <h4 style="margin: 0; color: #111827;">${emp.employeeName}</h4>
-                    <p style="margin: 0.25rem 0 0 0; color: #6b7280; font-size: 0.875rem;">${emp.email}</p>
+                    <h4 style="margin: 0; color: #111827;">${escapeHtml(emp.employeeName)}</h4>
+                    <p style="margin: 0.25rem 0 0 0; color: #6b7280; font-size: 0.875rem;">${escapeHtml(emp.email)}</p>
                   </div>
                 </div>
-                <div class="balance-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
-                  ${emp.balances.map((bal) => {
+                ${emp.notConfigured || !emp.balances ? `
+                  <p style="color: #9ca3af; font-size: 0.875rem; margin: 0;">Not configured in Xero \u2014 no leave balance available.</p>
+                ` : `
+                  <div class="balance-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+                    ${emp.balances.map((bal) => {
       const name = bal.leaveName || bal.LeaveName || bal.name || bal.Name || "Unknown";
       const units = bal.numberOfUnits || bal.NumberOfUnits || 0;
       return `
-                      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; padding: 1rem; color: white; text-align: center;">
-                        <div style="font-size: 0.75rem; opacity: 0.9; margin-bottom: 0.5rem;">${name}</div>
-                        <div style="font-size: 1.75rem; font-weight: 700;">${units}h</div>
-                        <div style="font-size: 0.75rem; opacity: 0.8;">available</div>
-                      </div>
-                    `;
+                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; padding: 1rem; color: white; text-align: center;">
+                          <div style="font-size: 0.75rem; opacity: 0.9; margin-bottom: 0.5rem;">${escapeHtml(name)}</div>
+                          <div style="font-size: 1.75rem; font-weight: 700;">${units}h</div>
+                          <div style="font-size: 0.75rem; opacity: 0.8;">available</div>
+                        </div>
+                      `;
     }).join("")}
-                </div>
+                  </div>
+                `}
               </div>
             `).join("")}
           </div>
@@ -6582,15 +6598,15 @@ Xero will create the next period in sequence after the last existing pay run.`))
       return;
     }
     const rows = invoices.map((inv) => {
-      const employeeName = escapeHtml(`${inv.employee.firstName} ${inv.employee.lastName}`);
-      const companyName = escapeHtml(inv.company.name);
+      const employeeName = escapeHtml2(`${inv.employee.firstName} ${inv.employee.lastName}`);
+      const companyName = escapeHtml2(inv.company.name);
       const month = formatMonth(inv.invoiceMonth);
       const hours = Number(inv.totalHours).toFixed(2);
       const rate = Number(inv.hourlyRate).toFixed(2);
       const amount = Number(inv.totalAmount).toFixed(2);
       const entryCount = inv.entries.length;
       const statusBadge = renderStatusBadge(inv.status);
-      const xeroId = inv.xeroInvoiceId ? `<span style="font-family: monospace; font-size: 0.8rem;">${escapeHtml(inv.xeroInvoiceId)}</span>` : '<span style="color: #9ca3af;">\u2014</span>';
+      const xeroId = inv.xeroInvoiceId ? `<span style="font-family: monospace; font-size: 0.8rem;">${escapeHtml2(inv.xeroInvoiceId)}</span>` : '<span style="color: #9ca3af;">\u2014</span>';
       return `
       <tr>
         <td>${employeeName}</td>
@@ -6651,8 +6667,8 @@ Xero will create the next period in sequence after the last existing pay run.`))
   async function viewInvoice(invoiceId) {
     try {
       const inv = await api.get(`/xero/invoice/${invoiceId}`);
-      const employeeName = escapeHtml(`${inv.employee.firstName} ${inv.employee.lastName}`);
-      const companyName = escapeHtml(inv.company.name);
+      const employeeName = escapeHtml2(`${inv.employee.firstName} ${inv.employee.lastName}`);
+      const companyName = escapeHtml2(inv.company.name);
       const month = formatMonth(inv.invoiceMonth);
       const hours = Number(inv.totalHours).toFixed(2);
       const rate = Number(inv.hourlyRate).toFixed(2);
@@ -6673,7 +6689,7 @@ Xero will create the next period in sequence after the last existing pay run.`))
                 ${formatDate2(e.timesheet.weekStarting)} \u2013 ${formatDate2(e.timesheet.weekEnding)}
               </td>
               <td style="padding: 0.5rem 0.75rem; text-align: right; font-size: 0.85rem;">${Number(e.hours).toFixed(2)}</td>
-              <td style="padding: 0.5rem 0.75rem; font-size: 0.85rem; color: #6b7280;">${escapeHtml(e.description || "")}</td>
+              <td style="padding: 0.5rem 0.75rem; font-size: 0.85rem; color: #6b7280;">${escapeHtml2(e.description || "")}</td>
             </tr>
           `).join("")}
         </tbody>
@@ -6713,7 +6729,7 @@ Xero will create the next period in sequence after the last existing pay run.`))
           ${inv.xeroInvoiceId ? `
             <div style="grid-column: 1 / -1;">
               <div style="font-size: 0.75rem; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em;">Xero Invoice ID</div>
-              <div style="margin-top: 0.25rem; font-family: monospace; font-size: 0.85rem; color: #374151;">${escapeHtml(inv.xeroInvoiceId)}</div>
+              <div style="margin-top: 0.25rem; font-family: monospace; font-size: 0.85rem; color: #374151;">${escapeHtml2(inv.xeroInvoiceId)}</div>
             </div>
           ` : ""}
         </div>
@@ -6748,7 +6764,7 @@ Xero will create the next period in sequence after the last existing pay run.`))
       VOIDED: "background: #fee2e2; color: #991b1b;"
     };
     const style = colours[status] || "background: #f3f4f6; color: #374151;";
-    return `<span style="padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; ${style}">${escapeHtml(status)}</span>`;
+    return `<span style="padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; ${style}">${escapeHtml2(status)}</span>`;
   }
   window.xeroInvoices = {
     refresh: loadInvoices,
@@ -6806,13 +6822,13 @@ Xero will create the next period in sequence after the last existing pay run.`))
       const totalHours = (ts.entries || []).reduce((sum, e) => sum + e.hours, 0);
       return `
           <tr>
-            <td>${escapeHtml(name)}</td>
-            <td>${escapeHtml(week)}</td>
+            <td>${escapeHtml2(name)}</td>
+            <td>${escapeHtml2(week)}</td>
             <td>${totalHours.toFixed(1)} hrs</td>
             <td>
               <div style="display:flex; gap:0.5rem;">
                 <button class="btn btn-sm btn-success" onclick="approvalsApproveTimesheet(${ts.id})">Approve</button>
-                <button class="btn btn-sm btn-warning" onclick="approvalsUnlockTimesheet(${ts.id})" title="Send back to Open">Unlock</button>
+                <button class="btn btn-sm btn-warning" onclick="approvalsUnlockTimesheet(${ts.id})" title="Unlock (sets status to UNLOCKED)">Unlock</button>
               </div>
             </td>
           </tr>
@@ -6848,11 +6864,11 @@ Xero will create the next period in sequence after the last existing pay run.`))
       const notes = lr.notes ? lr.notes.replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim() : "";
       return `
           <tr>
-            <td>${escapeHtml(name)}</td>
-            <td>${escapeHtml(leaveType)}</td>
-            <td>${escapeHtml(dates)}</td>
+            <td>${escapeHtml2(name)}</td>
+            <td>${escapeHtml2(leaveType)}</td>
+            <td>${escapeHtml2(dates)}</td>
             <td>${lr.totalHours ? lr.totalHours.toFixed(1) + " hrs" : "\u2014"}</td>
-            <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(notes)}">${escapeHtml(notes)}</td>
+            <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml2(notes)}">${escapeHtml2(notes)}</td>
             <td>
               <div style="display:flex; gap:0.5rem;">
                 <button class="btn btn-sm btn-success" onclick="approvalsApproveLeave(${lr.id})">Approve</button>

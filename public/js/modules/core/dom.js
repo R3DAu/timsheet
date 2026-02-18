@@ -31,10 +31,12 @@ export function sanitizeRichText(html) {
     return escapeHtml(html); // Fallback to escaping
   }
 
-  return DOMPurify.sanitize(html, {
-    ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'ol', 'ul', 'li', 'a'],
+  const clean = DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ['p', 'br', 'strong', 'em', 'u', 'ul', 'li', 'a'],
     ALLOWED_ATTR: ['href', 'target', 'rel']
   });
+  // Quill sometimes emits <ol> for bullet lists — normalise to <ul>
+  return clean.replace(/<ol(\s[^>]*)?>/gi, '<ul>').replace(/<\/ol>/gi, '</ul>');
 }
 
 /**

@@ -338,7 +338,7 @@ const lockTimesheet = async (req, res) => {
 
 /**
  * Unlock a timesheet (admin only)
- * Changes status back to OPEN and cascades to entries
+ * Sets status to UNLOCKED so it can be re-locked without re-submitting
  */
 const unlockTimesheet = async (req, res) => {
   try {
@@ -346,13 +346,13 @@ const unlockTimesheet = async (req, res) => {
 
     const timesheet = await prisma.timesheet.update({
       where: { id: parseInt(id) },
-      data: { status: 'OPEN' }
+      data: { status: 'UNLOCKED' }
     });
 
     // Cascade status change to all entries
     await prisma.timesheetEntry.updateMany({
       where: { timesheetId: parseInt(id) },
-      data: { status: 'OPEN' }
+      data: { status: 'UNLOCKED' }
     });
 
     res.json({ message: 'Timesheet unlocked successfully', timesheet });

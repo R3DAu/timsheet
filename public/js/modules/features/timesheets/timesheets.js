@@ -222,11 +222,11 @@ export async function lockTimesheet(id) {
 }
 
 export async function unlockTimesheet(id) {
-    if (!showConfirmation('Unlock this timesheet and set status to OPEN? All entries will also be set to OPEN.')) return;
+    if (!showConfirmation('Unlock this timesheet? Status will be set to UNLOCKED so it can be edited and re-locked without re-submitting.')) return;
     try {
         await api.post(`/timesheets/${id}/unlock`);
         await refreshTimesheets();
-        showAlert('Timesheet unlocked and set to OPEN');
+        showAlert('Timesheet unlocked (status: UNLOCKED)');
     } catch (error) {
         showAlert(error.message);
     }
@@ -636,17 +636,26 @@ export async function selectEmployee(employeeId) {
   }
 
   if (dropdown) dropdown.style.display = 'none';
+
+  // Auto-create current + next week timesheets for the selected employee
+  const targetId = state.get('selectedEmployeeId');
+  if (targetId) {
+    await autoCreateTimesheets(targetId);
+  }
+
   displayUnifiedTimesheets();
 }
 
 // ==================== AUTO-CREATE TIMESHEETS ====================
 
 /**
- * Auto-create timesheets for current and next week
+ * Auto-create timesheets for current and next week.
+ * @param {number} [targetEmployeeId] - Defaults to the logged-in user's employeeId.
  */
-export async function autoCreateTimesheets() {
+export async function autoCreateTimesheets(targetEmployeeId) {
   const currentUser = state.get('currentUser');
-  if (!currentUser.employeeId) return;
+  const employeeId = targetEmployeeId || currentUser.employeeId;
+  if (!employeeId) return;
 
   const now = new Date();
   const dayOfWeek = now.getDay();
@@ -669,13 +678,20 @@ export async function autoCreateTimesheets() {
     { start: nextMonday, end: nextSunday }
   ];
 
-  const myTimesheets = state.get('myTimesheets') || [];
+  // For the current user use cached state; for other employees fetch fresh.
+  let existingTimesheets;
+  if (!targetEmployeeId || targetEmployeeId === currentUser.employeeId) {
+    existingTimesheets = state.get('myTimesheets') || [];
+  } else {
+    const result = await api.get(`/timesheets?employeeId=${employeeId}`);
+    existingTimesheets = result.timesheets || [];
+  }
 
   for (const week of weeks) {
     const weekStartStr = week.start.toISOString().split('T')[0];
     const weekEndStr = week.end.toISOString().split('T')[0];
 
-    const exists = myTimesheets.some(ts => {
+    const exists = existingTimesheets.some(ts => {
       const tsStart = formatLocalDate(ts.weekStarting);
       return tsStart === weekStartStr;
     });
@@ -683,7 +699,7 @@ export async function autoCreateTimesheets() {
     if (!exists) {
       try {
         await api.post('/timesheets', {
-          employeeId: currentUser.employeeId,
+          employeeId,
           weekStarting: weekStartStr,
           weekEnding: weekEndStr
         });

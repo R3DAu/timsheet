@@ -78,7 +78,7 @@ function renderTimesheetSection(timesheets) {
             <td>
               <div style="display:flex; gap:0.5rem;">
                 <button class="btn btn-sm btn-success" onclick="approvalsApproveTimesheet(${ts.id})">Approve</button>
-                <button class="btn btn-sm btn-warning" onclick="approvalsUnlockTimesheet(${ts.id})" title="Send back to Open">Unlock</button>
+                <button class="btn btn-sm btn-warning" onclick="approvalsUnlockTimesheet(${ts.id})" title="Unlock (sets status to UNLOCKED)">Unlock</button>
               </div>
             </td>
           </tr>

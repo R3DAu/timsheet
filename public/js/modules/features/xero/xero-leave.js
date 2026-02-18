@@ -143,23 +143,27 @@ async function showAdminLeaveView() {
               <div style="background: white; border-radius: 8px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                   <div>
-                    <h4 style="margin: 0; color: #111827;">${emp.employeeName}</h4>
-                    <p style="margin: 0.25rem 0 0 0; color: #6b7280; font-size: 0.875rem;">${emp.email}</p>
+                    <h4 style="margin: 0; color: #111827;">${escapeHtml(emp.employeeName)}</h4>
+                    <p style="margin: 0.25rem 0 0 0; color: #6b7280; font-size: 0.875rem;">${escapeHtml(emp.email)}</p>
                   </div>
                 </div>
-                <div class="balance-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
-                  ${emp.balances.map(bal => {
-                    const name = bal.leaveName || bal.LeaveName || bal.name || bal.Name || 'Unknown';
-                    const units = bal.numberOfUnits || bal.NumberOfUnits || 0;
-                    return `
-                      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; padding: 1rem; color: white; text-align: center;">
-                        <div style="font-size: 0.75rem; opacity: 0.9; margin-bottom: 0.5rem;">${name}</div>
-                        <div style="font-size: 1.75rem; font-weight: 700;">${units}h</div>
-                        <div style="font-size: 0.75rem; opacity: 0.8;">available</div>
-                      </div>
-                    `;
-                  }).join('')}
-                </div>
+                ${emp.notConfigured || !emp.balances ? `
+                  <p style="color: #9ca3af; font-size: 0.875rem; margin: 0;">Not configured in Xero — no leave balance available.</p>
+                ` : `
+                  <div class="balance-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+                    ${emp.balances.map(bal => {
+                      const name = bal.leaveName || bal.LeaveName || bal.name || bal.Name || 'Unknown';
+                      const units = bal.numberOfUnits || bal.NumberOfUnits || 0;
+                      return `
+                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; padding: 1rem; color: white; text-align: center;">
+                          <div style="font-size: 0.75rem; opacity: 0.9; margin-bottom: 0.5rem;">${escapeHtml(name)}</div>
+                          <div style="font-size: 1.75rem; font-weight: 700;">${units}h</div>
+                          <div style="font-size: 0.75rem; opacity: 0.8;">available</div>
+                        </div>
+                      `;
+                    }).join('')}
+                  </div>
+                `}
               </div>
             `).join('')}
           </div>

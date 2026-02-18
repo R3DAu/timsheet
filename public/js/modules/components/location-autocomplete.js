@@ -174,8 +174,8 @@ function showDropdown(input, id, presets, places, query, latField, lngField) {
       item.innerHTML = `<strong>${escapeHtml(p.mainText)}</strong><br><small style="color:#666;">${escapeHtml(p.secondaryText)}</small>`;
       item.onmousedown = (e) => {
         e.preventDefault();
-        // Store full display name from Nominatim
-        input.value = p.displayName || `${p.mainText}, ${p.secondaryText}`;
+        // Prefer place name (e.g. "Warrandyte High School") over street address
+        input.value = p.mainText || p.displayName;
         // Store coordinates from Nominatim
         if (latField && lngField && p.lat && p.lon) {
           latField.value = p.lat;
