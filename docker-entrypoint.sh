@@ -1,9 +1,17 @@
 #!/bin/sh
 set -e
 
-# Force database paths to /app/data volume (overrides any .env values)
-export DATABASE_URL="file:/app/data/timesheet.db"
-export SESSION_DB_PATH="/app/data/sessions.db"
+# Set DATABASE_PROVIDER default (sqlite unless overridden)
+export DATABASE_PROVIDER="${DATABASE_PROVIDER:-sqlite}"
+
+if [ "$DATABASE_PROVIDER" = "sqlite" ]; then
+  # For SQLite: only set DATABASE_URL if not already configured
+  export DATABASE_URL="${DATABASE_URL:-file:/app/data/timesheet.db}"
+else
+  # Non-sqlite provider: patch the schema and regenerate the Prisma client
+  # (Prisma does not support env() in the datasource provider field)
+  node /app/scripts/set-db-provider.js "${DATABASE_PROVIDER}"
+fi
 
 # Ensure Playwright finds its browser binaries
 export PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
@@ -14,8 +22,8 @@ export WMS_DEBUG_DIR=/app/data/wms-debug
 # Ensure data directory exists
 mkdir -p /app/data
 
-# Run Prisma migrations
-npx prisma migrate deploy
+# Run Prisma schema push — works for both SQLite and PostgreSQL
+npx prisma db push
 
 # Start the server
 exec node src/server.js

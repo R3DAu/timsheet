@@ -7,6 +7,8 @@ services:
     shm_size: '512mb'
     env_file:
       - /srv/timesheet/.env
+    # PostgreSQL: set DATABASE_PROVIDER=postgresql and
+    # DATABASE_URL=postgresql://timesheet:changeme@postgres:5432/timesheet
     volumes:
       - /srv/timesheet/data:/app/data:z
     networks:
@@ -17,6 +19,21 @@ services:
       - "traefik.http.routers.timesheet.entrypoints=websecure"
       - "traefik.http.routers.timesheet.tls.certresolver=letsencrypt"
       - "traefik.http.services.timesheet.loadbalancer.server.port=3000"
+
+  # postgres:
+  #   image: postgres:16-alpine
+  #   restart: unless-stopped
+  #   environment:
+  #     POSTGRES_DB: timesheet
+  #     POSTGRES_USER: timesheet
+  #     POSTGRES_PASSWORD: changeme
+  #   volumes:
+  #     - postgres_data:/var/lib/postgresql/data:z
+  #   networks:
+  #     - proxy
+  #
+  # volumes:
+  #   postgres_data:
 
 networks:
   proxy:

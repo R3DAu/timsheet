@@ -5,7 +5,10 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  // Provider is "sqlite" by default; docker-entrypoint.sh substitutes this
+  // automatically when DATABASE_PROVIDER=postgresql (or other) is set.
+  // For local PostgreSQL dev: change "sqlite" to "postgresql" and run prisma generate.
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -446,4 +449,11 @@ model XeroPayrun {
   status       String   // DRAFT, POSTED, PAID
 
   @@index([periodStart, status])
+}
+
+model Session {
+  id        String   @id
+  sid       String   @unique
+  data      String
+  expiresAt DateTime
 }

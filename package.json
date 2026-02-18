@@ -4,7 +4,10 @@
   "description": "Comprehensive timesheet management system with approval workflow",
   "main": "src/server.js",
   "nodemonConfig": {
-    "ignore": ["public/js/app.js", "public/js/app.js.map", "prisma/sessions.db"]
+    "ignore": [
+      "public/js/app.js",
+      "public/js/app.js.map"
+    ]
   },
   "scripts": {
     "dev": "nodemon src/server.js",
@@ -14,6 +17,8 @@
     "db:migrate": "npx prisma migrate dev",
     "db:studio": "npx prisma studio",
     "db:seed": "node prisma/seed.js",
+    "db:sqlite": "node scripts/set-db-provider.js sqlite && npx prisma db push",
+    "db:postgres": "node scripts/set-db-provider.js postgresql && npx prisma db push",
     "reminder:check": "node src/jobs/reminder-check.js"
   },
   "keywords": [
@@ -24,11 +29,10 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@prisma/client": "^5.22.0",
+    "@prisma/client": "^6.19.2",
+    "@quixo3/prisma-session-store": "^3.1.19",
     "axios": "^1.7.9",
     "bcrypt": "^6.0.0",
-    "better-sqlite3": "^12.6.2",
-    "better-sqlite3-session-store": "^0.1.0",
     "connect-session-sequelize": "^7.1.7",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
@@ -47,6 +51,6 @@
   "devDependencies": {
     "esbuild": "^0.27.3",
     "nodemon": "^3.1.9",
-    "prisma": "^5.22.0"
+    "prisma": "^6.19.2"
   }
 }
