@@ -63,14 +63,26 @@ export function getWmsSyncButton(ts) {
     return ''; // Hide entirely for admin viewing others with no WMS entries
   }
 
-  return `<button class="btn btn-sm btn-info" onclick="syncToWms(${ts.id})">Sync to WMS</button>`;
+  return `<button class="btn btn-sm btn-info" onclick="syncToWms(${ts.id}, ${ts.employee?.id || 'null'})">Sync to WMS</button>`;
 }
 
 /**
  * Start WMS sync for a timesheet
  * @param {number} timesheetId - Timesheet ID
+ * @param {number|null} employeeId - Employee ID for prefilling username
  */
-export async function syncToWms(timesheetId) {
+export async function syncToWms(timesheetId, employeeId) {
+  // Try to prefetch the DE work email for prefilling
+  let prefillEmail = null;
+  if (employeeId) {
+    try {
+      const result = await api.get(`/employees/${employeeId}/de-work-email`);
+      prefillEmail = result.email || null;
+    } catch (_) {
+      // Non-fatal - continue without prefill
+    }
+  }
+
   const html = `
     <h3>Sync to DE WMS (TSSP)</h3>
     <div class="alert alert-info">
@@ -79,7 +91,8 @@ export async function syncToWms(timesheetId) {
     <form id="wmsSyncForm">
       <div class="form-group">
         <label>ADFS Username (e.g. domain\\username or email)</label>
-        <input type="text" name="wmsUsername" required autocomplete="off" placeholder="EDUCATION\\jsmith or jsmith@education.vic.gov.au">
+        <input type="text" name="wmsUsername" required autocomplete="off" placeholder="EDUCATION\\jsmith or jsmith@education.vic.gov.au" value="${escapeHtml(prefillEmail || '')}">
+        ${prefillEmail ? '<small style="color: var(--muted);">Prefilled from your DE profile</small>' : ''}
       </div>
       <div class="form-group">
         <label>ADFS Password</label>

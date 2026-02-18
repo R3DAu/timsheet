@@ -30,6 +30,12 @@ const getAllTimesheets = async (req, res) => {
         },
         approvedBy: {
           select: { id: true, name: true, email: true }
+        },
+        xeroSyncLogs: {
+          where: { syncType: 'TIMESHEET_SYNC' },
+          orderBy: { startedAt: 'desc' },
+          take: 1,
+          select: { status: true, errorMessage: true }
         }
       },
       orderBy: { weekStarting: 'desc' }

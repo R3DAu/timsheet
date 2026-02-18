@@ -4,6 +4,29 @@ const xeroPayrollService = require('../services/xeroPayrollService');
 const prisma = new PrismaClient();
 
 /**
+ * Parse a Xero date value which may be in /Date(timestamp+offset)/ format.
+ * The xero-node SDK inconsistently leaves some date fields as raw strings.
+ * Returns an ISO date string (YYYY-MM-DD) for safe frontend consumption, or null.
+ */
+function parseXeroDate(d) {
+  if (!d) return null;
+  if (d instanceof Date) return isNaN(d) ? null : d;
+  if (typeof d === 'string') {
+    const match = /\/Date\((-?\d+)/.exec(d);
+    if (match) return new Date(parseInt(match[1], 10));
+    const parsed = new Date(d);
+    return isNaN(parsed) ? null : parsed;
+  }
+  return null;
+}
+
+function toIsoDate(d) {
+  const parsed = parseXeroDate(d);
+  if (!parsed) return null;
+  return parsed.toISOString();
+}
+
+/**
  * Xero Setup Controller
  * Handles employee/role mapping and configuration
  */
@@ -457,6 +480,109 @@ exports.getXeroLeaveTypes = async (req, res) => {
  * POST /api/xero/setup/leave-type-mapping
  * Map leave type to Xero leave type
  */
+/**
+ * GET /api/xero/setup/payroll-calendars/:tenantId
+ * Get payroll calendars with current/upcoming pay run info
+ */
+exports.getPayrollCalendars = async (req, res) => {
+  try {
+    const { tenantId } = req.params;
+
+    const [calendars, payruns] = await Promise.all([
+      xeroPayrollService.getPayrollCalendars(tenantId),
+      xeroPayrollService.getPayruns(tenantId)
+    ]);
+
+    const today = new Date();
+    today.setUTCHours(0, 0, 0, 0);
+
+    // Enrich each calendar with its current/most-recent pay run info
+    const enriched = calendars.map(cal => {
+      // Find pay runs for this calendar, sorted by period start descending
+      const calPayruns = payruns
+        .filter(pr => pr.payrollCalendarID === cal.payrollCalendarID)
+        .sort((a, b) => {
+          const aDate = parseXeroDate(a.payRunPeriodStartDate);
+          const bDate = parseXeroDate(b.payRunPeriodStartDate);
+          return (bDate || 0) - (aDate || 0);
+        });
+
+      // Find the pay run that strictly covers today
+      const actualCurrentPayrun = calPayruns.find(pr => {
+        const s = parseXeroDate(pr.payRunPeriodStartDate);
+        const e = parseXeroDate(pr.payRunPeriodEndDate);
+        if (!s || !e) return false;
+        s.setUTCHours(0, 0, 0, 0);
+        e.setUTCHours(0, 0, 0, 0);
+        return s <= today && today <= e;
+      }) || null;
+
+      // For display: use the current-period run if it exists, otherwise the most recent
+      const displayPayrun = actualCurrentPayrun || calPayruns[0] || null;
+
+      const mapPayRun = (pr) => ({
+        payRunID: pr.payRunID,
+        payPeriodStartDate: toIsoDate(pr.payRunPeriodStartDate),
+        payPeriodEndDate: toIsoDate(pr.payRunPeriodEndDate),
+        paymentDate: toIsoDate(pr.paymentDate),
+        payRunStatus: pr.payRunStatus
+      });
+
+      return {
+        payrollCalendarID: cal.payrollCalendarID,
+        name: cal.name,
+        calendarType: cal.calendarType,
+        startDate: toIsoDate(cal.startDate),
+        paymentDate: toIsoDate(cal.paymentDate),
+        // currentPayRun: best run to display (today's period or most recent)
+        currentPayRun: displayPayrun ? mapPayRun(displayPayrun) : null,
+        // hasCurrentPeriod: true only when a pay run actually covers today
+        hasCurrentPeriod: actualCurrentPayrun !== null,
+        recentPayRuns: calPayruns.slice(0, 5).map(mapPayRun)
+      };
+    });
+
+    res.json(enriched);
+  } catch (error) {
+    console.error('[XeroSetup] Error fetching payroll calendars:', error);
+    res.status(500).json({ error: 'Failed to fetch payroll calendars', message: error.message });
+  }
+};
+
+/**
+ * POST /api/xero/setup/payrun/create
+ * Create the next pay run for a payroll calendar
+ */
+exports.createPayRun = async (req, res) => {
+  try {
+    const { tenantId, payrollCalendarID } = req.body;
+
+    if (!tenantId || !payrollCalendarID) {
+      return res.status(400).json({ error: 'tenantId and payrollCalendarID are required' });
+    }
+
+    const payRun = await xeroPayrollService.createPayrun(tenantId, { payrollCalendarID });
+
+    if (!payRun) {
+      return res.status(500).json({ error: 'Failed to create pay run' });
+    }
+
+    res.json({
+      success: true,
+      payRun: {
+        payRunID: payRun.payRunID,
+        payPeriodStartDate: toIsoDate(payRun.payRunPeriodStartDate),
+        payPeriodEndDate: toIsoDate(payRun.payRunPeriodEndDate),
+        paymentDate: toIsoDate(payRun.paymentDate),
+        payRunStatus: payRun.payRunStatus
+      }
+    });
+  } catch (error) {
+    console.error('[XeroSetup] Error creating pay run:', error);
+    res.status(500).json({ error: 'Failed to create pay run', message: error.message });
+  }
+};
+
 exports.mapLeaveType = async (req, res) => {
   try {
     const { xeroTenantId, leaveType, xeroLeaveTypeId, leaveTypeName } = req.body;

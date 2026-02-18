@@ -41,7 +41,7 @@ exports.syncTimesheet = async (req, res) => {
 
     res.json({
       success: true,
-      xeroTimesheetId: result.TimesheetID,
+      xeroTimesheetId: result.timesheetID,
       message: 'Timesheet synced successfully'
     });
   } catch (error) {

@@ -143,21 +143,68 @@ class XeroSyncService {
           throw new Error('No earnings rate mappings found for timesheet entries');
         }
 
+        // Find the Xero pay period that covers this timesheet's start date.
+        // Xero rejects timesheets whose startDate/endDate don't exactly match
+        // a pay period (e.g. fortnightly calendars won't match our weekly dates).
+        const payPeriod = await this.findPayPeriod(tenantId, fullTimesheet.weekStarting);
+        if (!payPeriod) {
+          throw new Error(
+            `No Xero pay period found covering ${this.formatXeroDate(fullTimesheet.weekStarting)}. ` +
+            `Ensure the payroll calendar in Xero includes this period.`
+          );
+        }
+
+        // If the pay run is already POSTED, timesheets are locked in Xero
+        if (payPeriod.payRunStatus === 'POSTED') {
+          throw new Error(
+            `Pay run for ${this.formatXeroDate(payPeriod.startDate)}–${this.formatXeroDate(payPeriod.endDate)} ` +
+            `is already POSTED in Xero. Unlock the pay run in Xero before syncing.`
+          );
+        }
+
         const timesheetLines = Object.entries(entriesByRate).map(([earningsRateId, data]) => ({
           earningsRateID: earningsRateId,
-          numberOfUnits: this.buildNumberOfUnits(data.entries, fullTimesheet.weekStarting)
+          numberOfUnits: this.buildNumberOfUnits(data.entries, payPeriod.startDate, payPeriod.endDate)
         }));
 
         const xeroTimesheetData = {
           employeeID: xeroEmployeeId.identifierValue,
-          startDate: this.formatXeroDate(fullTimesheet.weekStarting),
-          endDate: this.formatXeroDate(fullTimesheet.weekEnding),
+          startDate: this.formatXeroDate(payPeriod.startDate),
+          endDate: this.formatXeroDate(payPeriod.endDate),
           status: 'DRAFT',
           timesheetLines
         };
 
         console.log(`[XeroSync] Syncing timesheet ${fullTimesheet.id} to Xero tenant ${tenantId}`);
-        xeroTimesheet = await xeroPayrollService.createTimesheet(tenantId, xeroTimesheetData);
+
+        try {
+          xeroTimesheet = await xeroPayrollService.createTimesheet(tenantId, xeroTimesheetData);
+        } catch (createError) {
+          // Xero returns 400 "already exists" when a timesheet for that employee/week
+          // already exists in Xero but we don't have its ID stored locally.
+          const message = createError.response?.body?.Message || createError.body?.Message || '';
+          if (!message.toLowerCase().includes('already exists')) throw createError;
+
+          console.log(`[XeroSync] Timesheet already exists in Xero — searching for existing to update...`);
+          const existingList = await xeroPayrollService.getTimesheetsByEmployee(
+            tenantId, xeroEmployeeId.identifierValue
+          );
+          // Match on the pay period start date (not our local week start)
+          const periodStartStr = this.formatXeroDate(payPeriod.startDate);
+          const found = existingList.find(t => {
+            if (!t.startDate) return false;
+            const tStart = this.parseXeroDate(t.startDate);
+            return tStart ? this.formatXeroDate(tStart) === periodStartStr : false;
+          });
+
+          if (!found?.timesheetID) {
+            throw new Error('Timesheet already exists in Xero but could not be located to update');
+          }
+
+          console.log(`[XeroSync] Found existing Xero timesheet ${found.timesheetID} — updating`);
+          xeroTimesheet = await xeroPayrollService.updateTimesheet(tenantId, found.timesheetID, xeroTimesheetData);
+          if (!xeroTimesheet) xeroTimesheet = { timesheetID: found.timesheetID };
+        }
 
         if (!xeroTimesheet || !xeroTimesheet.timesheetID) {
           throw new Error('Failed to create Xero timesheet - no ID returned');
@@ -171,7 +218,7 @@ class XeroSyncService {
           }
         });
 
-        await this.ensurePayrun(tenantId, fullTimesheet.weekStarting, fullTimesheet.weekEnding);
+        await this.ensurePayrun(tenantId, payPeriod);
 
         await prisma.xeroSyncLog.update({
           where: { id: syncLog.id },
@@ -281,64 +328,68 @@ class XeroSyncService {
   }
 
   /**
-   * Ensure a payrun exists for the given week
+   * Ensure a pay run exists in Xero for the given pay period.
+   * If the pay run is missing, attempts to create it via the payroll calendar.
+   * Returns the pay run ID, or null if it could not be created.
+   *
+   * @param {string} tenantId
+   * @param {Object} payPeriod - Result of findPayPeriod
    */
-  async ensurePayrun(tenantId, weekStart, weekEnd) {
+  async ensurePayrun(tenantId, payPeriod) {
     try {
-      // Check if payrun already exists in our DB
-      const existingPayrun = await prisma.xeroPayrun.findFirst({
-        where: {
-          xeroTenantId: tenantId,
-          periodStart: weekStart,
-          periodEnd: weekEnd
-        }
-      });
-
-      if (existingPayrun) {
-        console.log(`[XeroSync] Payrun already exists for week ${weekStart.toISOString()}`);
-        return existingPayrun;
+      if (payPeriod.payRunId) {
+        // Pay run already exists — cache it locally if we haven't already
+        await prisma.xeroPayrun.upsert({
+          where: { xeroPayrunId: payPeriod.payRunId },
+          create: {
+            xeroTenantId: tenantId,
+            xeroPayrunId: payPeriod.payRunId,
+            periodStart: payPeriod.startDate,
+            periodEnd: payPeriod.endDate,
+            paymentDate: payPeriod.startDate, // Approximate — actual date in Xero
+            status: payPeriod.payRunStatus || 'DRAFT'
+          },
+          update: {
+            status: payPeriod.payRunStatus || 'DRAFT'
+          }
+        });
+        return payPeriod.payRunId;
       }
 
-      // Get payroll calendars from Xero
-      const calendars = await xeroPayrollService.getPayrollCalendars(tenantId);
-
-      if (!calendars || calendars.length === 0) {
-        console.warn('[XeroSync] No payroll calendars found in Xero');
+      // No pay run yet — try to create one using the payroll calendar
+      if (!payPeriod.payrollCalendarId) {
+        console.warn('[XeroSync] Cannot create pay run: no payroll calendar found');
         return null;
       }
 
-      // Use the first active calendar
-      const calendar = calendars[0];
+      console.log(`[XeroSync] No pay run found for period ${this.formatXeroDate(payPeriod.startDate)} – creating via calendar ${payPeriod.calendarName || payPeriod.payrollCalendarId}`);
 
-      // Check if payrun exists in Xero
-      const xeroPayruns = await xeroPayrollService.getPayruns(tenantId);
-      const matchingPayrun = xeroPayruns.find(pr => {
-        const prStart = new Date(pr.paymentDate);
-        const prEnd = new Date(pr.payPeriodEndDate);
-        return prStart.getTime() === weekStart.getTime() && prEnd.getTime() === weekEnd.getTime();
+      const newPayRun = await xeroPayrollService.createPayrun(tenantId, {
+        payrollCalendarID: payPeriod.payrollCalendarId
       });
 
-      if (matchingPayrun) {
-        // Store in our DB
-        const payrun = await prisma.xeroPayrun.create({
-          data: {
-            xeroTenantId: tenantId,
-            xeroPayrunId: matchingPayrun.payRunID,
-            periodStart: new Date(matchingPayrun.payPeriodStartDate),
-            periodEnd: new Date(matchingPayrun.payPeriodEndDate),
-            paymentDate: new Date(matchingPayrun.paymentDate),
-            status: matchingPayrun.payRunStatus
-          }
-        });
-
-        console.log(`[XeroSync] Found existing Xero payrun: ${matchingPayrun.payRunID}`);
-        return payrun;
+      if (!newPayRun?.payRunID) {
+        console.warn('[XeroSync] Failed to create pay run');
+        return null;
       }
 
-      console.log(`[XeroSync] No payrun found for week ${weekStart.toISOString()} - payruns should be created in Xero manually`);
-      return null;
+      await prisma.xeroPayrun.upsert({
+        where: { xeroPayrunId: newPayRun.payRunID },
+        create: {
+          xeroTenantId: tenantId,
+          xeroPayrunId: newPayRun.payRunID,
+          periodStart: payPeriod.startDate,
+          periodEnd: payPeriod.endDate,
+          paymentDate: this.parseXeroDate(newPayRun.paymentDate) || payPeriod.startDate,
+          status: newPayRun.payRunStatus || 'DRAFT'
+        },
+        update: { status: newPayRun.payRunStatus || 'DRAFT' }
+      });
+
+      console.log(`[XeroSync] Created pay run ${newPayRun.payRunID} for period ${this.formatXeroDate(payPeriod.startDate)}`);
+      return newPayRun.payRunID;
     } catch (error) {
-      console.error('[XeroSync] Error ensuring payrun:', error);
+      console.error('[XeroSync] Error ensuring pay run:', error);
       return null;
     }
   }
@@ -523,33 +574,165 @@ class XeroSyncService {
   }
 
   /**
-   * Build NumberOfUnits array for Xero (7 days: Sun-Sat)
+   * Build NumberOfUnits array for Xero.
+   * The array has one element per day in the pay period (e.g. 7 for weekly, 14 for fortnightly).
+   * Each position is the day offset from periodStartDate (position 0 = period start day).
+   *
    * @param {Array} entries - Timesheet entries for this earnings rate
-   * @param {Date} weekStarting - Start date of the week
-   * @returns {Array} Array of 7 numbers (hours per day, Sun-Sat)
+   * @param {Date} periodStartDate - Pay period start date
+   * @param {Date} periodEndDate - Pay period end date
+   * @returns {Array} Array of N numbers (hours per day across the pay period)
    */
-  buildNumberOfUnits(entries, weekStarting) {
-    // Initialize array with 7 zeros (Sun-Sat)
-    const hoursPerDay = [0, 0, 0, 0, 0, 0, 0];
+  buildNumberOfUnits(entries, periodStartDate, periodEndDate) {
+    const start = new Date(periodStartDate);
+    const end = new Date(periodEndDate);
+    start.setUTCHours(0, 0, 0, 0);
+    end.setUTCHours(0, 0, 0, 0);
+
+    const periodDays = Math.round((end - start) / (1000 * 60 * 60 * 24)) + 1;
+    const hoursPerDay = new Array(periodDays).fill(0);
 
     // Group entries by date and sum hours
     const entriesByDate = {};
     for (const entry of entries) {
       const dateKey = new Date(entry.date).toISOString().split('T')[0];
-      if (!entriesByDate[dateKey]) {
-        entriesByDate[dateKey] = 0;
-      }
-      entriesByDate[dateKey] += entry.hours;
+      entriesByDate[dateKey] = (entriesByDate[dateKey] || 0) + entry.hours;
     }
 
-    // Distribute hours to correct day index (0=Sun, 6=Sat)
+    // Place hours at the correct day offset from period start
     for (const [dateStr, hours] of Object.entries(entriesByDate)) {
-      const date = new Date(dateStr);
-      const dayOfWeek = date.getDay(); // 0=Sun, 1=Mon, ..., 6=Sat
-      hoursPerDay[dayOfWeek] += hours;
+      const entryDate = new Date(dateStr);
+      entryDate.setUTCHours(0, 0, 0, 0);
+      const dayOffset = Math.round((entryDate - start) / (1000 * 60 * 60 * 24));
+      if (dayOffset >= 0 && dayOffset < periodDays) {
+        hoursPerDay[dayOffset] += hours;
+      }
     }
 
     return hoursPerDay;
+  }
+
+  /**
+   * Find the Xero pay period that covers a given date.
+   * First checks existing pay runs; if none found, falls back to calendar math.
+   * Returns full pay period info including pay run status (so callers can detect POSTED).
+   *
+   * @param {string} tenantId
+   * @param {Date} date
+   * @returns {{ startDate, endDate, payRunId, payRunStatus, payrollCalendarId, calendarName } | null}
+   */
+  async findPayPeriod(tenantId, date) {
+    try {
+      const target = new Date(date);
+      target.setUTCHours(0, 0, 0, 0);
+
+      // 1. Check existing pay runs first
+      const payruns = await xeroPayrollService.getPayruns(tenantId);
+      for (const pr of payruns) {
+        if (!pr.payRunPeriodStartDate || !pr.payRunPeriodEndDate) continue;
+        const prStart = this.parseXeroDate(pr.payRunPeriodStartDate);
+        const prEnd = this.parseXeroDate(pr.payRunPeriodEndDate);
+        if (!prStart || !prEnd) continue;
+        prStart.setUTCHours(0, 0, 0, 0);
+        prEnd.setUTCHours(0, 0, 0, 0);
+        if (prStart <= target && target <= prEnd) {
+          return {
+            startDate: prStart,
+            endDate: prEnd,
+            payRunId: pr.payRunID,
+            payRunStatus: pr.payRunStatus,
+            payrollCalendarId: pr.payrollCalendarID,
+            calendarName: null
+          };
+        }
+      }
+
+      // 2. No pay run found — derive period dates from payroll calendar math.
+      // Prefer calendars that have existing pay runs (i.e. are actively used)
+      // over calendars with no pay runs (e.g. old/unused calendars like "Weekly").
+      const calendars = await xeroPayrollService.getPayrollCalendars(tenantId);
+      const calendarIdsWithPayruns = new Set(
+        payruns.map(pr => pr.payrollCalendarID).filter(Boolean)
+      );
+      const sortedCalendars = [
+        ...calendars.filter(c => calendarIdsWithPayruns.has(c.payrollCalendarID)),
+        ...calendars.filter(c => !calendarIdsWithPayruns.has(c.payrollCalendarID))
+      ];
+      for (const cal of sortedCalendars) {
+        const period = this.calculatePayPeriodFromCalendar(cal, target);
+        if (period) {
+          console.log(`[XeroSync] Calculated pay period from calendar "${cal.name}": ${this.formatXeroDate(period.startDate)} – ${this.formatXeroDate(period.endDate)}`);
+          return {
+            ...period,
+            payRunId: null,
+            payRunStatus: null,
+            payrollCalendarId: cal.payrollCalendarID,
+            calendarName: cal.name
+          };
+        }
+      }
+
+      return null;
+    } catch (error) {
+      console.error('[XeroSync] Error finding pay period:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Calculate pay period start/end dates for a given date using a payroll calendar's rules.
+   * Supports WEEKLY and FORTNIGHTLY calendar types.
+   *
+   * @param {Object} calendar - Xero PayrollCalendar object
+   * @param {Date} target - The date to find the period for
+   * @returns {{ startDate: Date, endDate: Date } | null}
+   */
+  calculatePayPeriodFromCalendar(calendar, target) {
+    if (!calendar.startDate) return null;
+
+    const calStart = this.parseXeroDate(calendar.startDate);
+    if (!calStart) return null;
+    calStart.setUTCHours(0, 0, 0, 0);
+    const t = new Date(target);
+    t.setUTCHours(0, 0, 0, 0);
+
+    if (t < calStart) return null; // Before calendar started
+
+    const ONE_DAY = 1000 * 60 * 60 * 24;
+    const daysDiff = Math.round((t - calStart) / ONE_DAY);
+
+    let periodLengthDays;
+    switch (calendar.calendarType) {
+      case 'WEEKLY':      periodLengthDays = 7;  break;
+      case 'FORTNIGHTLY': periodLengthDays = 14; break;
+      default: return null; // MONTHLY etc. need more complex logic
+    }
+
+    const periodNumber = Math.floor(daysDiff / periodLengthDays);
+    const startDate = new Date(calStart.getTime() + periodNumber * periodLengthDays * ONE_DAY);
+    const endDate = new Date(startDate.getTime() + (periodLengthDays - 1) * ONE_DAY);
+
+    return { startDate, endDate };
+  }
+
+  /**
+   * Parse a Xero date which may be in /Date(timestamp+offset)/ format.
+   * The xero-node SDK inconsistently deserialises some date fields, leaving
+   * them as raw strings that new Date() cannot parse.
+   *
+   * @param {*} d - Raw value from Xero SDK (string, Date, or null)
+   * @returns {Date|null}
+   */
+  parseXeroDate(d) {
+    if (!d) return null;
+    if (d instanceof Date) return isNaN(d) ? null : d;
+    if (typeof d === 'string') {
+      const match = /\/Date\((-?\d+)/.exec(d);
+      if (match) return new Date(parseInt(match[1], 10));
+      const parsed = new Date(d);
+      return isNaN(parsed) ? null : parsed;
+    }
+    return null;
   }
 
   /**

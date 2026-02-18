@@ -348,7 +348,12 @@ var App = (() => {
         roles: "Roles",
         users: "Users",
         apiKeys: "API Keys",
-        systemTools: "System Tools"
+        systemTools: "System Tools",
+        approvals: "Approvals",
+        leaveManagement: "Leave Requests",
+        xeroSetup: "Xero Setup",
+        xeroSyncLogs: "Xero Sync Logs",
+        xeroInvoices: "LT Invoices"
       };
       tabHooks = {};
     }
@@ -765,9 +770,17 @@ var App = (() => {
       }
       return "";
     }
-    return `<button class="btn btn-sm btn-info" onclick="syncToWms(${ts.id})">Sync to WMS</button>`;
+    return `<button class="btn btn-sm btn-info" onclick="syncToWms(${ts.id}, ${ts.employee?.id || "null"})">Sync to WMS</button>`;
   }
-  async function syncToWms(timesheetId) {
+  async function syncToWms(timesheetId, employeeId) {
+    let prefillEmail = null;
+    if (employeeId) {
+      try {
+        const result = await api.get(`/employees/${employeeId}/de-work-email`);
+        prefillEmail = result.email || null;
+      } catch (_) {
+      }
+    }
     const html = `
     <h3>Sync to DE WMS (TSSP)</h3>
     <div class="alert alert-info">
@@ -776,7 +789,8 @@ var App = (() => {
     <form id="wmsSyncForm">
       <div class="form-group">
         <label>ADFS Username (e.g. domain\\username or email)</label>
-        <input type="text" name="wmsUsername" required autocomplete="off" placeholder="EDUCATION\\jsmith or jsmith@education.vic.gov.au">
+        <input type="text" name="wmsUsername" required autocomplete="off" placeholder="EDUCATION\\jsmith or jsmith@education.vic.gov.au" value="${escapeHtml(prefillEmail || "")}">
+        ${prefillEmail ? '<small style="color: var(--muted);">Prefilled from your DE profile</small>' : ""}
       </div>
       <div class="form-group">
         <label>ADFS Password</label>
@@ -1010,7 +1024,8 @@ var App = (() => {
     submitTimesheet: () => submitTimesheet,
     toggleAccordion: () => toggleAccordion,
     toggleDateAccordion: () => toggleDateAccordion,
-    unlockTimesheet: () => unlockTimesheet
+    unlockTimesheet: () => unlockTimesheet,
+    xeroResyncTimesheet: () => xeroResyncTimesheet
   });
   async function loadMyTimesheets() {
     const currentUser2 = state.get("currentUser");
@@ -1149,6 +1164,15 @@ var App = (() => {
       showAlert(error.message);
     }
   }
+  async function xeroResyncTimesheet(id) {
+    try {
+      await api.post(`/xero/sync/timesheet/${id}`);
+      await refreshTimesheets2();
+      showAlert("Xero sync successful", "success");
+    } catch (error) {
+      showAlert("Xero sync failed: " + error.message, "error");
+    }
+  }
   function combineTimesheetsAndDedupe() {
     const myTimesheets = state.get("myTimesheets");
     const allTimesheets = state.get("allTimesheets");
@@ -1159,6 +1183,23 @@ var App = (() => {
     timesheets.sort((a, b) => new Date(b.weekStarting) - new Date(a.weekStarting));
     state.set("timesheets", timesheets);
     return timesheets;
+  }
+  function getXeroSyncBadge(ts) {
+    if (ts.status !== "APPROVED") return "";
+    if (ts.xeroTimesheetId) {
+      return '<span class="source-badge xero-synced-badge" title="Synced to Xero">\u2713 Xero</span>';
+    }
+    const latestLog = ts.xeroSyncLogs?.[0];
+    if (latestLog?.status === "ERROR") {
+      return `<span class="source-badge xero-error-badge" title="${escapeHtml(latestLog.errorMessage || "Sync failed")}">\u2717 Xero</span>`;
+    }
+    return '<span class="source-badge xero-pending-badge" title="Pending Xero sync">\u23F3 Xero</span>';
+  }
+  function getXeroResyncButton(ts, currentUser2) {
+    if (!currentUser2.isAdmin) return "";
+    if (ts.status !== "APPROVED") return "";
+    if (ts.xeroTimesheetId) return "";
+    return `<button class="btn btn-sm btn-info" onclick="xeroResyncTimesheet(${ts.id})" title="Retry Xero sync">\u21BB Xero</button>`;
   }
   function displayUnifiedTimesheets() {
     const currentUser2 = state.get("currentUser");
@@ -1193,6 +1234,7 @@ var App = (() => {
             <span class="accordion-week">${weekLabel}</span>
             <span class="status-badge status-${ts.status}">${ts.status}</span>
             ${ts.autoCreated ? '<span class="source-badge tsdata-badge">TSDATA</span>' : ""}
+            ${getXeroSyncBadge(ts)}
           </div>
           <div class="accordion-meta">
             <span>${ts.entries.length} entries</span>
@@ -1202,6 +1244,7 @@ var App = (() => {
               ${ts.status === "OPEN" ? `<button class="btn btn-sm btn-success" onclick="submitTimesheet(${ts.id})">Submit</button>` : ""}
               ${ts.status === "SUBMITTED" && currentUser2.isAdmin ? `<button class="btn btn-sm btn-success" onclick="approveTimesheet(${ts.id})">Approve</button>` : ""}
               ${ts.status === "APPROVED" && currentUser2.isAdmin ? `<button class="btn btn-sm btn-secondary" onclick="lockTimesheet(${ts.id})">Lock</button>` : ""}
+              ${getXeroResyncButton(ts, currentUser2)}
               ${(ts.status === "LOCKED" || ts.status === "APPROVED" || ts.status === "SUBMITTED") && currentUser2.isAdmin ? `
                 <button class="btn btn-sm btn-warning" onclick="unlockTimesheet(${ts.id})" title="Unlock and set to OPEN">\u{1F513} Unlock</button>
               ` : ""}
@@ -4656,6 +4699,7 @@ var App = (() => {
   var currentSetupTab = "companies";
   var selectedEmployeeTenant = null;
   var selectedRoleTenant = null;
+  var selectedPayrollTenant = null;
   async function initXeroSetup() {
     await loadXeroStatus();
     await loadMappings();
@@ -4682,6 +4726,10 @@ var App = (() => {
     document.getElementById("leaveTypeTenantSelector")?.addEventListener("change", (e) => {
       selectedLeaveTypeTenant = e.target.value;
       displayLeaveTypeMappings();
+    });
+    document.getElementById("payrollTenantSelector")?.addEventListener("change", (e) => {
+      selectedPayrollTenant = e.target.value;
+      displayPayrollCalendars();
     });
   }
   function switchSetupTab(tabName) {
@@ -4713,6 +4761,9 @@ var App = (() => {
       displayLeaveTypeMappings();
     } else if (tabName === "settings") {
       displayEmployeeSettings();
+    } else if (tabName === "payroll") {
+      populatePayrollTenantSelector();
+      displayPayrollCalendars();
     }
   }
   async function loadXeroStatus() {
@@ -5649,6 +5700,150 @@ This will revert to using the role's default rate.`
       selector.value = selectedLeaveTypeTenant;
     }
   }
+  function populatePayrollTenantSelector() {
+    const selector = document.getElementById("payrollTenantSelector");
+    if (!selector) return;
+    const tenants = state.get("xeroTenants") || [];
+    selector.innerHTML = '<option value="">Select a tenant...</option>' + tenants.map((t) => `<option value="${t.tenantId}">${t.tenantName}</option>`).join("");
+    if (tenants.length === 1) {
+      selector.value = tenants[0].tenantId;
+      selectedPayrollTenant = tenants[0].tenantId;
+      displayPayrollCalendars();
+    } else if (selectedPayrollTenant) {
+      selector.value = selectedPayrollTenant;
+    }
+  }
+  async function displayPayrollCalendars() {
+    const container = document.getElementById("payrollCalendarsList");
+    if (!container) return;
+    if (!selectedPayrollTenant) {
+      container.innerHTML = '<p style="color: var(--muted);">Select a tenant to view payroll calendars.</p>';
+      return;
+    }
+    container.innerHTML = '<p style="color: var(--muted);">Loading...</p>';
+    try {
+      const calendars = await api.get(`/xero/setup/payroll-calendars/${selectedPayrollTenant}`);
+      if (!calendars.length) {
+        container.innerHTML = '<p style="color: var(--muted);">No payroll calendars found in Xero.</p>';
+        return;
+      }
+      container.innerHTML = calendars.map((cal) => renderCalendarCard(cal)).join("");
+    } catch (error) {
+      console.error("[XeroSetup] Error loading payroll calendars:", error);
+      container.innerHTML = `<p style="color: var(--danger);">Failed to load payroll calendars: ${escapeHtml(error.message)}</p>`;
+    }
+  }
+  function renderCalendarCard(cal) {
+    const typeLabel = {
+      WEEKLY: "Weekly",
+      FORTNIGHTLY: "Fortnightly",
+      MONTHLY: "Monthly",
+      TWICEMONTHLY: "Twice Monthly",
+      QUARTERLY: "Quarterly"
+    }[cal.calendarType] || cal.calendarType;
+    const paymentDay = cal.paymentDate ? new Date(cal.paymentDate).toLocaleDateString("en-AU", { weekday: "long", day: "numeric", month: "short", year: "numeric" }) : "\u2014";
+    const currentRun = cal.currentPayRun;
+    const needsNewPayRun = !cal.hasCurrentPeriod;
+    const createBtn = `
+    <div style="background:#fff8e1; border-radius:6px; padding:0.75rem 1rem; margin-top:0.75rem; border:1px solid #f59e0b;">
+      <strong style="color:#b45309;">No pay run for the current period.</strong>
+      <p style="margin:0.25rem 0 0.5rem; color:#6b7280; font-size:0.875rem;">
+        Create the next pay run so timesheets can be synced.
+      </p>
+      <button class="btn btn-sm btn-primary" onclick="xeroSetup.createPayRun('${selectedPayrollTenant}', '${cal.payrollCalendarID}', '${escapeHtml(cal.name)}')">
+        Create Next Pay Run
+      </button>
+    </div>`;
+    let currentRunHtml = "";
+    if (currentRun) {
+      const s = new Date(currentRun.payPeriodStartDate).toLocaleDateString("en-AU");
+      const e = new Date(currentRun.payPeriodEndDate).toLocaleDateString("en-AU");
+      const payDate = currentRun.paymentDate ? new Date(currentRun.paymentDate).toLocaleDateString("en-AU") : "\u2014";
+      const statusColour = currentRun.payRunStatus === "POSTED" ? "#e74c3c" : "#27ae60";
+      const statusLabel = currentRun.payRunStatus === "POSTED" ? "Posted (locked)" : currentRun.payRunStatus || "DRAFT";
+      const sectionTitle = cal.hasCurrentPeriod ? "Current Pay Run" : "Most Recent Pay Run";
+      currentRunHtml = `
+      <div style="background:#f9fafb; border-radius:6px; padding:1rem; margin-top:1rem;">
+        <div style="font-weight:600; margin-bottom:0.5rem;">${sectionTitle}</div>
+        <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap:0.5rem;">
+          <div><span style="color:var(--muted); font-size:0.85rem;">Period</span><br><strong>${s} \u2013 ${e}</strong></div>
+          <div><span style="color:var(--muted); font-size:0.85rem;">Payment Date</span><br><strong>${payDate}</strong></div>
+          <div><span style="color:var(--muted); font-size:0.85rem;">Status</span><br><strong style="color:${statusColour};">${statusLabel}</strong></div>
+        </div>
+        ${currentRun.payRunStatus === "POSTED" ? `
+          <p style="margin-top:0.75rem; color:#e74c3c; font-size:0.875rem;">
+            \u26A0\uFE0F This pay run is posted. Timesheets for this period cannot be synced or modified in Xero.
+          </p>` : ""}
+      </div>
+      ${needsNewPayRun ? createBtn : ""}
+    `;
+    } else {
+      currentRunHtml = `
+      <div style="background:#fff8e1; border-radius:6px; padding:1rem; margin-top:1rem; border:1px solid #f59e0b;">
+        <strong style="color:#b45309;">No pay run found for the current period.</strong>
+        <p style="margin:0.5rem 0 0.75rem; color:#6b7280; font-size:0.875rem;">
+          A pay run must exist in Xero before timesheets can be synced for this period.
+        </p>
+        <button class="btn btn-sm btn-primary" onclick="xeroSetup.createPayRun('${selectedPayrollTenant}', '${cal.payrollCalendarID}', '${escapeHtml(cal.name)}')">
+          Create Next Pay Run
+        </button>
+      </div>
+    `;
+    }
+    const recentRows = (cal.recentPayRuns || []).map((pr) => {
+      const s = new Date(pr.payPeriodStartDate).toLocaleDateString("en-AU");
+      const e = new Date(pr.payPeriodEndDate).toLocaleDateString("en-AU");
+      const payDate = pr.paymentDate ? new Date(pr.paymentDate).toLocaleDateString("en-AU") : "\u2014";
+      const badgeColour = pr.payRunStatus === "POSTED" ? "#e74c3c" : "#27ae60";
+      const badgeText = pr.payRunStatus === "POSTED" ? "Posted" : pr.payRunStatus || "Draft";
+      return `
+      <tr>
+        <td>${s}</td>
+        <td>${e}</td>
+        <td>${payDate}</td>
+        <td><span style="color:${badgeColour}; font-weight:600;">${badgeText}</span></td>
+      </tr>`;
+    }).join("");
+    const recentTable = cal.recentPayRuns?.length ? `
+    <div style="margin-top:1.25rem;">
+      <div style="font-weight:600; margin-bottom:0.5rem;">Recent Pay Runs</div>
+      <div class="table-responsive">
+        <table>
+          <thead><tr><th>Period Start</th><th>Period End</th><th>Payment Date</th><th>Status</th></tr></thead>
+          <tbody>${recentRows}</tbody>
+        </table>
+      </div>
+    </div>` : "";
+    return `
+    <div style="border:1px solid #e5e7eb; border-radius:8px; padding:1.25rem; margin-bottom:1.25rem; background:#fff;">
+      <div style="display:flex; align-items:center; gap:1rem; margin-bottom:0.5rem;">
+        <div style="font-size:1.5rem;">\u{1F4C5}</div>
+        <div>
+          <div style="font-weight:700; font-size:1rem;">${escapeHtml(cal.name)}</div>
+          <div style="color:var(--muted); font-size:0.875rem;">${typeLabel} \xB7 Payment reference: ${escapeHtml(paymentDay)}</div>
+        </div>
+      </div>
+      ${currentRunHtml}
+      ${recentTable}
+    </div>
+  `;
+  }
+  window.xeroSetup = window.xeroSetup || {};
+  window.xeroSetup.createPayRun = async function(tenantId, payrollCalendarID, calendarName) {
+    if (!confirm(`Create the next pay run for calendar "${calendarName}"?
+
+Xero will create the next period in sequence after the last existing pay run.`)) return;
+    try {
+      const result = await api.post("/xero/setup/payrun/create", { tenantId, payrollCalendarID });
+      const pr = result.payRun;
+      const s = new Date(pr.payPeriodStartDate).toLocaleDateString("en-AU");
+      const e = new Date(pr.payPeriodEndDate).toLocaleDateString("en-AU");
+      showAlert(`Pay run created: ${s} \u2013 ${e}`, "success");
+      await displayPayrollCalendars();
+    } catch (error) {
+      showAlert("Failed to create pay run: " + error.message, "error");
+    }
+  };
 
   // public/js/modules/features/xero/xero-sync-logs.js
   init_api();
@@ -6561,6 +6756,162 @@ This will revert to using the role's default rate.`
   };
   registerTabHook("xeroInvoices", initInvoices);
 
+  // public/js/modules/features/approvals/approvals.js
+  init_api();
+  init_state();
+  init_alerts();
+  init_navigation();
+  init_dom();
+  init_timesheets();
+  async function initApprovals() {
+    const currentUser2 = state.get("currentUser");
+    if (!currentUser2?.isAdmin) return;
+    const container = document.getElementById("approvalsContent");
+    if (!container) return;
+    container.innerHTML = '<p style="padding: 1rem; color: var(--muted);">Loading...</p>';
+    try {
+      const [tsResult, leaveResult] = await Promise.all([
+        api.get("/timesheets?status=SUBMITTED"),
+        api.get("/xero/leave/requests?status=PENDING")
+      ]);
+      const pendingTimesheets = tsResult.timesheets || [];
+      const pendingLeave = Array.isArray(leaveResult) ? leaveResult : [];
+      const total = pendingTimesheets.length + pendingLeave.length;
+      const badge = document.getElementById("approvalsBadge");
+      if (badge) {
+        badge.textContent = total;
+        badge.style.display = total > 0 ? "inline-flex" : "none";
+      }
+      container.innerHTML = renderApprovals(pendingTimesheets, pendingLeave);
+    } catch (error) {
+      console.error("[Approvals] Error loading approvals:", error);
+      container.innerHTML = '<p style="padding: 1rem; color: var(--danger);">Failed to load approvals.</p>';
+    }
+  }
+  function renderApprovals(timesheets, leaveRequests) {
+    return `
+    <div style="padding: 1.5rem;">
+      ${renderTimesheetSection(timesheets)}
+      <div style="margin-top: 2rem;">
+        ${renderLeaveSection(leaveRequests)}
+      </div>
+    </div>
+  `;
+  }
+  function renderTimesheetSection(timesheets) {
+    const rows = timesheets.length === 0 ? '<tr><td colspan="4" style="text-align:center; color: var(--muted); padding: 1rem;">No timesheets awaiting approval</td></tr>' : timesheets.map((ts) => {
+      const employee = ts.employee;
+      const name = employee ? `${employee.firstName} ${employee.lastName}` : "\u2014";
+      const week = new Date(ts.weekStarting).toLocaleDateString();
+      const totalHours = (ts.entries || []).reduce((sum, e) => sum + e.hours, 0);
+      return `
+          <tr>
+            <td>${escapeHtml(name)}</td>
+            <td>${escapeHtml(week)}</td>
+            <td>${totalHours.toFixed(1)} hrs</td>
+            <td>
+              <div style="display:flex; gap:0.5rem;">
+                <button class="btn btn-sm btn-success" onclick="approvalsApproveTimesheet(${ts.id})">Approve</button>
+                <button class="btn btn-sm btn-warning" onclick="approvalsUnlockTimesheet(${ts.id})" title="Send back to Open">Unlock</button>
+              </div>
+            </td>
+          </tr>
+        `;
+    }).join("");
+    return `
+    <div>
+      <h3 style="margin: 0 0 1rem 0;">Pending Timesheets <span class="nav-badge" style="display:inline-flex;">${timesheets.length}</span></h3>
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Employee</th>
+              <th>Week Starting</th>
+              <th>Hours</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  }
+  function renderLeaveSection(leaveRequests) {
+    const rows = leaveRequests.length === 0 ? '<tr><td colspan="6" style="text-align:center; color: var(--muted); padding: 1rem;">No leave requests awaiting approval</td></tr>' : leaveRequests.map((lr) => {
+      const employee = lr.employee;
+      const name = employee ? `${employee.firstName} ${employee.lastName}` : "\u2014";
+      const leaveType = formatLeaveType2(lr.leaveType);
+      const start = new Date(lr.startDate).toLocaleDateString();
+      const end = new Date(lr.endDate).toLocaleDateString();
+      const dates = start === end ? start : `${start} \u2013 ${end}`;
+      const notes = lr.notes ? lr.notes.replace(/<[^>]*>/g, "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").trim() : "";
+      return `
+          <tr>
+            <td>${escapeHtml(name)}</td>
+            <td>${escapeHtml(leaveType)}</td>
+            <td>${escapeHtml(dates)}</td>
+            <td>${lr.totalHours ? lr.totalHours.toFixed(1) + " hrs" : "\u2014"}</td>
+            <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(notes)}">${escapeHtml(notes)}</td>
+            <td>
+              <div style="display:flex; gap:0.5rem;">
+                <button class="btn btn-sm btn-success" onclick="approvalsApproveLeave(${lr.id})">Approve</button>
+                <button class="btn btn-sm btn-danger" onclick="approvalsRejectLeave(${lr.id})">Reject</button>
+              </div>
+            </td>
+          </tr>
+        `;
+    }).join("");
+    return `
+    <div>
+      <h3 style="margin: 0 0 1rem 0;">Pending Leave Requests <span class="nav-badge" style="display:inline-flex;">${leaveRequests.length}</span></h3>
+      <div class="table-responsive">
+        <table>
+          <thead>
+            <tr>
+              <th>Employee</th>
+              <th>Type</th>
+              <th>Dates</th>
+              <th>Hours</th>
+              <th>Notes</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+  `;
+  }
+  function formatLeaveType2(type) {
+    const map = {
+      ANNUAL: "Annual Leave",
+      SICK: "Personal/Carer's Leave",
+      LONG_SERVICE: "Long Service Leave",
+      COMPASSIONATE: "Compassionate Leave",
+      UNPAID: "Unpaid Leave",
+      OTHER: "Other"
+    };
+    return map[type] || type;
+  }
+  window.approvalsApproveTimesheet = async (id) => {
+    await approveTimesheet(id);
+    await initApprovals();
+  };
+  window.approvalsUnlockTimesheet = async (id) => {
+    await unlockTimesheet(id);
+    await initApprovals();
+  };
+  window.approvalsApproveLeave = async (id) => {
+    await approveLeaveRequest(id);
+    await initApprovals();
+  };
+  window.approvalsRejectLeave = async (id) => {
+    await rejectLeaveRequest(id);
+    await initApprovals();
+  };
+  registerTabHook("approvals", initApprovals);
+
   // public/js/modules/main.js
   Object.assign(window, {
     // Modal functions
@@ -6598,6 +6949,7 @@ This will revert to using the role's default rate.`
     unlockTimesheet,
     deleteTimesheet,
     refreshTimesheets: refreshTimesheets2,
+    xeroResyncTimesheet,
     toggleAccordion,
     toggleDateAccordion,
     selectEmployee,

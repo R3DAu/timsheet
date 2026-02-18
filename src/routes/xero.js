@@ -64,6 +64,12 @@ router.get('/setup/leave-types/:tenantId', requireAdmin, xeroSetupController.get
 // Map leave type to Xero leave type
 router.post('/setup/leave-type-mapping', requireAdmin, xeroSetupController.mapLeaveType);
 
+// Get payroll calendars with current pay run info
+router.get('/setup/payroll-calendars/:tenantId', requireAdmin, xeroSetupController.getPayrollCalendars);
+
+// Create the next pay run for a payroll calendar
+router.post('/setup/payrun/create', requireAdmin, xeroSetupController.createPayRun);
+
 // === Sync Operations ===
 // (Admin only)
 

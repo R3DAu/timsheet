@@ -87,13 +87,23 @@ class XeroPayrollService {
   }
 
   /**
-   * Create a new payrun (Note: Xero Payroll AU doesn't support auto-creating payruns via API)
+   * Create a new payrun for a payroll calendar.
+   * Xero creates the next pay period in sequence for the given calendar.
    */
   async createPayrun(tenantId, payrunData) {
-    // Xero Payroll AU API doesn't support creating payruns
-    // Payruns must be created manually in Xero
-    console.warn('[XeroPayroll] Payrun creation not supported by Xero Payroll AU API');
-    return null;
+    const xero = await this.getXeroClient(tenantId);
+    const response = await xero.payrollAUApi.createPayRun(tenantId, [payrunData]);
+    return response.body.payRuns?.[0] || null;
+  }
+
+  /**
+   * Get timesheets for a specific employee
+   */
+  async getTimesheetsByEmployee(tenantId, employeeId) {
+    const xero = await this.getXeroClient(tenantId);
+    const where = `EmployeeID=="${employeeId}"`;
+    const response = await xero.payrollAUApi.getTimesheets(tenantId, null, where);
+    return response.body.timesheets || [];
   }
 
   /**

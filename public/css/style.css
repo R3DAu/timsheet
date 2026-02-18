@@ -440,6 +440,39 @@ table tr:hover {
   color: white;
 }
 
+.xero-synced-badge {
+  background-color: #27ae60;
+  color: white;
+}
+
+.xero-pending-badge {
+  background-color: #f39c12;
+  color: white;
+}
+
+.xero-error-badge {
+  background-color: #e74c3c;
+  color: white;
+  cursor: help;
+}
+
+/* Nav badge for notification counts */
+.nav-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background-color: #e74c3c;
+  color: white;
+  font-size: 0.7rem;
+  font-weight: 700;
+  margin-left: 4px;
+  vertical-align: middle;
+}
+
 /* Billable badges */
 .billable-badge {
   display: inline-block;

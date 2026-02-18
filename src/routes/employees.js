@@ -37,6 +37,8 @@ router.get('/', requireAuth, employeeController.getAllEmployees);
  *       404:
  *         description: Employee not found
  */
+router.get('/:id/de-work-email', requireAuth, employeeController.getDeWorkEmail);
+
 router.get('/:id', requireAuth, employeeController.getEmployeeById);
 
 /**

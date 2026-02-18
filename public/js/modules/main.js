@@ -39,6 +39,7 @@ import * as xeroSetup from './features/xero/xero-setup.js';
 import * as xeroSyncLogs from './features/xero/xero-sync-logs.js';
 import * as xeroLeave from './features/xero/xero-leave.js';
 import './features/xero/xero-invoices.js';
+import './features/approvals/approvals.js';
 
 // Validation
 import { validateEntry, getTimesheetById, getTimesheetEntries, formatTime } from './features/entries/entry-validation.js';
@@ -86,6 +87,7 @@ Object.assign(window, {
   unlockTimesheet: timesheets.unlockTimesheet,
   deleteTimesheet: timesheets.deleteTimesheet,
   refreshTimesheets: timesheets.refreshTimesheets,
+  xeroResyncTimesheet: timesheets.xeroResyncTimesheet,
   toggleAccordion: timesheets.toggleAccordion,
   toggleDateAccordion: timesheets.toggleDateAccordion,
   selectEmployee: timesheets.selectEmployee,

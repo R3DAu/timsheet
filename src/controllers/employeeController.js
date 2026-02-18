@@ -247,6 +247,57 @@ const assignRole = async (req, res) => {
   }
 };
 
+const getDeWorkEmail = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Check for cached de_work_email identifier
+    const existing = await prisma.employeeIdentifier.findFirst({
+      where: { employeeId: parseInt(id), identifierType: 'de_work_email' }
+    });
+
+    if (existing) {
+      return res.json({ email: existing.identifierValue });
+    }
+
+    // Look up de_worker_id for this employee
+    const workerIdIdentifier = await prisma.employeeIdentifier.findFirst({
+      where: { employeeId: parseInt(id), identifierType: 'de_worker_id' }
+    });
+
+    if (!workerIdIdentifier) {
+      return res.json({ email: null });
+    }
+
+    // Fetch work email from TSDATA API
+    try {
+      const tsDataService = require('../services/tsDataService');
+      const data = await tsDataService.getWorker(workerIdIdentifier.identifierValue);
+      const email = data?.worker?.work_email_address || null;
+
+      if (email) {
+        // Cache as identifier for future calls
+        await prisma.employeeIdentifier.create({
+          data: {
+            employeeId: parseInt(id),
+            identifierType: 'de_work_email',
+            identifierValue: email,
+            companyId: null
+          }
+        });
+      }
+
+      return res.json({ email });
+    } catch (tsError) {
+      console.warn(`[Employee] Could not fetch DE work email for employee ${id}:`, tsError.message);
+      return res.json({ email: null });
+    }
+  } catch (error) {
+    console.error('Get DE work email error:', error);
+    return res.json({ email: null });
+  }
+};
+
 module.exports = {
   getAllEmployees,
   getEmployeeById,
@@ -256,5 +307,6 @@ module.exports = {
   addEmployeeIdentifier,
   updateIdentifier,
   deleteIdentifier,
-  assignRole
+  assignRole,
+  getDeWorkEmail
 };

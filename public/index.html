@@ -65,6 +65,7 @@
 
           <div class="nav-section admin-only">
             <div class="nav-section-title">Admin</div>
+            <button class="nav-item" data-tab="approvals"><span class="nav-icon">✅</span> Approvals <span id="approvalsBadge" class="nav-badge" style="display:none;"></span></button>
             <button class="nav-item" data-tab="employees"><span class="nav-icon">👤</span> Employees</button>
             <button class="nav-item" data-tab="users"><span class="nav-icon">🧑‍💻</span> Users</button>
             <button class="nav-item" data-tab="companies"><span class="nav-icon">🏢</span> Companies</button>
@@ -103,6 +104,16 @@
                 </div>
               </div>
               <div id="timesheetsAccordion" class="accordion-container"></div>
+            </div>
+          </div>
+
+          <!-- Approvals Tab (Admin) -->
+          <div id="approvalsTab" class="tab-content">
+            <div class="card">
+              <div class="card-header">
+                <h2>Approvals</h2>
+              </div>
+              <div id="approvalsContent"></div>
             </div>
           </div>
 
@@ -295,6 +306,7 @@
                   <button class="setup-tab-btn" data-setup-tab="roles">Roles</button>
                   <button class="setup-tab-btn" data-setup-tab="leaveTypes">Leave Types</button>
                   <button class="setup-tab-btn" data-setup-tab="settings">Settings</button>
+                  <button class="setup-tab-btn" data-setup-tab="payroll">Payroll</button>
                 </div>
 
                 <!-- Company Mapping Tab -->
@@ -351,6 +363,21 @@
                   </div>
 
                   <div id="leaveTypeMappingsList"></div>
+                </div>
+
+                <!-- Payroll Tab -->
+                <div id="setupPayrollTab" class="setup-tab-content">
+                  <h3>Payroll Calendars &amp; Pay Runs</h3>
+                  <p style="color: #6b7280; margin-bottom: 1rem;">
+                    View your Xero payroll calendar configuration and manage pay runs. Pay runs must exist for a period before timesheets can be synced.
+                  </p>
+                  <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Select Xero Tenant:</label>
+                    <select id="payrollTenantSelector" class="form-control" style="max-width: 400px;">
+                      <option value="">Select a tenant...</option>
+                    </select>
+                  </div>
+                  <div id="payrollCalendarsList"></div>
                 </div>
 
                 <div id="setupSettingsTab" class="setup-tab-content">

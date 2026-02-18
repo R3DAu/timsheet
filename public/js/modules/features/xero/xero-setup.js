@@ -13,6 +13,7 @@ import { showModalWithForm, hideModal } from '../../core/modal.js';
 let currentSetupTab = 'companies';
 let selectedEmployeeTenant = null;
 let selectedRoleTenant = null;
+let selectedPayrollTenant = null;
 
 /**
  * Initialize Xero setup when tab is opened
@@ -55,6 +56,11 @@ function setupEventListeners() {
     selectedLeaveTypeTenant = e.target.value;
     displayLeaveTypeMappings();
   });
+
+  document.getElementById('payrollTenantSelector')?.addEventListener('change', (e) => {
+    selectedPayrollTenant = e.target.value;
+    displayPayrollCalendars();
+  });
 }
 
 /**
@@ -96,6 +102,9 @@ function switchSetupTab(tabName) {
     displayLeaveTypeMappings();
   } else if (tabName === 'settings') {
     displayEmployeeSettings();
+  } else if (tabName === 'payroll') {
+    populatePayrollTenantSelector();
+    displayPayrollCalendars();
   }
 }
 
@@ -1316,3 +1325,169 @@ function populateLeaveTypeTenantSelector() {
     selector.value = selectedLeaveTypeTenant;
   }
 }
+
+// ==================== PAYROLL CALENDARS ====================
+
+function populatePayrollTenantSelector() {
+  const selector = document.getElementById('payrollTenantSelector');
+  if (!selector) return;
+
+  const tenants = state.get('xeroTenants') || [];
+  selector.innerHTML = '<option value="">Select a tenant...</option>' +
+    tenants.map(t => `<option value="${t.tenantId}">${t.tenantName}</option>`).join('');
+
+  if (tenants.length === 1) {
+    selector.value = tenants[0].tenantId;
+    selectedPayrollTenant = tenants[0].tenantId;
+    displayPayrollCalendars();
+  } else if (selectedPayrollTenant) {
+    selector.value = selectedPayrollTenant;
+  }
+}
+
+async function displayPayrollCalendars() {
+  const container = document.getElementById('payrollCalendarsList');
+  if (!container) return;
+
+  if (!selectedPayrollTenant) {
+    container.innerHTML = '<p style="color: var(--muted);">Select a tenant to view payroll calendars.</p>';
+    return;
+  }
+
+  container.innerHTML = '<p style="color: var(--muted);">Loading...</p>';
+
+  try {
+    const calendars = await api.get(`/xero/setup/payroll-calendars/${selectedPayrollTenant}`);
+
+    if (!calendars.length) {
+      container.innerHTML = '<p style="color: var(--muted);">No payroll calendars found in Xero.</p>';
+      return;
+    }
+
+    container.innerHTML = calendars.map(cal => renderCalendarCard(cal)).join('');
+  } catch (error) {
+    console.error('[XeroSetup] Error loading payroll calendars:', error);
+    container.innerHTML = `<p style="color: var(--danger);">Failed to load payroll calendars: ${escapeHtml(error.message)}</p>`;
+  }
+}
+
+function renderCalendarCard(cal) {
+  const typeLabel = {
+    WEEKLY: 'Weekly',
+    FORTNIGHTLY: 'Fortnightly',
+    MONTHLY: 'Monthly',
+    TWICEMONTHLY: 'Twice Monthly',
+    QUARTERLY: 'Quarterly'
+  }[cal.calendarType] || cal.calendarType;
+
+  const paymentDay = cal.paymentDate
+    ? new Date(cal.paymentDate).toLocaleDateString('en-AU', { weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })
+    : '—';
+
+  const currentRun = cal.currentPayRun;
+  const needsNewPayRun = !cal.hasCurrentPeriod;
+  const createBtn = `
+    <div style="background:#fff8e1; border-radius:6px; padding:0.75rem 1rem; margin-top:0.75rem; border:1px solid #f59e0b;">
+      <strong style="color:#b45309;">No pay run for the current period.</strong>
+      <p style="margin:0.25rem 0 0.5rem; color:#6b7280; font-size:0.875rem;">
+        Create the next pay run so timesheets can be synced.
+      </p>
+      <button class="btn btn-sm btn-primary" onclick="xeroSetup.createPayRun('${selectedPayrollTenant}', '${cal.payrollCalendarID}', '${escapeHtml(cal.name)}')">
+        Create Next Pay Run
+      </button>
+    </div>`;
+
+  let currentRunHtml = '';
+  if (currentRun) {
+    const s = new Date(currentRun.payPeriodStartDate).toLocaleDateString('en-AU');
+    const e = new Date(currentRun.payPeriodEndDate).toLocaleDateString('en-AU');
+    const payDate = currentRun.paymentDate ? new Date(currentRun.paymentDate).toLocaleDateString('en-AU') : '—';
+    const statusColour = currentRun.payRunStatus === 'POSTED' ? '#e74c3c' : '#27ae60';
+    const statusLabel = currentRun.payRunStatus === 'POSTED' ? 'Posted (locked)' : currentRun.payRunStatus || 'DRAFT';
+    const sectionTitle = cal.hasCurrentPeriod ? 'Current Pay Run' : 'Most Recent Pay Run';
+    currentRunHtml = `
+      <div style="background:#f9fafb; border-radius:6px; padding:1rem; margin-top:1rem;">
+        <div style="font-weight:600; margin-bottom:0.5rem;">${sectionTitle}</div>
+        <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(180px,1fr)); gap:0.5rem;">
+          <div><span style="color:var(--muted); font-size:0.85rem;">Period</span><br><strong>${s} – ${e}</strong></div>
+          <div><span style="color:var(--muted); font-size:0.85rem;">Payment Date</span><br><strong>${payDate}</strong></div>
+          <div><span style="color:var(--muted); font-size:0.85rem;">Status</span><br><strong style="color:${statusColour};">${statusLabel}</strong></div>
+        </div>
+        ${currentRun.payRunStatus === 'POSTED' ? `
+          <p style="margin-top:0.75rem; color:#e74c3c; font-size:0.875rem;">
+            ⚠️ This pay run is posted. Timesheets for this period cannot be synced or modified in Xero.
+          </p>` : ''}
+      </div>
+      ${needsNewPayRun ? createBtn : ''}
+    `;
+  } else {
+    currentRunHtml = `
+      <div style="background:#fff8e1; border-radius:6px; padding:1rem; margin-top:1rem; border:1px solid #f59e0b;">
+        <strong style="color:#b45309;">No pay run found for the current period.</strong>
+        <p style="margin:0.5rem 0 0.75rem; color:#6b7280; font-size:0.875rem;">
+          A pay run must exist in Xero before timesheets can be synced for this period.
+        </p>
+        <button class="btn btn-sm btn-primary" onclick="xeroSetup.createPayRun('${selectedPayrollTenant}', '${cal.payrollCalendarID}', '${escapeHtml(cal.name)}')">
+          Create Next Pay Run
+        </button>
+      </div>
+    `;
+  }
+
+  // Recent pay runs table
+  const recentRows = (cal.recentPayRuns || []).map(pr => {
+    const s = new Date(pr.payPeriodStartDate).toLocaleDateString('en-AU');
+    const e = new Date(pr.payPeriodEndDate).toLocaleDateString('en-AU');
+    const payDate = pr.paymentDate ? new Date(pr.paymentDate).toLocaleDateString('en-AU') : '—';
+    const badgeColour = pr.payRunStatus === 'POSTED' ? '#e74c3c' : '#27ae60';
+    const badgeText = pr.payRunStatus === 'POSTED' ? 'Posted' : pr.payRunStatus || 'Draft';
+    return `
+      <tr>
+        <td>${s}</td>
+        <td>${e}</td>
+        <td>${payDate}</td>
+        <td><span style="color:${badgeColour}; font-weight:600;">${badgeText}</span></td>
+      </tr>`;
+  }).join('');
+
+  const recentTable = cal.recentPayRuns?.length ? `
+    <div style="margin-top:1.25rem;">
+      <div style="font-weight:600; margin-bottom:0.5rem;">Recent Pay Runs</div>
+      <div class="table-responsive">
+        <table>
+          <thead><tr><th>Period Start</th><th>Period End</th><th>Payment Date</th><th>Status</th></tr></thead>
+          <tbody>${recentRows}</tbody>
+        </table>
+      </div>
+    </div>` : '';
+
+  return `
+    <div style="border:1px solid #e5e7eb; border-radius:8px; padding:1.25rem; margin-bottom:1.25rem; background:#fff;">
+      <div style="display:flex; align-items:center; gap:1rem; margin-bottom:0.5rem;">
+        <div style="font-size:1.5rem;">📅</div>
+        <div>
+          <div style="font-weight:700; font-size:1rem;">${escapeHtml(cal.name)}</div>
+          <div style="color:var(--muted); font-size:0.875rem;">${typeLabel} · Payment reference: ${escapeHtml(paymentDay)}</div>
+        </div>
+      </div>
+      ${currentRunHtml}
+      ${recentTable}
+    </div>
+  `;
+}
+
+window.xeroSetup = window.xeroSetup || {};
+window.xeroSetup.createPayRun = async function(tenantId, payrollCalendarID, calendarName) {
+  if (!confirm(`Create the next pay run for calendar "${calendarName}"?\n\nXero will create the next period in sequence after the last existing pay run.`)) return;
+
+  try {
+    const result = await api.post('/xero/setup/payrun/create', { tenantId, payrollCalendarID });
+    const pr = result.payRun;
+    const s = new Date(pr.payPeriodStartDate).toLocaleDateString('en-AU');
+    const e = new Date(pr.payPeriodEndDate).toLocaleDateString('en-AU');
+    showAlert(`Pay run created: ${s} – ${e}`, 'success');
+    await displayPayrollCalendars();
+  } catch (error) {
+    showAlert('Failed to create pay run: ' + error.message, 'error');
+  }
+};
