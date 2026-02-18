@@ -953,12 +953,10 @@ async function dismissTsspError(page) {
 function htmlToBulletPoints(html) {
   if (!html) return '';
 
-  // Handle ordered lists
+  // Handle ordered lists — treat as bullets (same as ul) since WMS uses bullet format
   let text = html.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi, (match, content) => {
-    let counter = 0;
     return content.replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (m, item) => {
-      counter++;
-      return `${counter}. ${stripTags(item).trim()}`;
+      return `- ${stripTags(item).trim()}`;
     });
   });
 
