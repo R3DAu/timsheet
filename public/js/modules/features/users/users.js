@@ -5,7 +5,7 @@
 
 import { api } from '../../core/api.js';
 import { state } from '../../core/state.js';
-import { showModalWithForm, hideModal } from '../../core/modal.js';
+import { showSlidePanel, hideSlidePanel } from '../../core/slide-panel.js';
 import { showAlert, showConfirmation } from '../../core/alerts.js';
 import { escapeHtml } from '../../core/dom.js';
 import { registerTabHook } from '../../core/navigation.js';
@@ -116,7 +116,7 @@ export async function createUser() {
     </form>
   `;
 
-  showModalWithForm('Add System User', form);
+  showSlidePanel('Add System User', form);
 
   document.getElementById('userForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -128,7 +128,7 @@ export async function createUser() {
         password: formData.get('password'),
         isAdmin: formData.has('isAdmin')
       });
-      hideModal();
+      hideSlidePanel();
       await loadUsers();
       displayUsers();
     } catch (error) {
@@ -169,7 +169,7 @@ export async function editUser(id) {
     </form>
   `;
 
-  showModalWithForm('Edit User', form);
+  showSlidePanel('Edit User', form);
 
   document.getElementById('editUserForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -184,7 +184,7 @@ export async function editUser(id) {
 
     try {
       await api.put(`/users/${id}`, data);
-      hideModal();
+      hideSlidePanel();
       await loadUsers();
       displayUsers();
     } catch (error) {
@@ -223,7 +223,7 @@ export async function linkProfileToUser(userId, userName, userEmail) {
     </form>
   `;
 
-  showModalWithForm('Link Employee Profile', form);
+  showSlidePanel('Link Employee Profile', form);
 
   document.getElementById('linkProfileForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -236,7 +236,7 @@ export async function linkProfileToUser(userId, userName, userEmail) {
         email: formData.get('email'),
         phone: formData.get('phone') || null
       });
-      hideModal();
+      hideSlidePanel();
       await loadUsers();
       displayUsers();
       const { loadEmployees } = await import('../employees/employees.js');

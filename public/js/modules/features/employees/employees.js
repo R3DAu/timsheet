@@ -5,7 +5,7 @@
 
 import { api } from '../../core/api.js';
 import { state } from '../../core/state.js';
-import { showModalWithForm, showModalWithHTML, hideModal } from '../../core/modal.js';
+import { showSlidePanel, hideSlidePanel } from '../../core/slide-panel.js';
 import { showAlert, showConfirmation } from '../../core/alerts.js';
 import { escapeHtml } from '../../core/dom.js';
 import { registerTabHook } from '../../core/navigation.js';
@@ -107,7 +107,7 @@ export async function createEmployee() {
     </form>
   `;
 
-  showModalWithForm('Add Employee', form);
+  showSlidePanel('Add Employee', form);
 
   // Auto-fill name/email when user is selected
   document.querySelector('#employeeForm select[name="userId"]').onchange = (e) => {
@@ -132,7 +132,7 @@ export async function createEmployee() {
         email: formData.get('email'),
         phone: formData.get('phone') || null
       });
-      hideModal();
+      hideSlidePanel();
       await loadEmployees();
       displayEmployees();
       // Refresh users to update profile links
@@ -235,7 +235,7 @@ export async function viewEmployee(id) {
       <div id="xeroConfigSection_${emp.id}"></div>
     `;
 
-    showModalWithForm(`Employee: ${escapeHtml(emp.firstName)} ${escapeHtml(emp.lastName)}`, html);
+    showSlidePanel(`Employee: ${escapeHtml(emp.firstName)} ${escapeHtml(emp.lastName)}`, html);
 
     // CRITICAL XSS FIX: Event delegation for edit identifier buttons (replaces onclick injection)
     document.querySelectorAll('.emp-edit-id-btn').forEach(btn => {
@@ -464,7 +464,7 @@ export async function editEmployee(id) {
     </form>
   `;
 
-  showModalWithForm('Edit Employee', form);
+  showSlidePanel('Edit Employee', form);
 
   document.getElementById('editEmployeeForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -477,7 +477,7 @@ export async function editEmployee(id) {
         phone: formData.get('phone') || null,
         maxDailyHours: parseFloat(formData.get('maxDailyHours')) || 16
       });
-      hideModal();
+      hideSlidePanel();
       await loadEmployees();
       displayEmployees();
     } catch (error) {
@@ -541,7 +541,7 @@ export async function addIdentifierForm(employeeId) {
     </form>
   `;
 
-  showModalWithHTML(form);
+  showSlidePanel('Add Identifier', form);
 
   document.getElementById('addIdType').onchange = (e) => {
     const customGroup = document.getElementById('addIdCustomGroup');
@@ -572,7 +572,7 @@ export async function addIdentifierForm(employeeId) {
         identifierValue: formData.get('identifierValue'),
         companyId: formData.get('companyId') ? parseInt(formData.get('companyId')) : null
       });
-      hideModal();
+      hideSlidePanel();
       viewEmployee(employeeId);
     } catch (error) {
       showAlert(error.message);
@@ -621,7 +621,7 @@ export async function editIdentifierForm(employeeId, identifierId, type, value, 
     </form>
   `;
 
-  showModalWithHTML(form);
+  showSlidePanel('Edit Identifier', form);
 
   document.getElementById('editIdType').onchange = (e) => {
     const customGroup = document.getElementById('editIdCustomGroup');
@@ -652,7 +652,7 @@ export async function editIdentifierForm(employeeId, identifierId, type, value, 
         identifierValue: formData.get('identifierValue'),
         companyId: formData.get('companyId') ? parseInt(formData.get('companyId')) : null
       });
-      hideModal();
+      hideSlidePanel();
       viewEmployee(employeeId);
     } catch (error) {
       showAlert(error.message);
@@ -700,7 +700,7 @@ export async function assignRoleForm(employeeId) {
     </form>
   `;
 
-  showModalWithForm('Assign Role to Employee', form);
+  showSlidePanel('Assign Role to Employee', form);
 
   document.getElementById('assignRoleCompanySelect').onchange = (e) => {
     const companyId = parseInt(e.target.value);
@@ -720,7 +720,7 @@ export async function assignRoleForm(employeeId) {
         roleId: parseInt(formData.get('roleId')),
         companyId: parseInt(formData.get('companyId'))
       });
-      hideModal();
+      hideSlidePanel();
       await loadEmployees();
       viewEmployee(employeeId);
     } catch (error) {

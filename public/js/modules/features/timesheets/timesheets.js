@@ -2,7 +2,7 @@ import {api} from '../../core/api.js';
 import {state} from '../../core/state.js';
 import {escapeHtml, sanitizeRichText} from '../../core/dom.js';
 import {registerTabHook} from '../../core/navigation.js';
-import {showModalWithForm, hideModal} from '../../core/modal.js';
+import {showSlidePanel, hideSlidePanel} from '../../core/slide-panel.js';
 import {showAlert, showConfirmation} from '../../core/alerts.js';
 import {formatTime, todayStr, formatLocalDate} from '../../core/dateTime.js';
 import {getWmsSyncButton} from '../wms/wms-sync.js';
@@ -138,7 +138,7 @@ export async function createTimesheet(){
     `;
 
     //show the modal.
-    showModalWithForm('Create Timesheet', html);
+    showSlidePanel('Create Timesheet', html);
     const timesheetModal = document.getElementById('timesheetForm');
 
     //now let's attach to the submit action.
@@ -163,7 +163,7 @@ export async function createTimesheet(){
             });
 
             //magic the modal away :)
-            hideModal();
+            hideSlidePanel();
 
             await refreshTimesheets();
         } catch (error) {

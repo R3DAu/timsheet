@@ -8,7 +8,7 @@ import { state } from '../../core/state.js';
 import { showAlert, showConfirmation } from '../../core/alerts.js';
 import { escapeHtml } from '../../core/dom.js';
 import { registerTabHook } from '../../core/navigation.js';
-import { showModalWithForm, hideModal } from '../../core/modal.js';
+import { showSlidePanel, hideSlidePanel } from '../../core/slide-panel.js';
 
 let currentSetupTab = 'companies';
 let selectedEmployeeTenant = null;
@@ -406,7 +406,7 @@ window.editCompanyMapping = async function(companyId) {
 
   if (!company) return;
 
-  const { showModalWithForm, hideModal } = await import('../../core/modal.js');
+  const { showSlidePanel, hideSlidePanel } = await import('../../core/slide-panel.js');
 
   const form = `
     <form id="companyMappingForm">
@@ -443,7 +443,7 @@ window.editCompanyMapping = async function(companyId) {
     </form>
   `;
 
-  showModalWithForm(`Map Company: ${company.name}`, form);
+  showSlidePanel(`Map Company: ${company.name}`, form);
 
   // Attach form submit handler
   document.getElementById('companyMappingForm').onsubmit = async (e) => {
@@ -465,7 +465,7 @@ window.editCompanyMapping = async function(companyId) {
       showAlert('Company mapping saved successfully', 'success');
       await loadMappings();
       displayCompanyMappings();
-      hideModal();
+      hideSlidePanel();
     } catch (error) {
       console.error('Failed to save company mapping:', error);
       showAlert('Failed to save mapping: ' + error.message, 'error');
@@ -565,7 +565,7 @@ window.editEmployeeMapping = async function(employeeId) {
     return;
   }
 
-  const { showModalWithForm, hideModal } = await import('../../core/modal.js');
+  const { showSlidePanel, hideSlidePanel } = await import('../../core/slide-panel.js');
 
   try {
     // Fetch fresh Xero employees for the selected tenant
@@ -597,7 +597,7 @@ window.editEmployeeMapping = async function(employeeId) {
       </form>
     `;
 
-    showModalWithForm(`Map Employee: ${employee.firstName} ${employee.lastName}`, form);
+    showSlidePanel(`Map Employee: ${employee.firstName} ${employee.lastName}`, form);
 
     // Attach form submit handler
     document.getElementById('employeeMappingForm').onsubmit = async (e) => {
@@ -614,7 +614,7 @@ window.editEmployeeMapping = async function(employeeId) {
         showAlert('Employee mapping saved successfully', 'success');
         await loadMappings();
         displayEmployeeMappings();
-        hideModal();
+        hideSlidePanel();
       } catch (error) {
         console.error('Failed to save employee mapping:', error);
         showAlert('Failed to save mapping: ' + error.message, 'error');
@@ -716,7 +716,7 @@ window.editRoleMapping = async function(roleId) {
 
   if (!role) return;
 
-  const { showModalWithForm, hideModal } = await import('../../core/modal.js');
+  const { showSlidePanel, hideSlidePanel } = await import('../../core/slide-panel.js');
 
   const form = `
     <form id="roleMappingForm">
@@ -744,7 +744,7 @@ window.editRoleMapping = async function(roleId) {
     </form>
   `;
 
-  showModalWithForm(`Map Role: ${role.name}`, form);
+  showSlidePanel(`Map Role: ${role.name}`, form);
 
   // Attach form submit handler
   document.getElementById('roleMappingForm').onsubmit = async (e) => {
@@ -767,7 +767,7 @@ window.editRoleMapping = async function(roleId) {
       showAlert('Role mapping saved successfully', 'success');
       await loadMappings();
       displayRoleMappings();
-      hideModal();
+      hideSlidePanel();
     } catch (error) {
       console.error('Failed to save role mapping:', error);
       showAlert('Failed to save mapping: ' + error.message, 'error');
@@ -952,7 +952,7 @@ window.setCustomEarningsRate = async function(employeeId, roleId, xeroTenantId, 
 
   if (!employee || !role) return;
 
-  const { showModalWithForm, hideModal } = await import('../../core/modal.js');
+  const { showSlidePanel, hideSlidePanel } = await import('../../core/slide-panel.js');
 
   // Fetch earnings rates for this tenant
   try {
@@ -993,7 +993,7 @@ window.setCustomEarningsRate = async function(employeeId, roleId, xeroTenantId, 
       </form>
     `;
 
-    showModalWithForm(`Set Custom Rate: ${employee.firstName} ${employee.lastName}`, form);
+    showSlidePanel(`Set Custom Rate: ${employee.firstName} ${employee.lastName}`, form);
 
     // Attach form submit handler
     document.getElementById('customEarningsRateForm').onsubmit = async (e) => {
@@ -1017,7 +1017,7 @@ window.setCustomEarningsRate = async function(employeeId, roleId, xeroTenantId, 
         showAlert('Custom earnings rate saved successfully', 'success');
         await loadMappings();
         displayEmployeeSettings();
-        hideModal();
+        hideSlidePanel();
       } catch (error) {
         console.error('Failed to save custom earnings rate:', error);
         showAlert('Failed to save custom rate: ' + error.message, 'error');
@@ -1068,7 +1068,7 @@ window.editEmployeeSettings = async function(employeeId) {
 
   if (!employee) return;
 
-  const { showModalWithForm, hideModal } = await import('../../core/modal.js');
+  const { showSlidePanel, hideSlidePanel } = await import('../../core/slide-panel.js');
 
   const form = `
     <form id="employeeSettingsForm">
@@ -1111,7 +1111,7 @@ window.editEmployeeSettings = async function(employeeId) {
     </form>
   `;
 
-  showModalWithForm(`Configure: ${employee.firstName} ${employee.lastName}`, form);
+  showSlidePanel(`Configure: ${employee.firstName} ${employee.lastName}`, form);
 
   // Attach form submit handler
   document.getElementById('employeeSettingsForm').onsubmit = async (e) => {
@@ -1130,7 +1130,7 @@ window.editEmployeeSettings = async function(employeeId) {
       showAlert('Employee settings saved successfully', 'success');
       await loadMappings();
       displayEmployeeSettings();
-      hideModal();
+      hideSlidePanel();
     } catch (error) {
       console.error('Failed to save employee settings:', error);
       showAlert('Failed to save settings: ' + error.message, 'error');
@@ -1257,13 +1257,13 @@ window.xeroSetup.editLeaveTypeMapping = async function(leaveTypeCode, leaveTypeN
         </div>
 
         <div class="form-actions" style="margin-top: 1.5rem;">
-          <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+          <button type="button" class="btn btn-secondary" onclick="hideSlidePanel()">Cancel</button>
           <button type="submit" class="btn btn-primary">Save Mapping</button>
         </div>
       </form>
     `;
 
-    showModalWithForm('Map Leave Type', modalContent);
+    showSlidePanel('Map Leave Type', modalContent);
 
     document.getElementById('leave-type-mapping-form').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -1286,7 +1286,7 @@ window.xeroSetup.editLeaveTypeMapping = async function(leaveTypeCode, leaveTypeN
         });
 
         showAlert(`${leaveTypeName} mapped successfully!`, 'success');
-        hideModal();
+        hideSlidePanel();
 
         // Reload mappings
         await loadMappings();

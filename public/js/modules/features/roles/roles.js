@@ -4,7 +4,7 @@
 
 import { api } from '../../core/api.js';
 import { state } from '../../core/state.js';
-import { showModalWithForm, hideModal } from '../../core/modal.js';
+import { showSlidePanel, hideSlidePanel } from '../../core/slide-panel.js';
 import { showAlert, showConfirmation } from '../../core/alerts.js';
 import { escapeHtml } from '../../core/dom.js';
 import { registerTabHook } from '../../core/navigation.js';
@@ -93,7 +93,7 @@ export async function createRole() {
     </form>
   `;
 
-  showModalWithForm('Add Role', form);
+  showSlidePanel('Add Role', form);
 
   document.getElementById('roleForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -104,7 +104,7 @@ export async function createRole() {
         companyId: parseInt(formData.get('companyId')),
         payRate: parseFloat(formData.get('payRate'))
       });
-      hideModal();
+      hideSlidePanel();
       await loadRoles();
       displayRoles();
     } catch (error) {
@@ -143,7 +143,7 @@ export async function editRole(id) {
     </form>
   `;
 
-  showModalWithForm('Edit Role', form);
+  showSlidePanel('Edit Role', form);
 
   document.getElementById('editRoleForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -153,7 +153,7 @@ export async function editRole(id) {
         name: formData.get('name'),
         payRate: parseFloat(formData.get('payRate'))
       });
-      hideModal();
+      hideSlidePanel();
       await loadRoles();
       displayRoles();
     } catch (error) {

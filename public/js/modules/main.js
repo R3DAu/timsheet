@@ -8,7 +8,6 @@ import { api } from './core/api.js';
 import { state } from './core/state.js';
 import { escapeHtml, sanitizeRichText } from './core/dom.js';
 import { showAlert, showConfirmation } from './core/alerts.js';
-import { showModalWithHTML, showModalWithForm, hideModal } from './core/modal.js';
 import { initQuillEditor, destroyQuillEditors, quillGetHtml, getQuillEditor } from './core/quill.js';
 import { initNavigation, activateTab, getRequestedTab, isTabAvailable } from './core/navigation.js';
 import { initSlidePanel, showSlidePanel, hideSlidePanel } from './core/slide-panel.js';
@@ -47,8 +46,6 @@ import { validateEntry, getTimesheetById, getTimesheetEntries, formatTime } from
 
 // Expose to window for onclick handlers (Phase 1 bridge)
 Object.assign(window, {
-  // Modal functions
-  hideModal,
   hideSlidePanel,
 
   // Auth
@@ -95,8 +92,6 @@ Object.assign(window, {
   selectEmployee: timesheets.selectEmployee,
 
   // Entries
-  createEntry: entries.createEntry,
-  editEntry: entries.editEntry,
   deleteEntry: entries.deleteEntry,
   loadEntries: entries.loadEntries,
   createEntryForTimesheet: entries.createEntryForTimesheet,
@@ -141,20 +136,6 @@ async function init() {
       activateTab(tabName);
     });
   });
-
-  // Set up modal close button
-  const closeBtn = document.querySelector('.modal .close');
-  if (closeBtn) {
-    closeBtn.addEventListener('click', hideModal);
-  }
-
-  // Removed: Don't close modal when clicking outside - user must use close button
-  // const modal = document.getElementById('modal');
-  // if (modal) {
-  //   modal.addEventListener('click', (e) => {
-  //     if (e.target === modal) hideModal();
-  //   });
-  // }
 
   // Set up company creation button
   const createCompanyBtn = document.getElementById('createCompanyBtn');
@@ -206,7 +187,10 @@ async function init() {
   // Set up Entry create button
   const createEntryBtn = document.getElementById('createEntryBtn');
   if (createEntryBtn) {
-    createEntryBtn.addEventListener('click', () => entries.createEntry());
+    createEntryBtn.addEventListener('click', () => {
+      const timesheetId = document.getElementById('timesheetSelect')?.value;
+      if (timesheetId) entries.createEntryForTimesheet(timesheetId);
+    });
   }
 
   // Set up API Key create button

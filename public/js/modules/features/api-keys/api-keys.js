@@ -4,7 +4,7 @@
 
 import { api } from '../../core/api.js';
 import { state } from '../../core/state.js';
-import { showModalWithForm, hideModal } from '../../core/modal.js';
+import { showSlidePanel, hideSlidePanel } from '../../core/slide-panel.js';
 import { showAlert, showConfirmation } from '../../core/alerts.js';
 import { escapeHtml } from '../../core/dom.js';
 import { registerTabHook } from '../../core/navigation.js';
@@ -89,7 +89,7 @@ export async function createApiKey() {
     </form>
   `;
 
-  showModalWithForm('Create API Key', form);
+  showSlidePanel('Create API Key', form);
 
   document.getElementById('apiKeyForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -111,9 +111,9 @@ export async function createApiKey() {
             <button type="button" class="btn btn-primary" onclick="copyApiKey()">Copy</button>
           </div>
         </div>
-        <button type="button" class="btn btn-secondary" onclick="hideModal(); loadApiKeys();">Done</button>
+        <button type="button" class="btn btn-secondary" onclick="hideSlidePanel(); loadApiKeys();">Done</button>
       `;
-      document.getElementById('modalBody').innerHTML = `<h2>API Key Created</h2>${keyDisplay}`;
+      showSlidePanel('API Key Created', keyDisplay);
     } catch (error) {
       showAlert(error.message);
     }

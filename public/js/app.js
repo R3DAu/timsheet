@@ -304,44 +304,6 @@ var App = (() => {
     }
   });
 
-  // public/js/modules/core/modal.js
-  var modal_exports = {};
-  __export(modal_exports, {
-    hideModal: () => hideModal,
-    registerAutocompleteCleanup: () => registerAutocompleteCleanup,
-    showModalWithForm: () => showModalWithForm,
-    showModalWithHTML: () => showModalWithHTML
-  });
-  function registerAutocompleteCleanup(fn) {
-    destroyAutocompletes = fn;
-  }
-  function showModalWithHTML(html) {
-    const modal = document.getElementById("modal");
-    const modalBody = document.getElementById("modalBody");
-    modalBody.innerHTML = html;
-    modal.style.display = "block";
-  }
-  function showModalWithForm(title, form) {
-    const modal = document.getElementById("modal");
-    const modalBody = document.getElementById("modalBody");
-    modal.style.display = "block";
-    modalBody.innerHTML = `<h2>${title}</h2>${form}`;
-  }
-  function hideModal() {
-    document.getElementById("modal").style.display = "none";
-    destroyQuillEditors();
-    if (destroyAutocompletes) {
-      destroyAutocompletes();
-    }
-  }
-  var destroyAutocompletes;
-  var init_modal = __esm({
-    "public/js/modules/core/modal.js"() {
-      init_quill();
-      destroyAutocompletes = null;
-    }
-  });
-
   // public/js/modules/core/navigation.js
   var navigation_exports = {};
   __export(navigation_exports, {
@@ -442,6 +404,60 @@ var App = (() => {
     }
   });
 
+  // public/js/modules/core/slide-panel.js
+  var slide_panel_exports = {};
+  __export(slide_panel_exports, {
+    hideSlidePanel: () => hideSlidePanel,
+    initSlidePanel: () => initSlidePanel,
+    registerPanelAutocompleteCleanup: () => registerPanelAutocompleteCleanup,
+    showSlidePanel: () => showSlidePanel
+  });
+  function registerPanelAutocompleteCleanup(fn) {
+    destroyAutocompletes = fn;
+  }
+  function showSlidePanel(title, bodyHtml, options = {}) {
+    const overlay = document.getElementById("slidePanel");
+    const titleEl = document.getElementById("slidePanelTitle");
+    const bodyEl = document.getElementById("slidePanelBody");
+    const panel = overlay.querySelector(".slide-panel");
+    titleEl.textContent = title;
+    bodyEl.innerHTML = bodyHtml;
+    if (options.wide) {
+      panel.classList.add("wide");
+    }
+    overlay.style.display = "block";
+    requestAnimationFrame(() => {
+      overlay.classList.add("active");
+    });
+  }
+  function hideSlidePanel() {
+    const overlay = document.getElementById("slidePanel");
+    const panel = overlay.querySelector(".slide-panel");
+    overlay.classList.remove("active");
+    setTimeout(() => {
+      overlay.style.display = "none";
+      panel.classList.remove("wide");
+      document.getElementById("slidePanelBody").innerHTML = "";
+      destroyQuillEditors();
+      if (destroyAutocompletes) destroyAutocompletes();
+    }, 300);
+  }
+  function initSlidePanel() {
+    const closeBtn = document.getElementById("slidePanelClose");
+    const overlay = document.getElementById("slidePanel");
+    if (closeBtn) {
+      closeBtn.addEventListener("click", hideSlidePanel);
+    }
+    console.log("Slide-in panel initialized");
+  }
+  var destroyAutocompletes;
+  var init_slide_panel = __esm({
+    "public/js/modules/core/slide-panel.js"() {
+      init_quill();
+      destroyAutocompletes = null;
+    }
+  });
+
   // public/js/modules/features/companies/companies.js
   var companies_exports = {};
   __export(companies_exports, {
@@ -520,7 +536,7 @@ var App = (() => {
       <button type="submit" class="btn btn-primary">Create Company</button>
     </form>
   `;
-    showModalWithForm("Add Company", form);
+    showSlidePanel("Add Company", form);
     document.getElementById("companyForm").onsubmit = async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);
@@ -530,7 +546,7 @@ var App = (() => {
           isBillable: formData.has("isBillable"),
           wmsSyncEnabled: formData.has("wmsSyncEnabled")
         });
-        hideModal();
+        hideSlidePanel();
         await loadCompanies();
         displayCompanies();
       } catch (error) {
@@ -563,7 +579,7 @@ var App = (() => {
       <button type="submit" class="btn btn-primary">Save Changes</button>
     </form>
   `;
-    showModalWithForm("Edit Company", form);
+    showSlidePanel("Edit Company", form);
     document.getElementById("editCompanyForm").onsubmit = async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);
@@ -573,7 +589,7 @@ var App = (() => {
           isBillable: formData.has("isBillable"),
           wmsSyncEnabled: formData.has("wmsSyncEnabled")
         });
-        hideModal();
+        hideSlidePanel();
         await loadCompanies();
         displayCompanies();
       } catch (error) {
@@ -595,7 +611,7 @@ var App = (() => {
     "public/js/modules/features/companies/companies.js"() {
       init_api();
       init_state();
-      init_modal();
+      init_slide_panel();
       init_alerts();
       init_dom();
       init_navigation();
@@ -681,7 +697,7 @@ var App = (() => {
       <button type="submit" class="btn btn-primary">Create Role</button>
     </form>
   `;
-    showModalWithForm("Add Role", form);
+    showSlidePanel("Add Role", form);
     document.getElementById("roleForm").onsubmit = async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);
@@ -691,7 +707,7 @@ var App = (() => {
           companyId: parseInt(formData.get("companyId")),
           payRate: parseFloat(formData.get("payRate"))
         });
-        hideModal();
+        hideSlidePanel();
         await loadRoles();
         displayRoles();
       } catch (error) {
@@ -723,7 +739,7 @@ var App = (() => {
       <button type="submit" class="btn btn-primary">Save Changes</button>
     </form>
   `;
-    showModalWithForm("Edit Role", form);
+    showSlidePanel("Edit Role", form);
     document.getElementById("editRoleForm").onsubmit = async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);
@@ -732,7 +748,7 @@ var App = (() => {
           name: formData.get("name"),
           payRate: parseFloat(formData.get("payRate"))
         });
-        hideModal();
+        hideSlidePanel();
         await loadRoles();
         displayRoles();
       } catch (error) {
@@ -754,7 +770,7 @@ var App = (() => {
     "public/js/modules/features/roles/roles.js"() {
       init_api();
       init_state();
-      init_modal();
+      init_slide_panel();
       init_alerts();
       init_dom();
       init_navigation();
@@ -791,32 +807,6 @@ var App = (() => {
   }
   function todayStr() {
     return formatLocalDate(/* @__PURE__ */ new Date());
-  }
-  function getTimeDefaults(timesheetId) {
-    const myTimesheets = state.get("myTimesheets");
-    const allTimesheets = state.get("allTimesheets");
-    const currentUser2 = state.get("currentUser");
-    const ts = [...myTimesheets, ...allTimesheets].find((t) => t.id === parseInt(timesheetId));
-    const today = todayStr();
-    let todayEntryCount = 0;
-    if (ts && ts.entries) {
-      todayEntryCount = ts.entries.filter((e) => {
-        const d = formatLocalDate(e.date);
-        return d === today;
-      }).length;
-    }
-    const emp = currentUser2 && currentUser2.employee;
-    const morning = {
-      start: emp ? emp.morningStart : "08:30",
-      end: emp ? emp.morningEnd : "12:30"
-    };
-    const afternoon = {
-      start: emp ? emp.afternoonStart : "13:00",
-      end: emp ? emp.afternoonEnd : "17:00"
-    };
-    if (todayEntryCount === 0) return morning;
-    if (todayEntryCount === 1) return afternoon;
-    return { start: "", end: "" };
   }
   var init_dateTime = __esm({
     "public/js/modules/core/dateTime.js"() {
@@ -886,12 +876,12 @@ var App = (() => {
         </label>
       </div>
       <button type="submit" class="btn btn-primary">Start Sync</button>
-      <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+      <button type="button" class="btn btn-secondary" onclick="hideSlidePanel()">Cancel</button>
     </form>
   `;
-    showModalWithHTML(html);
+    showSlidePanel("Sync to DE WMS", html);
     document.getElementById("wmsSyncShowPw").onchange = (e) => {
-      const pwInput = document.querySelector('#modalBody input[name="wmsPassword"]');
+      const pwInput = document.querySelector('#slidePanelBody input[name="wmsPassword"]');
       pwInput.type = e.target.checked ? "text" : "password";
     };
     document.getElementById("wmsSyncForm").onsubmit = async (e) => {
@@ -926,9 +916,9 @@ var App = (() => {
       <div id="syncProgressLog" style="background: #1a1a2e; border-radius: 6px; padding: 0.75rem; margin: 0.75rem 0; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; line-height: 1.6;"></div>
       <div id="syncResultDetails"></div>
     </div>
-    <button type="button" class="btn btn-secondary" onclick="hideModal()">Close</button>
+    <button type="button" class="btn btn-secondary" onclick="hideSlidePanel()">Close</button>
   `;
-    showModalWithHTML(html);
+    showSlidePanel("WMS Sync Progress", html);
     pollSyncStatus(syncLogId);
   }
   function pollSyncStatus(syncLogId) {
@@ -1033,7 +1023,7 @@ var App = (() => {
       const result = await api.get("/wms-sync/timesheet/" + timesheetId);
       const syncs = result.syncs;
       if (syncs.length === 0) {
-        showModalWithHTML("<h3>Sync History</h3><p>No sync history for this timesheet.</p>");
+        showSlidePanel("Sync History", "<p>No sync history for this timesheet.</p>");
         return;
       }
       const rows = syncs.map((sync) => {
@@ -1060,7 +1050,7 @@ var App = (() => {
         </table>
       </div>
     `;
-      showModalWithHTML(html);
+      showSlidePanel("Sync History", html);
     } catch (error) {
       showAlert("Failed to load sync history: " + error.message);
     }
@@ -1080,7 +1070,7 @@ var App = (() => {
     "public/js/modules/features/wms/wms-sync.js"() {
       init_api();
       init_state();
-      init_modal();
+      init_slide_panel();
       init_alerts();
       init_dom();
     }
@@ -1165,7 +1155,7 @@ var App = (() => {
             <button type="submit" class="btn btn-primary">Create Timesheet</button>
         </form>
     `;
-    showModalWithForm("Create Timesheet", html);
+    showSlidePanel("Create Timesheet", html);
     const timesheetModal = document.getElementById("timesheetForm");
     timesheetModal.onsubmit = async (e) => {
       e.preventDefault();
@@ -1180,7 +1170,7 @@ var App = (() => {
           weekStarting: formData.get("weekStarting"),
           weekEnding: formData.get("weekEnding")
         });
-        hideModal();
+        hideSlidePanel();
         await refreshTimesheets2();
       } catch (error) {
         showAlert(error.message);
@@ -1645,7 +1635,7 @@ ${tasks}`);
       init_state();
       init_dom();
       init_navigation();
-      init_modal();
+      init_slide_panel();
       init_alerts();
       init_dateTime();
       init_wms_sync();
@@ -1786,7 +1776,7 @@ ${tasks}`);
       <button type="submit" class="btn btn-primary">Create User</button>
     </form>
   `;
-    showModalWithForm("Add System User", form);
+    showSlidePanel("Add System User", form);
     document.getElementById("userForm").onsubmit = async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);
@@ -1797,7 +1787,7 @@ ${tasks}`);
           password: formData.get("password"),
           isAdmin: formData.has("isAdmin")
         });
-        hideModal();
+        hideSlidePanel();
         await loadUsers();
         displayUsers();
       } catch (error) {
@@ -1832,7 +1822,7 @@ ${tasks}`);
       <button type="submit" class="btn btn-primary">Save Changes</button>
     </form>
   `;
-    showModalWithForm("Edit User", form);
+    showSlidePanel("Edit User", form);
     document.getElementById("editUserForm").onsubmit = async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);
@@ -1845,7 +1835,7 @@ ${tasks}`);
       if (password) data.password = password;
       try {
         await api.put(`/users/${id}`, data);
-        hideModal();
+        hideSlidePanel();
         await loadUsers();
         displayUsers();
       } catch (error) {
@@ -1877,7 +1867,7 @@ ${tasks}`);
       <button type="submit" class="btn btn-primary">Create Profile</button>
     </form>
   `;
-    showModalWithForm("Link Employee Profile", form);
+    showSlidePanel("Link Employee Profile", form);
     document.getElementById("linkProfileForm").onsubmit = async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);
@@ -1889,7 +1879,7 @@ ${tasks}`);
           email: formData.get("email"),
           phone: formData.get("phone") || null
         });
-        hideModal();
+        hideSlidePanel();
         await loadUsers();
         displayUsers();
         const { loadEmployees: loadEmployees2 } = await Promise.resolve().then(() => (init_employees(), employees_exports));
@@ -1913,7 +1903,7 @@ ${tasks}`);
     "public/js/modules/features/users/users.js"() {
       init_api();
       init_state();
-      init_modal();
+      init_slide_panel();
       init_alerts();
       init_dom();
       init_navigation();
@@ -2017,7 +2007,7 @@ ${tasks}`);
       <button type="submit" class="btn btn-primary">Create Employee</button>
     </form>
   `;
-    showModalWithForm("Add Employee", form);
+    showSlidePanel("Add Employee", form);
     document.querySelector('#employeeForm select[name="userId"]').onchange = (e) => {
       const userId = parseInt(e.target.value);
       const user = users.find((u) => u.id === userId);
@@ -2039,7 +2029,7 @@ ${tasks}`);
           email: formData.get("email"),
           phone: formData.get("phone") || null
         });
-        hideModal();
+        hideSlidePanel();
         await loadEmployees();
         displayEmployees();
         const { loadUsers: loadUsers2 } = await Promise.resolve().then(() => (init_users(), users_exports));
@@ -2132,7 +2122,7 @@ ${tasks}`);
       </h3>
       <div id="xeroConfigSection_${emp.id}"></div>
     `;
-      showModalWithForm(`Employee: ${escapeHtml(emp.firstName)} ${escapeHtml(emp.lastName)}`, html);
+      showSlidePanel(`Employee: ${escapeHtml(emp.firstName)} ${escapeHtml(emp.lastName)}`, html);
       document.querySelectorAll(".emp-edit-id-btn").forEach((btn) => {
         btn.addEventListener("click", () => {
           editIdentifierForm(
@@ -2325,7 +2315,7 @@ ${tasks}`);
       <button type="submit" class="btn btn-primary">Save Changes</button>
     </form>
   `;
-    showModalWithForm("Edit Employee", form);
+    showSlidePanel("Edit Employee", form);
     document.getElementById("editEmployeeForm").onsubmit = async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);
@@ -2337,7 +2327,7 @@ ${tasks}`);
           phone: formData.get("phone") || null,
           maxDailyHours: parseFloat(formData.get("maxDailyHours")) || 16
         });
-        hideModal();
+        hideSlidePanel();
         await loadEmployees();
         displayEmployees();
       } catch (error) {
@@ -2390,7 +2380,7 @@ ${tasks}`);
       <button type="submit" class="btn btn-primary">Add Identifier</button>
     </form>
   `;
-    showModalWithHTML(form);
+    showSlidePanel("Add Identifier", form);
     document.getElementById("addIdType").onchange = (e) => {
       const customGroup = document.getElementById("addIdCustomGroup");
       const customInput = document.getElementById("addIdCustomType");
@@ -2419,7 +2409,7 @@ ${tasks}`);
           identifierValue: formData.get("identifierValue"),
           companyId: formData.get("companyId") ? parseInt(formData.get("companyId")) : null
         });
-        hideModal();
+        hideSlidePanel();
         viewEmployee(employeeId);
       } catch (error) {
         showAlert(error.message);
@@ -2461,7 +2451,7 @@ ${tasks}`);
       <button type="submit" class="btn btn-primary">Save Changes</button>
     </form>
   `;
-    showModalWithHTML(form);
+    showSlidePanel("Edit Identifier", form);
     document.getElementById("editIdType").onchange = (e) => {
       const customGroup = document.getElementById("editIdCustomGroup");
       const customInput = document.getElementById("editIdCustomType");
@@ -2490,7 +2480,7 @@ ${tasks}`);
           identifierValue: formData.get("identifierValue"),
           companyId: formData.get("companyId") ? parseInt(formData.get("companyId")) : null
         });
-        hideModal();
+        hideSlidePanel();
         viewEmployee(employeeId);
       } catch (error) {
         showAlert(error.message);
@@ -2528,7 +2518,7 @@ ${tasks}`);
       <button type="submit" class="btn btn-primary">Assign Role</button>
     </form>
   `;
-    showModalWithForm("Assign Role to Employee", form);
+    showSlidePanel("Assign Role to Employee", form);
     document.getElementById("assignRoleCompanySelect").onchange = (e) => {
       const companyId = parseInt(e.target.value);
       const roleSelect = document.getElementById("assignRoleRoleSelect");
@@ -2543,7 +2533,7 @@ ${tasks}`);
           roleId: parseInt(formData.get("roleId")),
           companyId: parseInt(formData.get("companyId"))
         });
-        hideModal();
+        hideSlidePanel();
         await loadEmployees();
         viewEmployee(employeeId);
       } catch (error) {
@@ -2555,7 +2545,7 @@ ${tasks}`);
     "public/js/modules/features/employees/employees.js"() {
       init_api();
       init_state();
-      init_modal();
+      init_slide_panel();
       init_alerts();
       init_dom();
       init_navigation();
@@ -2638,7 +2628,7 @@ ${tasks}`);
       <button type="submit" class="btn btn-primary">Create API Key</button>
     </form>
   `;
-    showModalWithForm("Create API Key", form);
+    showSlidePanel("Create API Key", form);
     document.getElementById("apiKeyForm").onsubmit = async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);
@@ -2657,9 +2647,9 @@ ${tasks}`);
             <button type="button" class="btn btn-primary" onclick="copyApiKey()">Copy</button>
           </div>
         </div>
-        <button type="button" class="btn btn-secondary" onclick="hideModal(); loadApiKeys();">Done</button>
+        <button type="button" class="btn btn-secondary" onclick="hideSlidePanel(); loadApiKeys();">Done</button>
       `;
-        document.getElementById("modalBody").innerHTML = `<h2>API Key Created</h2>${keyDisplay}`;
+        showSlidePanel("API Key Created", keyDisplay);
       } catch (error) {
         showAlert(error.message);
       }
@@ -2689,7 +2679,7 @@ ${tasks}`);
     "public/js/modules/features/api-keys/api-keys.js"() {
       init_api();
       init_state();
-      init_modal();
+      init_slide_panel();
       init_alerts();
       init_dom();
       init_navigation();
@@ -2702,58 +2692,25 @@ ${tasks}`);
   init_state();
   init_dom();
   init_alerts();
-  init_modal();
   init_quill();
   init_navigation();
-
-  // public/js/modules/core/slide-panel.js
-  init_quill();
-  var destroyAutocompletes2 = null;
-  function showSlidePanel(title, bodyHtml) {
-    const overlay = document.getElementById("slidePanel");
-    const titleEl = document.getElementById("slidePanelTitle");
-    const bodyEl = document.getElementById("slidePanelBody");
-    titleEl.textContent = title;
-    bodyEl.innerHTML = bodyHtml;
-    overlay.style.display = "block";
-    requestAnimationFrame(() => {
-      overlay.classList.add("active");
-    });
-  }
-  function hideSlidePanel() {
-    const overlay = document.getElementById("slidePanel");
-    overlay.classList.remove("active");
-    setTimeout(() => {
-      overlay.style.display = "none";
-      document.getElementById("slidePanelBody").innerHTML = "";
-      destroyQuillEditors();
-      if (destroyAutocompletes2) destroyAutocompletes2();
-    }, 300);
-  }
-  function initSlidePanel() {
-    const closeBtn = document.getElementById("slidePanelClose");
-    const overlay = document.getElementById("slidePanel");
-    if (closeBtn) {
-      closeBtn.addEventListener("click", hideSlidePanel);
-    }
-    console.log("Slide-in panel initialized");
-  }
+  init_slide_panel();
 
   // public/js/modules/components/location-autocomplete.js
   init_dom();
   init_state();
   init_api();
   init_quill();
-  init_modal();
+  init_slide_panel();
   var activeAutocompletes = [];
   var autocompleteDebounceTimers = {};
   var locationNoteCounter = 0;
-  function destroyAutocompletes3() {
+  function destroyAutocompletes2() {
     document.querySelectorAll(".location-autocomplete-dropdown").forEach((el) => el.remove());
     activeAutocompletes = [];
     autocompleteDebounceTimers = {};
   }
-  registerAutocompleteCleanup(destroyAutocompletes3);
+  registerPanelAutocompleteCleanup(destroyAutocompletes2);
   function attachLocationAutocomplete(input) {
     const id = "ac_" + Math.random().toString(36).slice(2, 8);
     input.dataset.acId = id;
@@ -2911,10 +2868,9 @@ ${tasks}`);
     if (el) el.remove();
   }
   function attachAllLocationAutocompletes() {
-    destroyAutocompletes3();
-    const modal = document.getElementById("modalBody");
+    destroyAutocompletes2();
     const slidePanel = document.getElementById("slidePanelBody");
-    const containers = [modal, slidePanel].filter(Boolean);
+    const containers = [slidePanel].filter(Boolean);
     if (containers.length === 0) return;
     containers.forEach((container) => {
       const startingLoc = container.querySelector('input[name="startingLocation"]');
@@ -3090,7 +3046,6 @@ ${tasks}`);
   init_api();
   init_state();
   init_dom();
-  init_modal();
   init_alerts();
   init_quill();
   init_dateTime();
@@ -3200,6 +3155,7 @@ ${tasks}`);
   }
 
   // public/js/modules/features/entries/entries.js
+  init_slide_panel();
   init_dom();
   function getEntryCompanyOptions(selectedId) {
     const currentUser2 = state.get("currentUser");
@@ -3283,7 +3239,7 @@ ${tasks}`);
             </td>
             <td>
               ${isEditable ? `
-                <button class="btn btn-sm btn-primary" onclick="editEntry(${entry.id}, ${timesheetId})">Edit</button>
+                <button class="btn btn-sm btn-primary" onclick="editEntrySlideIn(${entry.id}, ${timesheetId})">Edit</button>
                 <button class="btn btn-sm btn-danger" onclick="deleteEntry(${entry.id})">Delete</button>
               ` : `<span style="color:#999; font-size:0.85rem;">Locked</span>`}
             </td>
@@ -3294,350 +3250,6 @@ ${tasks}`);
     </table>
   `;
     container.innerHTML = html;
-  }
-  async function createEntry() {
-    const timesheetId = document.getElementById("timesheetSelect").value;
-    if (!timesheetId) {
-      showAlert("Please select a timesheet first");
-      return;
-    }
-    const defaults = getTimeDefaults(timesheetId);
-    const form = `
-    <form id="entryForm">
-      <div class="form-group">
-        <label>Entry Type</label>
-        <select name="entryType" id="entryTypeSelect" required>
-          <option value="GENERAL">General</option>
-          <option value="TRAVEL">Travel</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Date</label>
-        <input type="date" name="date" value="${todayStr()}" required>
-      </div>
-      <div class="time-row">
-        <div class="form-group">
-          <label>Start Time</label>
-          <input type="time" name="startTime" id="createStartTime" value="${defaults.start}" required>
-        </div>
-        <div class="form-group">
-          <label>End Time</label>
-          <input type="time" name="endTime" id="createEndTime" value="${defaults.end}" required>
-        </div>
-        <div class="calculated-hours" id="createHoursPreview">${defaults.start && defaults.end ? calculateHoursPreview(defaults.start, defaults.end) : "0.00 hrs"}</div>
-      </div>
-      <div class="form-group">
-        <label>Company</label>
-        <select name="companyId" id="entryCompanySelect" required>
-          <option value="">Select company...</option>
-          ${getEntryCompanyOptions().join("")}
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Role</label>
-        <select name="roleId" id="entryRoleSelect" required>
-          <option value="">Select company first...</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Starting Location</label>
-        <input type="text" name="startingLocation" placeholder="e.g. School name, Home, Office">
-        <small style="color: #666;">Where you started from for this entry</small>
-      </div>
-      <div id="travelFields" style="display:none;">
-        <div class="form-group">
-          <label>Travel From</label>
-          <input type="text" name="travelFrom" placeholder="e.g. Home, Work Place 1, or full address">
-        </div>
-        <div class="form-group">
-          <label>Travel To</label>
-          <input type="text" name="travelTo" placeholder="e.g. School 1, or full address">
-        </div>
-      </div>
-      <div class="quill-wrapper">
-        <label>Notes / Details</label>
-        <div id="createNotesEditor"></div>
-      </div>
-      <div class="location-notes-section" style="border: 2px solid #3498db; border-radius: 4px; padding: 1rem; margin-bottom: 1rem; background: #f0f8ff;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-          <label style="font-weight: 600; color: #2c3e50; margin: 0;">Location Notes</label>
-          <button type="button" class="btn btn-sm btn-primary" id="addLocationNoteBtn">+ Add Location</button>
-        </div>
-        <small style="color: #666; display: block; margin-bottom: 0.5rem;">Add notes for each school/location visited</small>
-        <div id="createLocationNotesContainer"></div>
-      </div>
-      <div class="form-group">
-        <label>Reason for Deviation</label>
-        <textarea name="reasonForDeviation" rows="2" placeholder="If your times differ from your approved schedule, explain why" maxlength="256" style="resize: vertical;"></textarea>
-        <small style="color: #666;">Required by DE WMS if entry times deviate from your default schedule</small>
-      </div>
-      <div class="private-notes-wrapper">
-        <label>Private Notes (internal only - not visible to clients)</label>
-        <div id="createPrivateNotesEditor"></div>
-      </div>
-      <button type="submit" class="btn btn-primary">Create Entry</button>
-    </form>
-  `;
-    showModalWithForm("Create Entry", form);
-    destroyQuillEditors();
-    const notesEditor = initQuillEditor("createNotesEditor", "Enter notes or details...");
-    const privateNotesEditor = initQuillEditor("createPrivateNotesEditor", "Internal notes...");
-    document.getElementById("addLocationNoteBtn").onclick = () => {
-      addLocationNoteField("createLocationNotesContainer");
-    };
-    const updateHoursPreview = () => {
-      const start = document.getElementById("createStartTime").value;
-      const end = document.getElementById("createEndTime").value;
-      document.getElementById("createHoursPreview").textContent = calculateHoursPreview(start, end) || "0.00 hrs";
-    };
-    document.getElementById("createStartTime").onchange = updateHoursPreview;
-    document.getElementById("createEndTime").onchange = updateHoursPreview;
-    document.getElementById("entryTypeSelect").onchange = (e) => {
-      document.getElementById("travelFields").style.display = e.target.value === "TRAVEL" ? "block" : "none";
-    };
-    document.getElementById("entryCompanySelect").onchange = (e) => {
-      const companyId = parseInt(e.target.value);
-      const roleSelect = document.getElementById("entryRoleSelect");
-      if (!companyId) {
-        roleSelect.innerHTML = '<option value="">Select company first...</option>';
-        return;
-      }
-      const filteredRoles = getEntryRolesForCompany(companyId);
-      roleSelect.innerHTML = '<option value="">Select role...</option>' + filteredRoles.map((r) => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join("");
-    };
-    attachAllLocationAutocompletes();
-    document.getElementById("entryForm").onsubmit = async (e) => {
-      e.preventDefault();
-      const formData = new FormData(e.target);
-      const existingEntries = getTimesheetEntries(timesheetId);
-      const validation = validateEntry({
-        date: formData.get("date"),
-        startTime: formData.get("startTime"),
-        endTime: formData.get("endTime")
-      }, existingEntries, null, timesheetId);
-      if (!validation.valid) {
-        showAlert("Entry validation failed:\n\n" + validation.errors.join("\n"));
-        return;
-      }
-      if (validation.warnings && validation.warnings.length > 0) {
-        if (!await showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
-          return;
-        }
-      }
-      const notesHtml = quillGetHtml(notesEditor) || null;
-      const privateNotesHtml = quillGetHtml(privateNotesEditor) || null;
-      const locationNotesJson = collectLocationNotes("createLocationNotesContainer");
-      try {
-        await api.post("/entries", {
-          timesheetId: parseInt(timesheetId),
-          entryType: formData.get("entryType"),
-          date: formData.get("date"),
-          startTime: formData.get("startTime"),
-          endTime: formData.get("endTime"),
-          companyId: parseInt(formData.get("companyId")),
-          roleId: parseInt(formData.get("roleId")),
-          startingLocation: formData.get("startingLocation") || null,
-          startingLocationLat: formData.get("startingLocationLat") ? parseFloat(formData.get("startingLocationLat")) : null,
-          startingLocationLng: formData.get("startingLocationLng") ? parseFloat(formData.get("startingLocationLng")) : null,
-          reasonForDeviation: formData.get("reasonForDeviation") || null,
-          notes: notesHtml || null,
-          privateNotes: privateNotesHtml || null,
-          locationNotes: locationNotesJson,
-          travelFrom: formData.get("travelFrom") || null,
-          travelFromLat: formData.get("travelFromLat") ? parseFloat(formData.get("travelFromLat")) : null,
-          travelFromLng: formData.get("travelFromLng") ? parseFloat(formData.get("travelFromLng")) : null,
-          travelTo: formData.get("travelTo") || null,
-          travelToLat: formData.get("travelToLat") ? parseFloat(formData.get("travelToLat")) : null,
-          travelToLng: formData.get("travelToLng") ? parseFloat(formData.get("travelToLng")) : null,
-          isBillable: formData.get("isBillable") === "on"
-        });
-        hideModal();
-        if (window.refreshTimesheets) await window.refreshTimesheets();
-        loadEntries(timesheetId);
-      } catch (error) {
-        showAlert(error.message);
-      }
-    };
-  }
-  async function editEntry(id, timesheetIdParam) {
-    const timesheetId = timesheetIdParam || document.getElementById("timesheetSelect").value;
-    let entry;
-    try {
-      const result = await api.get(`/entries/timesheet/${timesheetId}`);
-      entry = result.entries.find((e) => e.id === id);
-    } catch (error) {
-      showAlert("Failed to load entry");
-      return;
-    }
-    if (!entry) {
-      showAlert("Entry not found");
-      return;
-    }
-    const dateStr = formatLocalDate(entry.date);
-    const form = `
-    <form id="editEntryForm">
-      <div class="form-group">
-        <label>Entry Type</label>
-        <select name="entryType" id="editEntryTypeSelect" required>
-          <option value="GENERAL" ${entry.entryType === "GENERAL" ? "selected" : ""}>General</option>
-          <option value="TRAVEL" ${entry.entryType === "TRAVEL" ? "selected" : ""}>Travel</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Date</label>
-        <input type="date" name="date" value="${dateStr}" required>
-      </div>
-      <div class="time-row">
-        <div class="form-group">
-          <label>Start Time</label>
-          <input type="time" name="startTime" id="editStartTime" value="${entry.startTime || ""}" required>
-        </div>
-        <div class="form-group">
-          <label>End Time</label>
-          <input type="time" name="endTime" id="editEndTime" value="${entry.endTime || ""}" required>
-        </div>
-        <div class="calculated-hours" id="editHoursPreview">${entry.hours.toFixed(2)} hrs</div>
-      </div>
-      <div class="form-group">
-        <label>Company</label>
-        <select name="companyId" id="editEntryCompanySelect" required>
-          <option value="">Select company...</option>
-          ${getEntryCompanyOptions(entry.companyId).join("")}
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Role</label>
-        <select name="roleId" id="editEntryRoleSelect" required>
-          <option value="">Select role...</option>
-          ${getEntryRolesForCompany(entry.companyId).map((r) => `<option value="${r.id}" ${r.id === entry.roleId ? "selected" : ""}>${escapeHtml(r.name)}</option>`).join("")}
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Starting Location</label>
-        <input type="text" name="startingLocation" value="${escapeHtml(entry.startingLocation || "")}" placeholder="e.g. School name, Home, Office">
-        <small style="color: #666;">Where you started from for this entry</small>
-      </div>
-      <div id="editTravelFields" style="display:${entry.entryType === "TRAVEL" ? "block" : "none"};">
-        <div class="form-group">
-          <label>Travel From</label>
-          <input type="text" name="travelFrom" value="${escapeHtml(entry.travelFrom || "")}">
-        </div>
-        <div class="form-group">
-          <label>Travel To</label>
-          <input type="text" name="travelTo" value="${escapeHtml(entry.travelTo || "")}">
-        </div>
-      </div>
-      <div class="quill-wrapper">
-        <label>Notes / Details</label>
-        <div id="editNotesEditor"></div>
-      </div>
-      <div class="location-notes-section" style="border: 2px solid #3498db; border-radius: 4px; padding: 1rem; margin-bottom: 1rem; background: #f0f8ff;">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem;">
-          <label style="font-weight: 600; color: #2c3e50; margin: 0;">Location Notes</label>
-          <button type="button" class="btn btn-sm btn-primary" id="editAddLocationNoteBtn">+ Add Location</button>
-        </div>
-        <small style="color: #666; display: block; margin-bottom: 0.5rem;">Add notes for each school/location visited</small>
-        <div id="editLocationNotesContainer"></div>
-      </div>
-      <div class="form-group">
-        <label>Reason for Deviation</label>
-        <textarea name="reasonForDeviation" rows="2" maxlength="256" style="resize: vertical;" placeholder="If your times differ from your approved schedule, explain why">${escapeHtml(entry.reasonForDeviation || "")}</textarea>
-        <small style="color: #666;">Required by DE WMS if entry times deviate from your default schedule</small>
-      </div>
-      <div class="private-notes-wrapper">
-        <label>Private Notes (internal only - not visible to clients)</label>
-        <div id="editPrivateNotesEditor"></div>
-      </div>
-      <button type="submit" class="btn btn-primary">Save Changes</button>
-    </form>
-  `;
-    showModalWithForm("Edit Entry", form);
-    destroyQuillEditors();
-    const notesEditor = initQuillEditor("editNotesEditor", "Enter notes or details...");
-    const privateNotesEditor = initQuillEditor("editPrivateNotesEditor", "Internal notes...");
-    if (entry.notes) {
-      notesEditor.root.innerHTML = entry.notes;
-    }
-    if (entry.privateNotes) {
-      privateNotesEditor.root.innerHTML = entry.privateNotes;
-    }
-    if (entry.locationNotes) {
-      try {
-        const locNotes = typeof entry.locationNotes === "string" ? JSON.parse(entry.locationNotes) : entry.locationNotes;
-        locNotes.forEach((ln) => {
-          addLocationNoteField("editLocationNotesContainer", ln.location, ln.description);
-        });
-      } catch (e) {
-      }
-    }
-    document.getElementById("editAddLocationNoteBtn").onclick = () => {
-      addLocationNoteField("editLocationNotesContainer");
-    };
-    const updateHoursPreview = () => {
-      const start = document.getElementById("editStartTime").value;
-      const end = document.getElementById("editEndTime").value;
-      document.getElementById("editHoursPreview").textContent = calculateHoursPreview(start, end) || `${entry.hours.toFixed(2)} hrs`;
-    };
-    document.getElementById("editStartTime").onchange = updateHoursPreview;
-    document.getElementById("editEndTime").onchange = updateHoursPreview;
-    document.getElementById("editEntryTypeSelect").onchange = (e) => {
-      document.getElementById("editTravelFields").style.display = e.target.value === "TRAVEL" ? "block" : "none";
-    };
-    document.getElementById("editEntryCompanySelect").onchange = (e) => {
-      const companyId = parseInt(e.target.value);
-      const roleSelect = document.getElementById("editEntryRoleSelect");
-      if (!companyId) {
-        roleSelect.innerHTML = '<option value="">Select company first...</option>';
-        return;
-      }
-      const filteredRoles = getEntryRolesForCompany(companyId);
-      roleSelect.innerHTML = '<option value="">Select role...</option>' + filteredRoles.map((r) => `<option value="${r.id}">${escapeHtml(r.name)}</option>`).join("");
-    };
-    attachAllLocationAutocompletes();
-    document.getElementById("editEntryForm").onsubmit = async (e) => {
-      e.preventDefault();
-      const formData = new FormData(e.target);
-      const existingEntries = getTimesheetEntries(timesheetId);
-      const validation = validateEntry({
-        date: formData.get("date"),
-        startTime: formData.get("startTime"),
-        endTime: formData.get("endTime")
-      }, existingEntries, id, timesheetId);
-      if (!validation.valid) {
-        showAlert("Entry validation failed:\n\n" + validation.errors.join("\n"));
-        return;
-      }
-      if (validation.warnings && validation.warnings.length > 0) {
-        if (!await showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
-          return;
-        }
-      }
-      const notesHtml = quillGetHtml(notesEditor) || null;
-      const privateNotesHtml = quillGetHtml(privateNotesEditor) || null;
-      const locationNotesJson = collectLocationNotes("editLocationNotesContainer");
-      try {
-        await api.put(`/entries/${id}`, {
-          entryType: formData.get("entryType"),
-          date: formData.get("date"),
-          startTime: formData.get("startTime"),
-          endTime: formData.get("endTime"),
-          companyId: parseInt(formData.get("companyId")),
-          roleId: parseInt(formData.get("roleId")),
-          startingLocation: formData.get("startingLocation") || null,
-          reasonForDeviation: formData.get("reasonForDeviation") || null,
-          notes: notesHtml || null,
-          privateNotes: privateNotesHtml || null,
-          locationNotes: locationNotesJson,
-          travelFrom: formData.get("travelFrom"),
-          travelTo: formData.get("travelTo")
-        });
-        hideModal();
-        if (window.refreshTimesheets) await window.refreshTimesheets();
-        loadEntries(timesheetId);
-      } catch (error) {
-        showAlert(error.message);
-      }
-    };
   }
   async function deleteEntry(id) {
     if (!await showConfirmation("Delete this entry?")) return;
@@ -4577,6 +4189,7 @@ ${tasks}`);
   init_state();
   init_alerts();
   init_dom();
+  init_slide_panel();
   async function showMyProfile() {
     let currentUser2;
     try {
@@ -4716,7 +4329,7 @@ ${tasks}`);
 
   // public/js/modules/features/wms/wms-comparison.js
   init_api();
-  init_modal();
+  init_slide_panel();
   init_alerts();
   init_dom();
   async function showDeWmsEntries(timesheetId) {
@@ -4823,7 +4436,7 @@ ${tasks}`);
         </div>
       ` : "<p>No entries found for comparison.</p>"}
     `;
-      showModalWithForm("DE WMS Entries", html);
+      showSlidePanel("DE WMS Entries", html, { wide: true });
     } catch (error) {
       showAlert("Failed to load DE WMS comparison: " + error.message);
     }
@@ -5144,7 +4757,7 @@ ${tasks}`);
   init_alerts();
   init_dom();
   init_navigation();
-  init_modal();
+  init_slide_panel();
   var currentSetupTab = "companies";
   var selectedEmployeeTenant = null;
   var selectedRoleTenant = null;
@@ -5413,7 +5026,7 @@ ${tasks}`);
     const company = companies.find((c) => c.id === companyId);
     const mapping = mappings.find((m) => m.companyId === companyId);
     if (!company) return;
-    const { showModalWithForm: showModalWithForm2, hideModal: hideModal2 } = await Promise.resolve().then(() => (init_modal(), modal_exports));
+    const { showSlidePanel: showSlidePanel2, hideSlidePanel: hideSlidePanel2 } = await Promise.resolve().then(() => (init_slide_panel(), slide_panel_exports));
     const form = `
     <form id="companyMappingForm">
       <div class="form-group">
@@ -5448,7 +5061,7 @@ ${tasks}`);
       <button type="submit" class="btn btn-primary">Save Mapping</button>
     </form>
   `;
-    showModalWithForm2(`Map Company: ${company.name}`, form);
+    showSlidePanel2(`Map Company: ${company.name}`, form);
     document.getElementById("companyMappingForm").onsubmit = async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);
@@ -5465,7 +5078,7 @@ ${tasks}`);
         showAlert("Company mapping saved successfully", "success");
         await loadMappings();
         displayCompanyMappings();
-        hideModal2();
+        hideSlidePanel2();
       } catch (error) {
         console.error("Failed to save company mapping:", error);
         showAlert("Failed to save mapping: " + error.message, "error");
@@ -5539,7 +5152,7 @@ ${tasks}`);
       showAlert("Please select a Xero tenant first", "error");
       return;
     }
-    const { showModalWithForm: showModalWithForm2, hideModal: hideModal2 } = await Promise.resolve().then(() => (init_modal(), modal_exports));
+    const { showSlidePanel: showSlidePanel2, hideSlidePanel: hideSlidePanel2 } = await Promise.resolve().then(() => (init_slide_panel(), slide_panel_exports));
     try {
       const xeroEmployees = await api.get(`/xero/setup/employees/${selectedEmployeeTenant}`);
       const form = `
@@ -5567,7 +5180,7 @@ ${tasks}`);
         <button type="submit" class="btn btn-primary">Save Mapping</button>
       </form>
     `;
-      showModalWithForm2(`Map Employee: ${employee.firstName} ${employee.lastName}`, form);
+      showSlidePanel2(`Map Employee: ${employee.firstName} ${employee.lastName}`, form);
       document.getElementById("employeeMappingForm").onsubmit = async (e) => {
         e.preventDefault();
         const formData = new FormData(e.target);
@@ -5580,7 +5193,7 @@ ${tasks}`);
           showAlert("Employee mapping saved successfully", "success");
           await loadMappings();
           displayEmployeeMappings();
-          hideModal2();
+          hideSlidePanel2();
         } catch (error) {
           console.error("Failed to save employee mapping:", error);
           showAlert("Failed to save mapping: " + error.message, "error");
@@ -5657,7 +5270,7 @@ ${tasks}`);
       (m) => m.roleId === roleId && m.xeroTenantId === selectedRoleTenant
     );
     if (!role) return;
-    const { showModalWithForm: showModalWithForm2, hideModal: hideModal2 } = await Promise.resolve().then(() => (init_modal(), modal_exports));
+    const { showSlidePanel: showSlidePanel2, hideSlidePanel: hideSlidePanel2 } = await Promise.resolve().then(() => (init_slide_panel(), slide_panel_exports));
     const form = `
     <form id="roleMappingForm">
       <div class="form-group">
@@ -5683,7 +5296,7 @@ ${tasks}`);
       <button type="submit" class="btn btn-primary">Save Mapping</button>
     </form>
   `;
-    showModalWithForm2(`Map Role: ${role.name}`, form);
+    showSlidePanel2(`Map Role: ${role.name}`, form);
     document.getElementById("roleMappingForm").onsubmit = async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);
@@ -5701,7 +5314,7 @@ ${tasks}`);
         showAlert("Role mapping saved successfully", "success");
         await loadMappings();
         displayRoleMappings();
-        hideModal2();
+        hideSlidePanel2();
       } catch (error) {
         console.error("Failed to save role mapping:", error);
         showAlert("Failed to save mapping: " + error.message, "error");
@@ -5850,7 +5463,7 @@ ${tasks}`);
     const employee = employees.find((e) => e.id === employeeId);
     const role = roles.find((r) => r.id === roleId);
     if (!employee || !role) return;
-    const { showModalWithForm: showModalWithForm2, hideModal: hideModal2 } = await Promise.resolve().then(() => (init_modal(), modal_exports));
+    const { showSlidePanel: showSlidePanel2, hideSlidePanel: hideSlidePanel2 } = await Promise.resolve().then(() => (init_slide_panel(), slide_panel_exports));
     try {
       const earningsRates = await api.get(`/xero/setup/earnings-rates/${xeroTenantId}`);
       const form = `
@@ -5887,7 +5500,7 @@ ${tasks}`);
         <button type="submit" class="btn btn-primary">Save Custom Rate</button>
       </form>
     `;
-      showModalWithForm2(`Set Custom Rate: ${employee.firstName} ${employee.lastName}`, form);
+      showSlidePanel2(`Set Custom Rate: ${employee.firstName} ${employee.lastName}`, form);
       document.getElementById("customEarningsRateForm").onsubmit = async (e) => {
         e.preventDefault();
         const formData = new FormData(e.target);
@@ -5906,7 +5519,7 @@ ${tasks}`);
           showAlert("Custom earnings rate saved successfully", "success");
           await loadMappings();
           displayEmployeeSettings();
-          hideModal2();
+          hideSlidePanel2();
         } catch (error) {
           console.error("Failed to save custom earnings rate:", error);
           showAlert("Failed to save custom rate: " + error.message, "error");
@@ -5944,7 +5557,7 @@ This will revert to using the role's default rate.`
     const employee = employees.find((e) => e.id === employeeId);
     const empSettings = settings.find((s) => s.employeeId === employeeId);
     if (!employee) return;
-    const { showModalWithForm: showModalWithForm2, hideModal: hideModal2 } = await Promise.resolve().then(() => (init_modal(), modal_exports));
+    const { showSlidePanel: showSlidePanel2, hideSlidePanel: hideSlidePanel2 } = await Promise.resolve().then(() => (init_slide_panel(), slide_panel_exports));
     const form = `
     <form id="employeeSettingsForm">
       <div class="form-group">
@@ -5985,7 +5598,7 @@ This will revert to using the role's default rate.`
       <button type="submit" class="btn btn-primary">Save Settings</button>
     </form>
   `;
-    showModalWithForm2(`Configure: ${employee.firstName} ${employee.lastName}`, form);
+    showSlidePanel2(`Configure: ${employee.firstName} ${employee.lastName}`, form);
     document.getElementById("employeeSettingsForm").onsubmit = async (e) => {
       e.preventDefault();
       const formData = new FormData(e.target);
@@ -6000,7 +5613,7 @@ This will revert to using the role's default rate.`
         showAlert("Employee settings saved successfully", "success");
         await loadMappings();
         displayEmployeeSettings();
-        hideModal2();
+        hideSlidePanel2();
       } catch (error) {
         console.error("Failed to save employee settings:", error);
         showAlert("Failed to save settings: " + error.message, "error");
@@ -6101,12 +5714,12 @@ This will revert to using the role's default rate.`
         </div>
 
         <div class="form-actions" style="margin-top: 1.5rem;">
-          <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+          <button type="button" class="btn btn-secondary" onclick="hideSlidePanel()">Cancel</button>
           <button type="submit" class="btn btn-primary">Save Mapping</button>
         </div>
       </form>
     `;
-      showModalWithForm("Map Leave Type", modalContent);
+      showSlidePanel("Map Leave Type", modalContent);
       document.getElementById("leave-type-mapping-form").addEventListener("submit", async (e) => {
         e.preventDefault();
         const formData = new FormData(e.target);
@@ -6123,7 +5736,7 @@ This will revert to using the role's default rate.`
             leaveTypeName: leaveTypeNameXero
           });
           showAlert(`${leaveTypeName} mapped successfully!`, "success");
-          hideModal();
+          hideSlidePanel();
           await loadMappings();
           await displayLeaveTypeMappings();
         } catch (error) {
@@ -6478,7 +6091,7 @@ Xero will create the next period in sequence after the last existing pay run.`))
   window.viewSyncLog = async function(logId) {
     try {
       const log = await api.get(`/xero/sync/logs/${logId}`);
-      const { showModalWithHTML: showModalWithHTML2 } = await Promise.resolve().then(() => (init_modal(), modal_exports));
+      const { showSlidePanel: showSlidePanel2 } = await Promise.resolve().then(() => (init_slide_panel(), slide_panel_exports));
       const details = log.syncDetails ? JSON.parse(log.syncDetails) : {};
       const html = `
       <h2>Sync Log Details</h2>
@@ -6549,7 +6162,7 @@ Xero will create the next period in sequence after the last existing pay run.`))
         ` : ""}
       </div>
     `;
-      showModalWithHTML2(html);
+      showSlidePanel2("Sync Log Details", html);
     } catch (error) {
       console.error("Failed to load sync log:", error);
       showAlert("Failed to load sync log: " + error.message, "error");
@@ -6575,6 +6188,7 @@ Xero will create the next period in sequence after the last existing pay run.`))
   init_state();
   init_dom();
   init_alerts();
+  init_slide_panel();
   init_navigation();
   init_quill();
   var leaveBalances = null;
@@ -7336,6 +6950,7 @@ Xero will create the next period in sequence after the last existing pay run.`))
   init_alerts();
   init_dom();
   init_navigation();
+  init_slide_panel();
   async function initInvoices() {
     const currentUser2 = state.get("currentUser");
     if (!currentUser2?.isAdmin) return;
@@ -7698,8 +7313,6 @@ Xero will create the next period in sequence after the last existing pay run.`))
 
   // public/js/modules/main.js
   Object.assign(window, {
-    // Modal functions
-    hideModal,
     hideSlidePanel,
     // Auth
     login,
@@ -7739,8 +7352,6 @@ Xero will create the next period in sequence after the last existing pay run.`))
     toggleDateAccordion,
     selectEmployee,
     // Entries
-    createEntry,
-    editEntry,
     deleteEntry,
     loadEntries,
     createEntryForTimesheet,
@@ -7772,10 +7383,6 @@ Xero will create the next period in sequence after the last existing pay run.`))
         activateTab(tabName);
       });
     });
-    const closeBtn = document.querySelector(".modal .close");
-    if (closeBtn) {
-      closeBtn.addEventListener("click", hideModal);
-    }
     const createCompanyBtn = document.getElementById("createCompanyBtn");
     if (createCompanyBtn) {
       createCompanyBtn.addEventListener("click", () => createCompany());
@@ -7811,7 +7418,10 @@ Xero will create the next period in sequence after the last existing pay run.`))
     }
     const createEntryBtn = document.getElementById("createEntryBtn");
     if (createEntryBtn) {
-      createEntryBtn.addEventListener("click", () => createEntry());
+      createEntryBtn.addEventListener("click", () => {
+        const timesheetId = document.getElementById("timesheetSelect")?.value;
+        if (timesheetId) createEntryForTimesheet(timesheetId);
+      });
     }
     const createApiKeyBtn = document.getElementById("createApiKeyBtn");
     if (createApiKeyBtn) {

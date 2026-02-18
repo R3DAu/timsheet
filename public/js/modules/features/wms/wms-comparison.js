@@ -4,7 +4,7 @@
  */
 
 import { api } from '../../core/api.js';
-import { showModalWithForm } from '../../core/modal.js';
+import { showSlidePanel } from '../../core/slide-panel.js';
 import { showAlert } from '../../core/alerts.js';
 import { escapeHtml } from '../../core/dom.js';
 
@@ -134,7 +134,7 @@ export async function showDeWmsEntries(timesheetId) {
       ` : '<p>No entries found for comparison.</p>'}
     `;
 
-    showModalWithForm('DE WMS Entries', html);
+    showSlidePanel('DE WMS Entries', html, { wide: true });
   } catch (error) {
     showAlert('Failed to load DE WMS comparison: ' + error.message);
   }

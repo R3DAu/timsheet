@@ -4,7 +4,7 @@
 
 import { api } from '../../core/api.js';
 import { state } from '../../core/state.js';
-import { showModalWithForm, hideModal } from '../../core/modal.js';
+import { showSlidePanel, hideSlidePanel } from '../../core/slide-panel.js';
 import { showAlert, showConfirmation } from '../../core/alerts.js';
 import { escapeHtml } from '../../core/dom.js';
 import { registerTabHook } from '../../core/navigation.js';
@@ -92,7 +92,7 @@ export async function createCompany() {
     </form>
   `;
 
-  showModalWithForm('Add Company', form);
+  showSlidePanel('Add Company', form);
 
   document.getElementById('companyForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -103,7 +103,7 @@ export async function createCompany() {
         isBillable: formData.has('isBillable'),
         wmsSyncEnabled: formData.has('wmsSyncEnabled')
       });
-      hideModal();
+      hideSlidePanel();
       await loadCompanies();
       displayCompanies();
     } catch (error) {
@@ -143,7 +143,7 @@ export async function editCompany(id) {
     </form>
   `;
 
-  showModalWithForm('Edit Company', form);
+  showSlidePanel('Edit Company', form);
 
   document.getElementById('editCompanyForm').onsubmit = async (e) => {
     e.preventDefault();
@@ -154,7 +154,7 @@ export async function editCompany(id) {
         isBillable: formData.has('isBillable'),
         wmsSyncEnabled: formData.has('wmsSyncEnabled')
       });
-      hideModal();
+      hideSlidePanel();
       await loadCompanies();
       displayCompanies();
     } catch (error) {

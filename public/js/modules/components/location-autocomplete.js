@@ -7,7 +7,7 @@ import { escapeHtml } from '../core/dom.js';
 import { state } from '../core/state.js';
 import { api } from '../core/api.js';
 import { initQuillEditor, getQuillEditor } from '../core/quill.js';
-import { registerAutocompleteCleanup } from '../core/modal.js';
+import { registerPanelAutocompleteCleanup } from '../core/slide-panel.js';
 
 // Track active autocomplete instances
 let activeAutocompletes = [];
@@ -23,8 +23,8 @@ export function destroyAutocompletes() {
   autocompleteDebounceTimers = {};
 }
 
-// Register cleanup function with modal module
-registerAutocompleteCleanup(destroyAutocompletes);
+// Register cleanup function with slide panel module
+registerPanelAutocompleteCleanup(destroyAutocompletes);
 
 /**
  * Attach autocomplete to a text input. Shows saved locations + search results.
@@ -246,10 +246,8 @@ function removeDropdown(id) {
 export function attachAllLocationAutocompletes() {
   destroyAutocompletes();
 
-  // Check both modal and slide panel
-  const modal = document.getElementById('modalBody');
   const slidePanel = document.getElementById('slidePanelBody');
-  const containers = [modal, slidePanel].filter(Boolean);
+  const containers = [slidePanel].filter(Boolean);
 
   if (containers.length === 0) return;
 
@@ -313,7 +311,6 @@ export function removeLocationNote(index) {
   const el = document.getElementById(`locationNote_${index}`);
   if (el) {
     const editorId = `locationEditor_${index}`;
-    // Note: Quill editor cleanup is handled by destroyQuillEditors in modal.js
     el.remove();
   }
 }
