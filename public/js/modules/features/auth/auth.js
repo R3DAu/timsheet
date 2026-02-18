@@ -125,7 +125,7 @@ export async function loadAllData() {
     if (currentUser.isAdmin) {
       const { loadEmployees } = await import('../employees/employees.js');
       const { loadUsers } = await import('../users/users.js');
-      const { loadAllTimesheets } = await import('../timesheets/timesheets.js');
+      const { loadAllTimesheets, initEmployeeSelector } = await import('../timesheets/timesheets.js');
       const { loadApiKeys } = await import('../api-keys/api-keys.js');
 
       await Promise.all([
@@ -134,6 +134,8 @@ export async function loadAllData() {
         loadUsers(),
         loadApiKeys()
       ]);
+
+      initEmployeeSelector();
       console.log('✅ Admin data loaded');
     }
 

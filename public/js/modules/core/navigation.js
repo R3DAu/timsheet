@@ -15,6 +15,11 @@ const TAB_TITLES = {
   users: 'Users',
   apiKeys: 'API Keys',
   systemTools: 'System Tools',
+  approvals: 'Approvals',
+  leaveManagement: 'Leave Requests',
+  xeroSetup: 'Xero Setup',
+  xeroSyncLogs: 'Xero Sync Logs',
+  xeroInvoices: 'LT Invoices',
 };
 
 // Tab activation hooks - feature modules register their display functions here

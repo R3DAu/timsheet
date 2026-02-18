@@ -243,6 +243,16 @@ export async function deleteTimesheet(id) {
     }
 }
 
+export async function xeroResyncTimesheet(id) {
+    try {
+        await api.post(`/xero/sync/timesheet/${id}`);
+        await refreshTimesheets();
+        showAlert('Xero sync successful', 'success');
+    } catch (error) {
+        showAlert('Xero sync failed: ' + error.message, 'error');
+    }
+}
+
 //add in helper function to combine all timesheets into one list for easier lookup, dedupe by Id
 export function combineTimesheetsAndDedupe(){
     const myTimesheets = state.get('myTimesheets');
@@ -294,6 +304,31 @@ function getTimeDefaults(timesheetId) {
 // ==================== NEW: UNIFIED ACCORDION VIEW ====================
 
 /**
+ * Returns a Xero sync status badge for APPROVED timesheets
+ */
+function getXeroSyncBadge(ts) {
+  if (ts.status !== 'APPROVED') return '';
+  if (ts.xeroTimesheetId) {
+    return '<span class="source-badge xero-synced-badge" title="Synced to Xero">✓ Xero</span>';
+  }
+  const latestLog = ts.xeroSyncLogs?.[0];
+  if (latestLog?.status === 'ERROR') {
+    return `<span class="source-badge xero-error-badge" title="${escapeHtml(latestLog.errorMessage || 'Sync failed')}">✗ Xero</span>`;
+  }
+  return '<span class="source-badge xero-pending-badge" title="Pending Xero sync">⏳ Xero</span>';
+}
+
+/**
+ * Returns a Xero resync button for APPROVED timesheets not yet successfully synced (admin only)
+ */
+function getXeroResyncButton(ts, currentUser) {
+  if (!currentUser.isAdmin) return '';
+  if (ts.status !== 'APPROVED') return '';
+  if (ts.xeroTimesheetId) return ''; // Already synced — no button needed
+  return `<button class="btn btn-sm btn-info" onclick="xeroResyncTimesheet(${ts.id})" title="Retry Xero sync">↻ Xero</button>`;
+}
+
+/**
  * Main render function - unified accordion view
  */
 export function displayUnifiedTimesheets() {
@@ -339,6 +374,7 @@ export function displayUnifiedTimesheets() {
             <span class="accordion-week">${weekLabel}</span>
             <span class="status-badge status-${ts.status}">${ts.status}</span>
             ${ts.autoCreated ? '<span class="source-badge tsdata-badge">TSDATA</span>' : ''}
+            ${getXeroSyncBadge(ts)}
           </div>
           <div class="accordion-meta">
             <span>${ts.entries.length} entries</span>
@@ -348,6 +384,7 @@ export function displayUnifiedTimesheets() {
               ${ts.status === 'OPEN' ? `<button class="btn btn-sm btn-success" onclick="submitTimesheet(${ts.id})">Submit</button>` : ''}
               ${ts.status === 'SUBMITTED' && currentUser.isAdmin ? `<button class="btn btn-sm btn-success" onclick="approveTimesheet(${ts.id})">Approve</button>` : ''}
               ${ts.status === 'APPROVED' && currentUser.isAdmin ? `<button class="btn btn-sm btn-secondary" onclick="lockTimesheet(${ts.id})">Lock</button>` : ''}
+              ${getXeroResyncButton(ts, currentUser)}
               ${(ts.status === 'LOCKED' || ts.status === 'APPROVED' || ts.status === 'SUBMITTED') && currentUser.isAdmin ? `
                 <button class="btn btn-sm btn-warning" onclick="unlockTimesheet(${ts.id})" title="Unlock and set to OPEN">🔓 Unlock</button>
               ` : ''}
@@ -499,12 +536,15 @@ function renderEntryCard(entry, timesheetId, isEditable) {
 
 // ==================== ADMIN EMPLOYEE SELECTOR ====================
 
+let _employeeSelectorInitialized = false;
+
 /**
  * Initialize employee selector for admins
  */
 export function initEmployeeSelector() {
   const currentUser = state.get('currentUser');
   if (!currentUser.isAdmin) return;
+  if (_employeeSelectorInitialized) return;
 
   const wrapper = document.getElementById('employeeSelectorWrapper');
   const input = document.getElementById('employeeSearchInput');
@@ -512,6 +552,7 @@ export function initEmployeeSelector() {
 
   if (!wrapper || !input || !dropdown) return;
 
+  _employeeSelectorInitialized = true;
   wrapper.style.display = '';
   input.placeholder = 'My Timesheets - Search to switch employee...';
 

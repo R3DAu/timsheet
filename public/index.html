@@ -59,15 +59,26 @@
           <button class="nav-item active" data-tab="timesheets">
             <span class="nav-icon">📋</span> Timesheets
           </button>
+          <button class="nav-item" data-tab="leaveManagement">
+            <span class="nav-icon">🏖️</span> Leave Requests
+          </button>
 
           <div class="nav-section admin-only">
             <div class="nav-section-title">Admin</div>
+            <button class="nav-item" data-tab="approvals"><span class="nav-icon">✅</span> Approvals <span id="approvalsBadge" class="nav-badge" style="display:none;"></span></button>
             <button class="nav-item" data-tab="employees"><span class="nav-icon">👤</span> Employees</button>
             <button class="nav-item" data-tab="users"><span class="nav-icon">🧑‍💻</span> Users</button>
             <button class="nav-item" data-tab="companies"><span class="nav-icon">🏢</span> Companies</button>
             <button class="nav-item" data-tab="roles"><span class="nav-icon">🧾</span> Roles</button>
             <button class="nav-item" data-tab="apiKeys"><span class="nav-icon">🔑</span> API Keys</button>
             <button class="nav-item" data-tab="systemTools"><span class="nav-icon">🔧</span> System Tools</button>
+          </div>
+
+          <div class="nav-section admin-only">
+            <div class="nav-section-title">Xero Integration</div>
+            <button class="nav-item" data-tab="xeroSetup"><span class="nav-icon">⚙️</span> Xero Setup</button>
+            <button class="nav-item" data-tab="xeroSyncLogs"><span class="nav-icon">📊</span> Sync Logs</button>
+            <button class="nav-item" data-tab="xeroInvoices"><span class="nav-icon">🧾</span> Invoices</button>
           </div>
         </aside>
 
@@ -93,6 +104,16 @@
                 </div>
               </div>
               <div id="timesheetsAccordion" class="accordion-container"></div>
+            </div>
+          </div>
+
+          <!-- Approvals Tab (Admin) -->
+          <div id="approvalsTab" class="tab-content">
+            <div class="card">
+              <div class="card-header">
+                <h2>Approvals</h2>
+              </div>
+              <div id="approvalsContent"></div>
             </div>
           </div>
 
@@ -248,6 +269,194 @@
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <!-- Xero Setup Tab (Admin) -->
+          <div id="xeroSetupTab" class="tab-content">
+            <div class="card">
+              <div class="card-header">
+                <h2>Xero Integration Setup</h2>
+              </div>
+
+              <!-- Connection Section -->
+              <div id="xeroConnectionSection" style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb;">
+                <div style="display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1rem;">
+                  <div style="font-size: 2rem;">🔗</div>
+                  <div style="flex: 1;">
+                    <h3 style="margin: 0 0 0.5rem 0;">Xero Connection</h3>
+                    <p style="margin: 0 0 1rem 0; color: #6b7280; font-size: 0.9rem;">
+                      Connect your Xero account to enable payroll sync and invoice management.
+                    </p>
+                    <div id="xeroConnectionStatus"></div>
+                    <div style="margin-top: 1rem;">
+                      <button id="connectXeroBtn" class="btn btn-primary">Connect Xero</button>
+                      <button id="refreshTenantsBtn" class="btn btn-secondary" style="display: none;">Refresh</button>
+                    </div>
+                  </div>
+                </div>
+                <div id="xeroTenantsList" style="margin-top: 1rem;"></div>
+              </div>
+
+              <!-- Setup Tabs -->
+              <div style="padding: 1.5rem;">
+                <div class="setup-tabs" style="display: flex; gap: 0.5rem; border-bottom: 2px solid #e5e7eb; margin-bottom: 1.5rem;">
+                  <button class="setup-tab-btn active" data-setup-tab="companies">Companies</button>
+                  <button class="setup-tab-btn" data-setup-tab="employees">Employees</button>
+                  <button class="setup-tab-btn" data-setup-tab="roles">Roles</button>
+                  <button class="setup-tab-btn" data-setup-tab="leaveTypes">Leave Types</button>
+                  <button class="setup-tab-btn" data-setup-tab="settings">Settings</button>
+                  <button class="setup-tab-btn" data-setup-tab="payroll">Payroll</button>
+                </div>
+
+                <!-- Company Mapping Tab -->
+                <div id="setupCompaniesTab" class="setup-tab-content active">
+                  <h3>Company to Xero Tenant Mapping</h3>
+                  <p style="color: #6b7280; margin-bottom: 1rem;">
+                    Map each company to a Xero tenant and configure invoice settings for Local Technicians.
+                  </p>
+                  <div id="companyMappingList"></div>
+                </div>
+
+                <!-- Employee Mapping Tab -->
+                <div id="setupEmployeesTab" class="setup-tab-content">
+                  <h3>Employee to Xero Employee Mapping</h3>
+                  <p style="color: #6b7280; margin-bottom: 1rem;">
+                    Map your local employees to Xero employees for timesheet sync.
+                  </p>
+                  <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Select Xero Tenant:</label>
+                    <select id="employeeTenantSelector" class="form-control" style="max-width: 400px;">
+                      <option value="">Select a tenant...</option>
+                    </select>
+                  </div>
+                  <div id="employeeMappingList"></div>
+                </div>
+
+                <!-- Role Mapping Tab -->
+                <div id="setupRolesTab" class="setup-tab-content">
+                  <h3>Role to Earnings Rate Mapping</h3>
+                  <p style="color: #6b7280; margin-bottom: 1rem;">
+                    Map your local roles to Xero earnings rates (pay types).
+                  </p>
+                  <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Select Xero Tenant:</label>
+                    <select id="roleTenantSelector" class="form-control" style="max-width: 400px;">
+                      <option value="">Select a tenant...</option>
+                    </select>
+                  </div>
+                  <div id="roleMappingList"></div>
+                </div>
+
+                <!-- Employee Settings Tab -->
+                <div id="setupLeaveTypesTab" class="setup-tab-content">
+                  <h3>Leave Type to Xero Leave Type Mapping</h3>
+                  <p style="color: #6b7280; margin-bottom: 1rem;">
+                    Map each leave type to the corresponding Xero leave type for automatic sync.
+                  </p>
+
+                  <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Select Xero Tenant:</label>
+                    <select id="leaveTypeTenantSelector" class="form-control" style="max-width: 400px;">
+                      <option value="">Select tenant...</option>
+                    </select>
+                  </div>
+
+                  <div id="leaveTypeMappingsList"></div>
+                </div>
+
+                <!-- Payroll Tab -->
+                <div id="setupPayrollTab" class="setup-tab-content">
+                  <h3>Payroll Calendars &amp; Pay Runs</h3>
+                  <p style="color: #6b7280; margin-bottom: 1rem;">
+                    View your Xero payroll calendar configuration and manage pay runs. Pay runs must exist for a period before timesheets can be synced.
+                  </p>
+                  <div style="margin-bottom: 1rem;">
+                    <label style="display: block; margin-bottom: 0.5rem; font-weight: 500;">Select Xero Tenant:</label>
+                    <select id="payrollTenantSelector" class="form-control" style="max-width: 400px;">
+                      <option value="">Select a tenant...</option>
+                    </select>
+                  </div>
+                  <div id="payrollCalendarsList"></div>
+                </div>
+
+                <div id="setupSettingsTab" class="setup-tab-content">
+                  <h3>Employee Xero Settings</h3>
+                  <p style="color: #6b7280; margin-bottom: 1rem;">
+                    Configure employee types (Specialist Tech or Local Tech), auto-approval, and sync preferences.
+                  </p>
+                  <div id="employeeSettingsList"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Xero Sync Logs Tab (Admin) -->
+          <div id="xeroSyncLogsTab" class="tab-content">
+            <div class="card">
+              <div class="card-header">
+                <h2>Xero Sync Logs</h2>
+                <div style="display: flex; gap: 0.5rem;">
+                  <button id="refreshSyncLogsBtn" class="btn btn-secondary">Refresh</button>
+                </div>
+              </div>
+
+              <!-- Stats Cards -->
+              <div id="syncStatsCards" style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb;"></div>
+
+              <!-- Filters -->
+              <div style="padding: 1rem 1.5rem; background: #f9fafb; border-bottom: 1px solid #e5e7eb;">
+                <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                  <div>
+                    <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem; font-weight: 500;">Status:</label>
+                    <select id="syncLogStatusFilter" class="form-control" style="max-width: 150px;">
+                      <option value="">All</option>
+                      <option value="SUCCESS">Success</option>
+                      <option value="ERROR">Error</option>
+                      <option value="PENDING">Pending</option>
+                      <option value="PARTIAL">Partial</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label style="display: block; margin-bottom: 0.25rem; font-size: 0.875rem; font-weight: 500;">Type:</label>
+                    <select id="syncLogTypeFilter" class="form-control" style="max-width: 200px;">
+                      <option value="">All</option>
+                      <option value="TIMESHEET_SYNC">Timesheet Sync</option>
+                      <option value="INVOICE_CREATE">Invoice Create</option>
+                      <option value="LEAVE_SYNC">Leave Sync</option>
+                      <option value="RECONCILIATION">Reconciliation</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Logs Table -->
+              <div id="syncLogsList" style="padding: 1.5rem;"></div>
+            </div>
+          </div>
+
+          <!-- Leave Management Tab -->
+          <div id="leaveManagementTab" class="tab-content">
+            <div class="card">
+              <div class="card-header">
+                <h2>Leave Management</h2>
+              </div>
+
+              <!-- Employee View: Leave Requests & Balances -->
+              <div id="xero-leave-employee" style="padding: 1.5rem;"></div>
+
+              <!-- Admin View: Pending Approvals & History -->
+              <div id="xero-leave-admin" style="padding: 1.5rem; border-top: 1px solid #e5e7eb;"></div>
+            </div>
+          </div>
+
+          <!-- Xero Invoices Tab (Admin) -->
+          <div id="xeroInvoicesTab" class="tab-content">
+            <div class="card">
+              <div class="card-header">
+                <h2>LT Invoices</h2>
+              </div>
+              <div id="xero-invoices-admin"></div>
             </div>
           </div>
         </main>

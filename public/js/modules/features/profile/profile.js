@@ -4,9 +4,9 @@
 
 import { api } from '../../core/api.js';
 import { state } from '../../core/state.js';
-import { showModalWithForm, hideModal } from '../../core/modal.js';
 import { showAlert } from '../../core/alerts.js';
 import { escapeHtml } from '../../core/dom.js';
+import { showSlidePanel, hideSlidePanel } from '../../core/slide-panel.js';
 import { attachLocationAutocomplete } from '../../components/location-autocomplete.js';
 
 /**
@@ -83,7 +83,7 @@ export async function showMyProfile() {
     </form>
   `;
 
-  showModalWithForm('My Profile', form);
+  showSlidePanel('My Profile', form);
 
   // Populate preset addresses
   if (emp) {
@@ -153,7 +153,7 @@ export async function showMyProfile() {
       const updatedUser = result.user;
       state.set('currentUser', updatedUser);
       document.getElementById('userDisplay').textContent = updatedUser.name;
-      hideModal();
+      hideSlidePanel();
       showAlert('Profile updated successfully');
     } catch (error) {
       showAlert(error.message);

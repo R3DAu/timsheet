@@ -23,7 +23,12 @@
       "Bash(npm run build)",
       "Bash(git restore:*)",
       "Bash(FINAL_STATUS.md:*)",
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "Bash(git checkout:*)",
+      "Bash(/e/Projects/gitProjects/timsheet/public/css/style.css:*)",
+      "Bash(grep:*)",
+      "Bash(\"E:\\\\Projects\\\\gitProjects\\\\timsheet\\\\public\\\\css\\\\style.css\":*)",
+      "Bash(\"E:\\\\Projects\\\\gitProjects\\\\timsheet\\\\src\\\\controllers\\\\xeroSetupController.js\":*)"
     ]
   }
 }

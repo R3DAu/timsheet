@@ -78,6 +78,10 @@ const tsDataService = {
     return fetchAllPages('/api/data/periods', { status, fromDate, toDate });
   },
 
+  async getWorker(workerId) {
+    return fetchTsData(`/api/data/workers/${workerId}`);
+  },
+
   // Map TSDATA status strings to our local status enum
   mapStatus(tsDataStatus) {
     if (!tsDataStatus) return 'OPEN';
