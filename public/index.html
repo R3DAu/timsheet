@@ -76,6 +76,7 @@
 
           <div class="nav-section admin-only">
             <div class="nav-section-title">Xero Integration</div>
+            <button class="nav-item" data-tab="xeroDashboard"><span class="nav-icon">📈</span> Dashboard</button>
             <button class="nav-item" data-tab="xeroSetup"><span class="nav-icon">⚙️</span> Xero Setup</button>
             <button class="nav-item" data-tab="xeroSyncLogs"><span class="nav-icon">📊</span> Sync Logs</button>
             <button class="nav-item" data-tab="xeroInvoices"><span class="nav-icon">🧾</span> Invoices</button>
@@ -290,6 +291,33 @@
                     </div>
                   </div>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Xero Dashboard Tab (Admin) -->
+          <div id="xeroDashboardTab" class="tab-content">
+            <div class="card">
+              <div class="card-header">
+                <h2>Xero Dashboard</h2>
+                <button id="xeroDashboardRefreshBtn" class="btn btn-secondary">Refresh</button>
+              </div>
+              <div id="xeroDashboardCards" style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb;"></div>
+              <div style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb;">
+                <h3 style="margin: 0 0 1rem 0;">Employee Sync Status</h3>
+                <div id="xeroDashboardEmployeeTable"></div>
+              </div>
+              <div style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb;">
+                <h3 style="margin: 0 0 1rem 0;">Pay Period Status</h3>
+                <div id="xeroDashboardPayPeriods"></div>
+              </div>
+              <div style="padding: 1.5rem; border-bottom: 1px solid #e5e7eb;">
+                <h3 style="margin: 0 0 1rem 0;">Recent Sync Failures</h3>
+                <div id="xeroDashboardFailures"></div>
+              </div>
+              <div style="padding: 1.5rem;">
+                <h3 style="margin: 0 0 1rem 0;">Invoice Summary</h3>
+                <div id="xeroDashboardInvoiceSummary"></div>
               </div>
             </div>
           </div>

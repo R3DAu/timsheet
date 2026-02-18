@@ -5,6 +5,7 @@ const xeroSetupController = require('../controllers/xeroSetupController');
 const xeroSyncController = require('../controllers/xeroSyncController');
 const xeroLeaveController = require('../controllers/xeroLeaveController');
 const xeroInvoiceController = require('../controllers/xeroInvoiceController');
+const xeroReportingController = require('../controllers/xeroReportingController');
 const { requireAuth, requireAdmin } = require('../middleware/auth');
 const apiCache = require('../utils/apiCache');
 
@@ -171,5 +172,11 @@ router.get('/invoice/list', requireAdmin,
 router.get('/invoice/:id', requireAdmin,
   apiCache.middleware(req => `xero:invoices:${req.params.id}`, TTL.invoices),
   xeroInvoiceController.getInvoice);
+
+// === Reporting ===
+
+router.get('/reporting/overview', requireAdmin,
+  apiCache.middleware(() => 'xero:reporting:overview', 5 * 60 * 1000),
+  xeroReportingController.getOverview);
 
 module.exports = router;
