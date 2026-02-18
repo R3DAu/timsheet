@@ -11,6 +11,7 @@ services:
     # DATABASE_URL=postgresql://timesheet:changeme@postgres:5432/timesheet
     volumes:
       - /srv/timesheet/data:/app/data:z
+      - /srv/timesheet/logs:/app/logs:z
     networks:
       - proxy
     labels:

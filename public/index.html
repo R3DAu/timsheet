@@ -251,6 +251,28 @@
                   </div>
                 </div>
 
+                <!-- Audit Log Section -->
+                <div class="tool-section" style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 1.5rem; margin-bottom: 1.5rem; background: #f9fafb;">
+                  <div style="display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1rem;">
+                    <div style="font-size: 2rem;">📋</div>
+                    <div style="flex: 1;">
+                      <h3 style="margin: 0 0 0.5rem 0; color: #1f2937;">Audit Log</h3>
+                      <p style="margin: 0 0 1rem 0; color: #6b7280; font-size: 0.9rem;">
+                        View a record of significant user actions including logins, timesheet approvals, and status changes.
+                      </p>
+                      <div style="display: flex; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 1rem;">
+                        <select id="auditActionFilter" class="form-control" style="width: auto; min-width: 180px;">
+                          <option value="">All Actions</option>
+                        </select>
+                        <input type="date" id="auditFromDate" class="form-control" style="width: auto;" title="From date">
+                        <input type="date" id="auditToDate" class="form-control" style="width: auto;" title="To date">
+                        <button id="loadAuditLogBtn" class="btn btn-primary">Load Audit Log</button>
+                      </div>
+                      <div id="auditLogResult"></div>
+                    </div>
+                  </div>
+                </div>
+
                 <!-- TSDATA Manual Sync Section -->
                 <div class="tool-section" style="border: 1px solid #e5e7eb; border-radius: 8px; padding: 1.5rem; background: #f9fafb;">
                   <div style="display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1rem;">

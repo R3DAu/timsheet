@@ -4,6 +4,7 @@ const session = require('express-session');
 const { PrismaSessionStore } = require('@quixo3/prisma-session-store');
 const { PrismaClient } = require('@prisma/client');
 const morgan = require('morgan');
+const logger = require('./utils/logger');
 const cors = require('cors');
 const path = require('path');
 
@@ -23,6 +24,7 @@ const wmsSyncRoutes = require('./routes/wmsSync');
 const apiKeyRoutes = require('./routes/apiKeys');
 const tsDataRoutes = require('./routes/tsData');
 const xeroRoutes = require('./routes/xero');
+const auditLogRoutes = require('./routes/auditLogs');
 const wmsSyncService = require('./services/wmsSyncService');
 const { startScheduler } = require('./jobs/scheduler');
 
@@ -36,8 +38,8 @@ if (process.env.TRUST_PROXY === 'true') {
   app.set('trust proxy', 1);
 }
 
-// Middleware
-app.use(morgan(isDev ? 'dev' : 'combined'));
+// Middleware — HTTP request logging via morgan → winston
+app.use(morgan(isDev ? 'dev' : 'combined', { stream: logger.stream }));
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -110,6 +112,7 @@ app.use('/api/wms-sync', wmsSyncRoutes);
 app.use('/api/api-keys', apiKeyRoutes);
 app.use('/api/tsdata', tsDataRoutes);
 app.use('/api/xero', xeroRoutes);
+app.use('/api/audit-logs', auditLogRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -138,11 +141,12 @@ async function startServer() {
   }
 
   app.listen(PORT, () => {
-    console.log(`Timesheet system running on http://localhost:${PORT}`);
-    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    logger.info(`Timesheet system running on http://localhost:${PORT}`, {
+      env: process.env.NODE_ENV || 'development',
+      port: PORT,
+    });
     if (isDev) {
-      console.log(`Swagger docs: http://localhost:${PORT}/api-docs`);
-      console.log(`Verbose logging: enabled`);
+      logger.debug(`Swagger docs: http://localhost:${PORT}/api-docs`);
     }
     startScheduler();
   });
