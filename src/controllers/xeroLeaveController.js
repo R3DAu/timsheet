@@ -305,6 +305,13 @@ exports.getAllEmployeeBalances = async (req, res) => {
     const balanceData = [];
 
     for (const employee of employees) {
+      // Determine config reason before calling service so we can surface it
+      const hasSyncEnabled = employee.xeroSettings?.syncEnabled === true;
+      const hasXeroId = employee.identifiers?.some(i => i.identifierType === 'xero_employee_id');
+      let configReason = null;
+      if (!hasSyncEnabled) configReason = 'sync_disabled';
+      else if (!hasXeroId) configReason = 'no_xero_id';
+
       try {
         const balances = await xeroLeaveService.getLeaveBalances(employee.id);
 
@@ -313,7 +320,8 @@ exports.getAllEmployeeBalances = async (req, res) => {
           employeeName: `${employee.firstName} ${employee.lastName}`,
           email: employee.email,
           balances: balances && Array.isArray(balances) ? balances : null,
-          notConfigured: !balances || !Array.isArray(balances)
+          notConfigured: !balances || !Array.isArray(balances),
+          configReason: (!balances || !Array.isArray(balances)) ? (configReason || 'error') : null
         });
       } catch (error) {
         console.error(`[Leave] Error fetching balances for employee ${employee.id}:`, error);
@@ -322,7 +330,8 @@ exports.getAllEmployeeBalances = async (req, res) => {
           employeeName: `${employee.firstName} ${employee.lastName}`,
           email: employee.email,
           balances: null,
-          notConfigured: true
+          notConfigured: true,
+          configReason: configReason || 'error'
         });
       }
     }

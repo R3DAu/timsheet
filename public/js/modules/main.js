@@ -85,6 +85,7 @@ Object.assign(window, {
   approveTimesheet: timesheets.approveTimesheet,
   lockTimesheet: timesheets.lockTimesheet,
   unlockTimesheet: timesheets.unlockTimesheet,
+  setTimesheetOpen: timesheets.setTimesheetOpen,
   deleteTimesheet: timesheets.deleteTimesheet,
   refreshTimesheets: timesheets.refreshTimesheets,
   xeroResyncTimesheet: timesheets.xeroResyncTimesheet,

@@ -232,6 +232,17 @@ export async function unlockTimesheet(id) {
     }
 }
 
+export async function setTimesheetOpen(id) {
+    if (!showConfirmation('Set this timesheet back to OPEN? Entries will be editable again.')) return;
+    try {
+        await api.post(`/timesheets/${id}/change-status`, { status: 'OPEN' });
+        await refreshTimesheets();
+        showAlert('Timesheet set to OPEN');
+    } catch (error) {
+        showAlert(error.message);
+    }
+}
+
 export async function deleteTimesheet(id) {
     if (!showConfirmation('Are you sure you want to delete this timesheet and all its entries?')) return;
     try {
@@ -383,10 +394,11 @@ export function displayUnifiedTimesheets() {
             <div class="accordion-actions" onclick="event.stopPropagation();">
               ${ts.status === 'OPEN' ? `<button class="btn btn-sm btn-success" onclick="submitTimesheet(${ts.id})">Submit</button>` : ''}
               ${ts.status === 'SUBMITTED' && currentUser.isAdmin ? `<button class="btn btn-sm btn-success" onclick="approveTimesheet(${ts.id})">Approve</button>` : ''}
-              ${ts.status === 'APPROVED' && currentUser.isAdmin ? `<button class="btn btn-sm btn-secondary" onclick="lockTimesheet(${ts.id})">Lock</button>` : ''}
+              ${(ts.status === 'APPROVED' || ts.status === 'UNLOCKED') && currentUser.isAdmin ? `<button class="btn btn-sm btn-secondary" onclick="lockTimesheet(${ts.id})">Lock</button>` : ''}
+              ${ts.status === 'UNLOCKED' && currentUser.isAdmin ? `<button class="btn btn-sm btn-info" onclick="setTimesheetOpen(${ts.id})" title="Set back to OPEN so entries can be freely edited">Set to Open</button>` : ''}
               ${getXeroResyncButton(ts, currentUser)}
               ${(ts.status === 'LOCKED' || ts.status === 'APPROVED' || ts.status === 'SUBMITTED') && currentUser.isAdmin ? `
-                <button class="btn btn-sm btn-warning" onclick="unlockTimesheet(${ts.id})" title="Unlock and set to OPEN">🔓 Unlock</button>
+                <button class="btn btn-sm btn-warning" onclick="unlockTimesheet(${ts.id})" title="Unlock and set to UNLOCKED">🔓 Unlock</button>
               ` : ''}
               ${getWmsSyncButton(ts)}
               ${currentUser.isAdmin ? `<button class="btn btn-sm btn-danger" onclick="deleteTimesheet(${ts.id})">Delete</button>` : ''}
@@ -641,6 +653,13 @@ export async function selectEmployee(employeeId) {
   const targetId = state.get('selectedEmployeeId');
   if (targetId) {
     await autoCreateTimesheets(targetId);
+    // Reload timesheets after auto-create so newly created ones appear
+    const result = await api.get(`/timesheets?employeeId=${targetId}`);
+    const allTimesheets = state.get('allTimesheets') || [];
+    // Merge: replace entries for this employee
+    const others = allTimesheets.filter(ts => ts.employeeId !== targetId);
+    state.set('allTimesheets', [...others, ...(result.timesheets || [])]);
+    await combineTimesheetsAndDedupe();
   }
 
   displayUnifiedTimesheets();

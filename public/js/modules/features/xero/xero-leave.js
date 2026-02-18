@@ -5,6 +5,7 @@
 
 import { api } from '../../core/api.js';
 import { state } from '../../core/state.js';
+import { escapeHtml } from '../../core/dom.js';
 import { showAlert } from '../../core/alerts.js';
 import { showSlidePanel, hideSlidePanel } from '../../core/slide-panel.js';
 import { registerTabHook } from '../../core/navigation.js';
@@ -148,7 +149,13 @@ async function showAdminLeaveView() {
                   </div>
                 </div>
                 ${emp.notConfigured || !emp.balances ? `
-                  <p style="color: #9ca3af; font-size: 0.875rem; margin: 0;">Not configured in Xero — no leave balance available.</p>
+                  <p style="color: #9ca3af; font-size: 0.875rem; margin: 0;">${
+                    emp.configReason === 'sync_disabled'
+                      ? 'Xero sync not enabled — enable sync in employee settings.'
+                      : emp.configReason === 'no_xero_id'
+                      ? 'No Xero Employee ID mapped — set it in employee settings.'
+                      : 'Leave balance unavailable — check Xero configuration.'
+                  }</p>
                 ` : `
                   <div class="balance-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
                     ${emp.balances.map(bal => {
