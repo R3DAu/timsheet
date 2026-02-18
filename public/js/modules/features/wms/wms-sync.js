@@ -5,7 +5,7 @@
 
 import { api } from '../../core/api.js';
 import { state } from '../../core/state.js';
-import { showModalWithHTML, hideModal } from '../../core/modal.js';
+import { showSlidePanel, hideSlidePanel } from '../../core/slide-panel.js';
 import { showAlert } from '../../core/alerts.js';
 import { escapeHtml } from '../../core/dom.js';
 
@@ -105,14 +105,14 @@ export async function syncToWms(timesheetId, employeeId) {
         </label>
       </div>
       <button type="submit" class="btn btn-primary">Start Sync</button>
-      <button type="button" class="btn btn-secondary" onclick="hideModal()">Cancel</button>
+      <button type="button" class="btn btn-secondary" onclick="hideSlidePanel()">Cancel</button>
     </form>
   `;
 
-  showModalWithHTML(html);
+  showSlidePanel('Sync to DE WMS', html);
 
   document.getElementById('wmsSyncShowPw').onchange = (e) => {
-    const pwInput = document.querySelector('#modalBody input[name="wmsPassword"]');
+    const pwInput = document.querySelector('#slidePanelBody input[name="wmsPassword"]');
     pwInput.type = e.target.checked ? 'text' : 'password';
   };
 
@@ -156,10 +156,10 @@ function showSyncProgress(syncLogId) {
       <div id="syncProgressLog" style="background: #1a1a2e; border-radius: 6px; padding: 0.75rem; margin: 0.75rem 0; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.85rem; line-height: 1.6;"></div>
       <div id="syncResultDetails"></div>
     </div>
-    <button type="button" class="btn btn-secondary" onclick="hideModal()">Close</button>
+    <button type="button" class="btn btn-secondary" onclick="hideSlidePanel()">Close</button>
   `;
 
-  showModalWithHTML(html);
+  showSlidePanel('WMS Sync Progress', html);
   pollSyncStatus(syncLogId);
 }
 
@@ -289,7 +289,7 @@ export async function viewSyncHistory(timesheetId) {
     const syncs = result.syncs;
 
     if (syncs.length === 0) {
-      showModalWithHTML('<h3>Sync History</h3><p>No sync history for this timesheet.</p>');
+      showSlidePanel('Sync History', '<p>No sync history for this timesheet.</p>');
       return;
     }
 
@@ -322,7 +322,7 @@ export async function viewSyncHistory(timesheetId) {
       </div>
     `;
 
-    showModalWithHTML(html);
+    showSlidePanel('Sync History', html);
   } catch (error) {
     showAlert('Failed to load sync history: ' + error.message);
   }

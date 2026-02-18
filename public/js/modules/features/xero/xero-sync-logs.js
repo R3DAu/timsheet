@@ -237,7 +237,7 @@ window.viewSyncLog = async function(logId) {
   try {
     const log = await api.get(`/xero/sync/logs/${logId}`);
 
-    const { showModalWithHTML } = await import('../../core/modal.js');
+    const { showSlidePanel } = await import('../../core/slide-panel.js');
 
     const details = log.syncDetails ? JSON.parse(log.syncDetails) : {};
 
@@ -311,7 +311,7 @@ window.viewSyncLog = async function(logId) {
       </div>
     `;
 
-    showModalWithHTML(html);
+    showSlidePanel('Sync Log Details', html);
   } catch (error) {
     console.error('Failed to load sync log:', error);
     showAlert('Failed to load sync log: ' + error.message, 'error');

@@ -19,14 +19,21 @@ export function registerPanelAutocompleteCleanup(fn) {
  * Show the slide-in panel with content
  * @param {string} title - Panel title
  * @param {string} bodyHtml - HTML content for panel body
+ * @param {Object} [options={}] - Options
+ * @param {boolean} [options.wide] - If true, use wider panel layout
  */
-export function showSlidePanel(title, bodyHtml) {
+export function showSlidePanel(title, bodyHtml, options = {}) {
   const overlay = document.getElementById('slidePanel');
   const titleEl = document.getElementById('slidePanelTitle');
   const bodyEl = document.getElementById('slidePanelBody');
+  const panel = overlay.querySelector('.slide-panel');
 
   titleEl.textContent = title;
   bodyEl.innerHTML = bodyHtml;
+
+  if (options.wide) {
+    panel.classList.add('wide');
+  }
 
   overlay.style.display = 'block';
   requestAnimationFrame(() => {
@@ -39,10 +46,12 @@ export function showSlidePanel(title, bodyHtml) {
  */
 export function hideSlidePanel() {
   const overlay = document.getElementById('slidePanel');
+  const panel = overlay.querySelector('.slide-panel');
   overlay.classList.remove('active');
 
   setTimeout(() => {
     overlay.style.display = 'none';
+    panel.classList.remove('wide');
     document.getElementById('slidePanelBody').innerHTML = '';
     destroyQuillEditors();
     if (destroyAutocompletes) destroyAutocompletes();

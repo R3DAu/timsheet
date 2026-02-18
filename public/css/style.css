@@ -1188,6 +1188,9 @@ table tr:hover {
 
 .slide-panel-overlay.active .slide-panel { right: 0; }
 
+.slide-panel.wide { width: min(860px, 95vw); right: calc(-1 * min(860px, 95vw)); }
+.slide-panel-overlay.active .slide-panel.wide { right: 0; }
+
 .slide-panel-header {
   display: flex;
   align-items: center;
