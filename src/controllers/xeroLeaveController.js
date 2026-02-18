@@ -285,13 +285,8 @@ exports.getLeaveBalances = async (req, res) => {
  */
 exports.getAllEmployeeBalances = async (req, res) => {
   try {
-    // Get all employees with Xero settings
+    // Get ALL employees — don't filter by syncEnabled so admins see everyone
     const employees = await prisma.employee.findMany({
-      where: {
-        xeroSettings: {
-          syncEnabled: true
-        }
-      },
       include: {
         user: {
           select: {
@@ -300,7 +295,18 @@ exports.getAllEmployeeBalances = async (req, res) => {
           }
         },
         xeroSettings: true,
-        identifiers: true
+        identifiers: true,
+        roles: {
+          include: {
+            role: {
+              include: {
+                company: {
+                  include: { xeroMappings: true }
+                }
+              }
+            }
+          }
+        }
       },
       orderBy: {
         firstName: 'asc'
@@ -310,21 +316,36 @@ exports.getAllEmployeeBalances = async (req, res) => {
     const balanceData = [];
 
     for (const employee of employees) {
+      // Determine config reason before calling service so we can surface it
+      const hasSyncEnabled = employee.xeroSettings?.syncEnabled === true;
+      const hasXeroId = employee.identifiers?.some(i => i.identifierType === 'xero_employee_id');
+      const hasCompanyMapping = employee.roles?.[0]?.role?.company?.xeroMappings?.[0];
+      let configReason = null;
+      if (!hasSyncEnabled) configReason = 'sync_disabled';
+      else if (!hasXeroId) configReason = 'no_xero_id';
+      else if (!hasCompanyMapping) configReason = 'no_company_mapping';
+
       try {
-        // Fetch leave balances for this employee
         const balances = await xeroLeaveService.getLeaveBalances(employee.id);
 
-        if (balances && Array.isArray(balances)) {
-          balanceData.push({
-            employeeId: employee.id,
-            employeeName: `${employee.firstName} ${employee.lastName}`,
-            email: employee.email,
-            balances: balances
-          });
-        }
+        balanceData.push({
+          employeeId: employee.id,
+          employeeName: `${employee.firstName} ${employee.lastName}`,
+          email: employee.email,
+          balances: balances && Array.isArray(balances) ? balances : null,
+          notConfigured: !balances || !Array.isArray(balances),
+          configReason: (!balances || !Array.isArray(balances)) ? (configReason || 'error') : null
+        });
       } catch (error) {
         console.error(`[Leave] Error fetching balances for employee ${employee.id}:`, error);
-        // Continue with other employees
+        balanceData.push({
+          employeeId: employee.id,
+          employeeName: `${employee.firstName} ${employee.lastName}`,
+          email: employee.email,
+          balances: null,
+          notConfigured: true,
+          configReason: configReason || 'error'
+        });
       }
     }
 

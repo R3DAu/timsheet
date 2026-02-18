@@ -171,10 +171,11 @@ var App = (() => {
       console.error("DOMPurify is not loaded");
       return escapeHtml(html);
     }
-    return DOMPurify.sanitize(html, {
-      ALLOWED_TAGS: ["p", "br", "strong", "em", "u", "ol", "ul", "li", "a"],
+    const clean = DOMPurify.sanitize(html, {
+      ALLOWED_TAGS: ["p", "br", "strong", "em", "u", "ul", "li", "a"],
       ALLOWED_ATTR: ["href", "target", "rel"]
     });
+    return clean.replace(/<ol(\s[^>]*)?>/gi, "<ul>").replace(/<\/ol>/gi, "</ul>");
   }
   var init_dom = __esm({
     "public/js/modules/core/dom.js"() {
@@ -1103,6 +1104,7 @@ var App = (() => {
     populateTimeSheetSelect: () => populateTimeSheetSelect,
     refreshTimesheets: () => refreshTimesheets2,
     selectEmployee: () => selectEmployee,
+    setTimesheetOpen: () => setTimesheetOpen,
     submitTimesheet: () => submitTimesheet,
     toggleAccordion: () => toggleAccordion,
     toggleDateAccordion: () => toggleDateAccordion,
@@ -1227,11 +1229,21 @@ var App = (() => {
     }
   }
   async function unlockTimesheet(id) {
-    if (!await showConfirmation("Unlock this timesheet and set status to OPEN? All entries will also be set to OPEN.")) return;
+    if (!await showConfirmation("Unlock this timesheet? Status will be set to UNLOCKED so it can be edited and re-locked without re-submitting.")) return;
     try {
       await api.post(`/timesheets/${id}/unlock`);
       await refreshTimesheets2();
-      showAlert("Timesheet unlocked and set to OPEN");
+      showAlert("Timesheet unlocked (status: UNLOCKED)");
+    } catch (error) {
+      showAlert(error.message);
+    }
+  }
+  async function setTimesheetOpen(id) {
+    if (!showConfirmation("Set this timesheet back to OPEN? Entries will be editable again.")) return;
+    try {
+      await api.post(`/timesheets/${id}/change-status`, { status: "OPEN" });
+      await refreshTimesheets2();
+      showAlert("Timesheet set to OPEN");
     } catch (error) {
       showAlert(error.message);
     }
@@ -1325,10 +1337,11 @@ var App = (() => {
             <div class="accordion-actions" onclick="event.stopPropagation();">
               ${ts.status === "OPEN" ? `<button class="btn btn-sm btn-success" onclick="submitTimesheet(${ts.id})">Submit</button>` : ""}
               ${ts.status === "SUBMITTED" && currentUser2.isAdmin ? `<button class="btn btn-sm btn-success" onclick="approveTimesheet(${ts.id})">Approve</button>` : ""}
-              ${ts.status === "APPROVED" && currentUser2.isAdmin ? `<button class="btn btn-sm btn-secondary" onclick="lockTimesheet(${ts.id})">Lock</button>` : ""}
+              ${(ts.status === "APPROVED" || ts.status === "UNLOCKED") && currentUser2.isAdmin ? `<button class="btn btn-sm btn-secondary" onclick="lockTimesheet(${ts.id})">Lock</button>` : ""}
+              ${ts.status === "UNLOCKED" && currentUser2.isAdmin ? `<button class="btn btn-sm btn-info" onclick="setTimesheetOpen(${ts.id})" title="Set back to OPEN so entries can be freely edited">Set to Open</button>` : ""}
               ${getXeroResyncButton(ts, currentUser2)}
               ${(ts.status === "LOCKED" || ts.status === "APPROVED" || ts.status === "SUBMITTED") && currentUser2.isAdmin ? `
-                <button class="btn btn-sm btn-warning" onclick="unlockTimesheet(${ts.id})" title="Unlock and set to OPEN">\u{1F513} Unlock</button>
+                <button class="btn btn-sm btn-warning" onclick="unlockTimesheet(${ts.id})" title="Unlock and set to UNLOCKED">\u{1F513} Unlock</button>
               ` : ""}
               ${getWmsSyncButton(ts)}
               ${currentUser2.isAdmin ? `<button class="btn btn-sm btn-danger" onclick="deleteTimesheet(${ts.id})">Delete</button>` : ""}
@@ -1567,11 +1580,21 @@ ${tasks}`);
       if (heading) heading.textContent = `Timesheets: ${emp ? emp.user.name : ""}`;
     }
     if (dropdown) dropdown.style.display = "none";
+    const targetId = state.get("selectedEmployeeId");
+    if (targetId) {
+      await autoCreateTimesheets(targetId);
+      const result = await api.get(`/timesheets?employeeId=${targetId}`);
+      const allTimesheets = state.get("allTimesheets") || [];
+      const others = allTimesheets.filter((ts) => ts.employeeId !== targetId);
+      state.set("allTimesheets", [...others, ...result.timesheets || []]);
+      await combineTimesheetsAndDedupe();
+    }
     displayUnifiedTimesheets();
   }
-  async function autoCreateTimesheets() {
+  async function autoCreateTimesheets(targetEmployeeId) {
     const currentUser2 = state.get("currentUser");
-    if (!currentUser2.employeeId) return;
+    const employeeId = targetEmployeeId || currentUser2.employeeId;
+    if (!employeeId) return;
     const now = /* @__PURE__ */ new Date();
     const dayOfWeek = now.getDay();
     const mondayOffset = dayOfWeek === 0 ? -6 : 1 - dayOfWeek;
@@ -1588,18 +1611,24 @@ ${tasks}`);
       { start: currentMonday, end: currentSunday },
       { start: nextMonday, end: nextSunday }
     ];
-    const myTimesheets = state.get("myTimesheets") || [];
+    let existingTimesheets;
+    if (!targetEmployeeId || targetEmployeeId === currentUser2.employeeId) {
+      existingTimesheets = state.get("myTimesheets") || [];
+    } else {
+      const result = await api.get(`/timesheets?employeeId=${employeeId}`);
+      existingTimesheets = result.timesheets || [];
+    }
     for (const week of weeks) {
       const weekStartStr = week.start.toISOString().split("T")[0];
       const weekEndStr = week.end.toISOString().split("T")[0];
-      const exists = myTimesheets.some((ts) => {
+      const exists = existingTimesheets.some((ts) => {
         const tsStart = formatLocalDate(ts.weekStarting);
         return tsStart === weekStartStr;
       });
       if (!exists) {
         try {
           await api.post("/timesheets", {
-            employeeId: currentUser2.employeeId,
+            employeeId,
             weekStarting: weekStartStr,
             weekEnding: weekEndStr
           });
@@ -2835,7 +2864,8 @@ ${tasks}`);
         item.innerHTML = `<strong>${escapeHtml(p.mainText)}</strong><br><small style="color:#666;">${escapeHtml(p.secondaryText)}</small>`;
         item.onmousedown = (e) => {
           e.preventDefault();
-          input.value = p.displayName || `${p.mainText}, ${p.secondaryText}`;
+          const looksLikeStreetNumber = /^(unit|suite|shop|level|lot|apartment|apt|flat)\b/i.test(p.mainText) || /^\d/.test(p.mainText);
+          input.value = p.mainText && !looksLikeStreetNumber ? p.mainText : p.displayName;
           if (latField && lngField && p.lat && p.lon) {
             latField.value = p.lat;
             lngField.value = p.lon;
@@ -6543,6 +6573,7 @@ Xero will create the next period in sequence after the last existing pay run.`))
   // public/js/modules/features/xero/xero-leave.js
   init_api();
   init_state();
+  init_dom();
   init_alerts();
   init_navigation();
   init_quill();
@@ -6647,23 +6678,27 @@ Xero will create the next period in sequence after the last existing pay run.`))
               <div style="background: white; border-radius: 8px; padding: 1.5rem; box-shadow: 0 1px 3px rgba(0,0,0,0.1);">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                   <div>
-                    <h4 style="margin: 0; color: #111827;">${emp.employeeName}</h4>
-                    <p style="margin: 0.25rem 0 0 0; color: #6b7280; font-size: 0.875rem;">${emp.email}</p>
+                    <h4 style="margin: 0; color: #111827;">${escapeHtml(emp.employeeName)}</h4>
+                    <p style="margin: 0.25rem 0 0 0; color: #6b7280; font-size: 0.875rem;">${escapeHtml(emp.email)}</p>
                   </div>
                 </div>
-                <div class="balance-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
-                  ${emp.balances.map((bal) => {
+                ${emp.notConfigured || !emp.balances ? `
+                  <p style="color: #9ca3af; font-size: 0.875rem; margin: 0;">${emp.configReason === "sync_disabled" ? "Xero sync not enabled \u2014 enable sync in employee settings." : emp.configReason === "no_xero_id" ? "No Xero Employee ID mapped \u2014 set it in employee settings." : emp.configReason === "no_company_mapping" ? "Employee has no role assigned to a company with Xero configured." : "Leave balance unavailable \u2014 Xero API error (check server logs)."}</p>
+                ` : `
+                  <div class="balance-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 1rem;">
+                    ${emp.balances.map((bal) => {
       const name = bal.leaveName || bal.LeaveName || bal.name || bal.Name || "Unknown";
       const units = bal.numberOfUnits || bal.NumberOfUnits || 0;
       return `
-                      <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; padding: 1rem; color: white; text-align: center;">
-                        <div style="font-size: 0.75rem; opacity: 0.9; margin-bottom: 0.5rem;">${name}</div>
-                        <div style="font-size: 1.75rem; font-weight: 700;">${units}h</div>
-                        <div style="font-size: 0.75rem; opacity: 0.8;">available</div>
-                      </div>
-                    `;
+                        <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); border-radius: 8px; padding: 1rem; color: white; text-align: center;">
+                          <div style="font-size: 0.75rem; opacity: 0.9; margin-bottom: 0.5rem;">${escapeHtml(name)}</div>
+                          <div style="font-size: 1.75rem; font-weight: 700;">${units}h</div>
+                          <div style="font-size: 0.75rem; opacity: 0.8;">available</div>
+                        </div>
+                      `;
     }).join("")}
-                </div>
+                  </div>
+                `}
               </div>
             `).join("")}
           </div>
@@ -7561,7 +7596,7 @@ Xero will create the next period in sequence after the last existing pay run.`))
             <td>
               <div style="display:flex; gap:0.5rem;">
                 <button class="btn btn-sm btn-success" onclick="approvalsApproveTimesheet(${ts.id})">Approve</button>
-                <button class="btn btn-sm btn-warning" onclick="approvalsUnlockTimesheet(${ts.id})" title="Send back to Open">Unlock</button>
+                <button class="btn btn-sm btn-warning" onclick="approvalsUnlockTimesheet(${ts.id})" title="Unlock (sets status to UNLOCKED)">Unlock</button>
               </div>
             </td>
           </tr>
@@ -7696,6 +7731,7 @@ Xero will create the next period in sequence after the last existing pay run.`))
     approveTimesheet,
     lockTimesheet,
     unlockTimesheet,
+    setTimesheetOpen,
     deleteTimesheet,
     refreshTimesheets: refreshTimesheets2,
     xeroResyncTimesheet,
