@@ -167,7 +167,7 @@ export async function editRole(id) {
  * @param {number} id - Role ID
  */
 export async function deleteRole(id) {
-  if (!showConfirmation('Delete this role?')) return;
+  if (!await showConfirmation('Delete this role?')) return;
 
   try {
     await api.delete(`/roles/${id}`);

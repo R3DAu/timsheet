@@ -189,7 +189,7 @@ export async function displayAllTimesheets() {
 }
 
 export async function submitTimesheet(id) {
-    if (!showConfirmation('Are you sure you want to submit this timesheet?')) return;
+    if (!await showConfirmation('Are you sure you want to submit this timesheet?')) return;
     try {
         await api.post(`/timesheets/${id}/submit`);
         await refreshTimesheets();
@@ -200,7 +200,7 @@ export async function submitTimesheet(id) {
 }
 
 export async function approveTimesheet(id) {
-    if (!showConfirmation('Approve this timesheet?')) return;
+    if (!await showConfirmation('Approve this timesheet?')) return;
     try {
         await api.post(`/timesheets/${id}/approve`);
         await refreshTimesheets();
@@ -211,7 +211,7 @@ export async function approveTimesheet(id) {
 }
 
 export async function lockTimesheet(id) {
-    if (!showConfirmation('Lock this timesheet? No further edits will be allowed.')) return;
+    if (!await showConfirmation('Lock this timesheet? No further edits will be allowed.')) return;
     try {
         await api.post(`/timesheets/${id}/lock`);
         await refreshTimesheets();
@@ -222,7 +222,7 @@ export async function lockTimesheet(id) {
 }
 
 export async function unlockTimesheet(id) {
-    if (!showConfirmation('Unlock this timesheet and set status to OPEN? All entries will also be set to OPEN.')) return;
+    if (!await showConfirmation('Unlock this timesheet and set status to OPEN? All entries will also be set to OPEN.')) return;
     try {
         await api.post(`/timesheets/${id}/unlock`);
         await refreshTimesheets();
@@ -233,7 +233,7 @@ export async function unlockTimesheet(id) {
 }
 
 export async function deleteTimesheet(id) {
-    if (!showConfirmation('Are you sure you want to delete this timesheet and all its entries?')) return;
+    if (!await showConfirmation('Are you sure you want to delete this timesheet and all its entries?')) return;
     try {
         await api.delete(`/timesheets/${id}`);
         await refreshTimesheets();

@@ -182,18 +182,89 @@ var App = (() => {
   });
 
   // public/js/modules/core/alerts.js
-  function showAlert(message, type = "info", timeout = 5e3) {
-    alert(message);
-  }
-  function showConfirmation(message, callback) {
-    if (!callback || typeof callback !== "function") {
-      return confirm(message);
+  function getContainer() {
+    if (!toastContainer || !document.body.contains(toastContainer)) {
+      toastContainer = document.createElement("div");
+      toastContainer.id = "toast-container";
+      document.body.appendChild(toastContainer);
     }
-    if (!confirm(message)) return false;
-    return callback();
+    return toastContainer;
   }
+  function showAlert(message, type = "info", timeout = 4e3) {
+    const container = getContainer();
+    const toast = document.createElement("div");
+    toast.className = `toast toast-${type}`;
+    const icons = { success: "\u2713", error: "\u2715", warning: "\u26A0", info: "\u2139" };
+    const icon = icons[type] || icons.info;
+    toast.innerHTML = `
+    <span class="toast-icon">${icon}</span>
+    <span class="toast-msg">${escapeForToast(message)}</span>
+    <button class="toast-close" aria-label="Dismiss">\xD7</button>
+  `;
+    toast.querySelector(".toast-close").addEventListener("click", () => dismissToast(toast));
+    container.appendChild(toast);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => toast.classList.add("toast-visible"));
+    });
+    if (timeout > 0) {
+      setTimeout(() => dismissToast(toast), timeout);
+    }
+  }
+  function showConfirmation(message, opts = {}) {
+    const {
+      confirmLabel = "Confirm",
+      cancelLabel = "Cancel",
+      confirmStyle = "danger"
+    } = opts;
+    return new Promise((resolve) => {
+      const overlay = document.createElement("div");
+      overlay.className = "confirm-overlay";
+      overlay.innerHTML = `
+      <div class="confirm-dialog" role="dialog" aria-modal="true">
+        <p class="confirm-message">${escapeForToast(message)}</p>
+        <div class="confirm-actions">
+          <button class="btn btn-secondary confirm-cancel">${escapeForToast(cancelLabel)}</button>
+          <button class="btn btn-${confirmStyle} confirm-ok">${escapeForToast(confirmLabel)}</button>
+        </div>
+      </div>
+    `;
+      const close = (result) => {
+        overlay.classList.remove("confirm-visible");
+        setTimeout(() => overlay.remove(), 200);
+        resolve(result);
+      };
+      overlay.querySelector(".confirm-ok").addEventListener("click", () => close(true));
+      overlay.querySelector(".confirm-cancel").addEventListener("click", () => close(false));
+      overlay.addEventListener("click", (e) => {
+        if (e.target === overlay) close(false);
+      });
+      const onKey = (e) => {
+        if (e.key === "Escape") {
+          document.removeEventListener("keydown", onKey);
+          close(false);
+        }
+      };
+      document.addEventListener("keydown", onKey);
+      document.body.appendChild(overlay);
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => overlay.classList.add("confirm-visible"));
+      });
+      overlay.querySelector(".confirm-ok").focus();
+    });
+  }
+  function dismissToast(toast) {
+    if (toast.classList.contains("toast-leaving")) return;
+    toast.classList.add("toast-leaving");
+    toast.classList.remove("toast-visible");
+    setTimeout(() => toast.remove(), 300);
+  }
+  function escapeForToast(str) {
+    return String(str).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/\n/g, "<br>");
+  }
+  var toastContainer;
   var init_alerts = __esm({
     "public/js/modules/core/alerts.js"() {
+      toastContainer = null;
     }
   });
 
@@ -499,7 +570,7 @@ var App = (() => {
     };
   }
   async function deleteCompany(id) {
-    if (!showConfirmation("Delete this company? This will also delete all associated roles.")) return;
+    if (!await showConfirmation("Delete this company? This will also delete all associated roles.")) return;
     try {
       await api.delete(`/companies/${id}`);
       await loadCompanies();
@@ -658,7 +729,7 @@ var App = (() => {
     };
   }
   async function deleteRole(id) {
-    if (!showConfirmation("Delete this role?")) return;
+    if (!await showConfirmation("Delete this role?")) return;
     try {
       await api.delete(`/roles/${id}`);
       await loadRoles();
@@ -1115,7 +1186,7 @@ var App = (() => {
     displayUnifiedTimesheets();
   }
   async function submitTimesheet(id) {
-    if (!showConfirmation("Are you sure you want to submit this timesheet?")) return;
+    if (!await showConfirmation("Are you sure you want to submit this timesheet?")) return;
     try {
       await api.post(`/timesheets/${id}/submit`);
       await refreshTimesheets2();
@@ -1125,7 +1196,7 @@ var App = (() => {
     }
   }
   async function approveTimesheet(id) {
-    if (!showConfirmation("Approve this timesheet?")) return;
+    if (!await showConfirmation("Approve this timesheet?")) return;
     try {
       await api.post(`/timesheets/${id}/approve`);
       await refreshTimesheets2();
@@ -1135,7 +1206,7 @@ var App = (() => {
     }
   }
   async function lockTimesheet(id) {
-    if (!showConfirmation("Lock this timesheet? No further edits will be allowed.")) return;
+    if (!await showConfirmation("Lock this timesheet? No further edits will be allowed.")) return;
     try {
       await api.post(`/timesheets/${id}/lock`);
       await refreshTimesheets2();
@@ -1145,7 +1216,7 @@ var App = (() => {
     }
   }
   async function unlockTimesheet(id) {
-    if (!showConfirmation("Unlock this timesheet and set status to OPEN? All entries will also be set to OPEN.")) return;
+    if (!await showConfirmation("Unlock this timesheet and set status to OPEN? All entries will also be set to OPEN.")) return;
     try {
       await api.post(`/timesheets/${id}/unlock`);
       await refreshTimesheets2();
@@ -1155,7 +1226,7 @@ var App = (() => {
     }
   }
   async function deleteTimesheet(id) {
-    if (!showConfirmation("Are you sure you want to delete this timesheet and all its entries?")) return;
+    if (!await showConfirmation("Are you sure you want to delete this timesheet and all its entries?")) return;
     try {
       await api.delete(`/timesheets/${id}`);
       await refreshTimesheets2();
@@ -1712,7 +1783,7 @@ var App = (() => {
     };
   }
   async function deleteUser(id) {
-    if (!showConfirmation("Delete this user? This cannot be undone.")) return;
+    if (!await showConfirmation("Delete this user? This cannot be undone.")) return;
     try {
       await api.delete(`/users/${id}`);
       await loadUsers();
@@ -2004,7 +2075,7 @@ var App = (() => {
     };
   }
   async function deleteEmployee(id) {
-    if (!showConfirmation("Delete this employee? This will also delete their timesheets.")) return;
+    if (!await showConfirmation("Delete this employee? This will also delete their timesheets.")) return;
     try {
       await api.delete(`/employees/${id}`);
       await loadEmployees();
@@ -2156,7 +2227,7 @@ var App = (() => {
     };
   }
   async function deleteIdentifier(employeeId, identifierId) {
-    if (!showConfirmation("Delete this identifier?")) return;
+    if (!await showConfirmation("Delete this identifier?")) return;
     try {
       await api.delete(`/employees/identifiers/${identifierId}`);
       viewEmployee(employeeId);
@@ -2335,7 +2406,7 @@ var App = (() => {
     });
   }
   async function revokeApiKey(id) {
-    if (!showConfirmation("Are you sure you want to revoke this API key? This cannot be undone.")) return;
+    if (!await showConfirmation("Are you sure you want to revoke this API key? This cannot be undone.")) return;
     try {
       await api.delete(`/api-keys/${id}`);
       loadApiKeys();
@@ -3077,7 +3148,7 @@ var App = (() => {
         return;
       }
       if (validation.warnings && validation.warnings.length > 0) {
-        if (!showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
+        if (!await showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
           return;
         }
       }
@@ -3265,7 +3336,7 @@ var App = (() => {
         return;
       }
       if (validation.warnings && validation.warnings.length > 0) {
-        if (!showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
+        if (!await showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
           return;
         }
       }
@@ -3297,7 +3368,7 @@ var App = (() => {
     };
   }
   async function deleteEntry(id) {
-    if (!showConfirmation("Delete this entry?")) return;
+    if (!await showConfirmation("Delete this entry?")) return;
     try {
       await api.delete(`/entries/${id}`);
       const timesheetId = document.getElementById("timesheetSelect").value;
@@ -3870,7 +3941,7 @@ var App = (() => {
         return;
       }
       if (validation.warnings && validation.warnings.length > 0) {
-        if (!showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
+        if (!await showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
           return;
         }
       }
@@ -4181,7 +4252,7 @@ var App = (() => {
         return;
       }
       if (validation.warnings && validation.warnings.length > 0) {
-        if (!showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
+        if (!await showConfirmation("Warning:\n\n" + validation.warnings.join("\n") + "\n\nContinue anyway?")) {
           return;
         }
       }
@@ -4219,7 +4290,7 @@ var App = (() => {
     };
   }
   async function deleteEntryFromCard(entryId, timesheetId) {
-    if (!showConfirmation("Delete this entry?")) return;
+    if (!await showConfirmation("Delete this entry?")) return;
     try {
       await api.delete(`/entries/${entryId}`);
       hideSlidePanel();

@@ -291,7 +291,7 @@ export async function createEntry() {
     }
 
     if (validation.warnings && validation.warnings.length > 0) {
-      if (!showConfirmation('Warning:\n\n' + validation.warnings.join('\n') + '\n\nContinue anyway?')) {
+      if (!await showConfirmation('Warning:\n\n' + validation.warnings.join('\n') + '\n\nContinue anyway?')) {
         return;
       }
     }
@@ -510,7 +510,7 @@ export async function editEntry(id, timesheetIdParam) {
     }
 
     if (validation.warnings && validation.warnings.length > 0) {
-      if (!showConfirmation('Warning:\n\n' + validation.warnings.join('\n') + '\n\nContinue anyway?')) {
+      if (!await showConfirmation('Warning:\n\n' + validation.warnings.join('\n') + '\n\nContinue anyway?')) {
         return;
       }
     }
@@ -549,7 +549,7 @@ export async function editEntry(id, timesheetIdParam) {
  * Delete an entry
  */
 export async function deleteEntry(id) {
-  if (!showConfirmation('Delete this entry?')) return;
+  if (!await showConfirmation('Delete this entry?')) return;
 
   try {
     await api.delete(`/entries/${id}`);
@@ -1268,7 +1268,7 @@ export async function createEntryForTimesheet(timesheetId, prefillDate = null) {
     }
 
     if (validation.warnings && validation.warnings.length > 0) {
-      if (!showConfirmation('Warning:\n\n' + validation.warnings.join('\n') + '\n\nContinue anyway?')) {
+      if (!await showConfirmation('Warning:\n\n' + validation.warnings.join('\n') + '\n\nContinue anyway?')) {
         return;
       }
     }
@@ -1632,7 +1632,7 @@ export async function editEntrySlideIn(entryId, timesheetId) {
     }
 
     if (validation.warnings && validation.warnings.length > 0) {
-      if (!showConfirmation('Warning:\n\n' + validation.warnings.join('\n') + '\n\nContinue anyway?')) {
+      if (!await showConfirmation('Warning:\n\n' + validation.warnings.join('\n') + '\n\nContinue anyway?')) {
         return;
       }
     }
@@ -1677,7 +1677,7 @@ export async function editEntrySlideIn(entryId, timesheetId) {
  * Delete entry from card (knows timesheetId)
  */
 export async function deleteEntryFromCard(entryId, timesheetId) {
-  if (!showConfirmation('Delete this entry?')) return;
+  if (!await showConfirmation('Delete this entry?')) return;
 
   try {
     await api.delete(`/entries/${entryId}`);

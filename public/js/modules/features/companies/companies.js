@@ -168,7 +168,7 @@ export async function editCompany(id) {
  * @param {number} id - Company ID
  */
 export async function deleteCompany(id) {
-  if (!showConfirmation('Delete this company? This will also delete all associated roles.')) return;
+  if (!await showConfirmation('Delete this company? This will also delete all associated roles.')) return;
 
   try {
     await api.delete(`/companies/${id}`);

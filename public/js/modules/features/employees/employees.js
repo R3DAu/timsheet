@@ -308,7 +308,7 @@ export async function editEmployee(id) {
  * Delete employee
  */
 export async function deleteEmployee(id) {
-  if (!showConfirmation('Delete this employee? This will also delete their timesheets.')) return;
+  if (!await showConfirmation('Delete this employee? This will also delete their timesheets.')) return;
 
   try {
     await api.delete(`/employees/${id}`);
@@ -482,7 +482,7 @@ export async function editIdentifierForm(employeeId, identifierId, type, value, 
  * Delete identifier
  */
 export async function deleteIdentifier(employeeId, identifierId) {
-  if (!showConfirmation('Delete this identifier?')) return;
+  if (!await showConfirmation('Delete this identifier?')) return;
   try {
     await api.delete(`/employees/identifiers/${identifierId}`);
     viewEmployee(employeeId);
