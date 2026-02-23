@@ -234,14 +234,14 @@ class TsDataSyncService {
    * "done" timesheets (Xero-synced, etc.) and should not have TSDATA entries imported into them.
    */
   async ensureTimesheet(worker, weekStarting, weekEnding, periodId, tsDataStatus) {
-    // Match any existing timesheet whose week overlaps the TSDATA-computed week.
-    // This handles Sun-Sat vs Mon-Sun week boundary mismatches (e.g. local timesheet
-    // starts Sunday 15/02 but TSDATA computes week start as Monday 16/02).
+    // Match any existing timesheet whose week genuinely overlaps the TSDATA-computed week.
+    // Uses strict inequality to avoid false matches when two consecutive weeks share a
+    // Sunday boundary (e.g. TSDATA Mon-Sun week ends 22/02, local Sun-Sat week starts 22/02).
     const existing = await prisma.timesheet.findFirst({
       where: {
         employeeId: worker.id,
-        weekStarting: { lte: weekEnding },
-        weekEnding: { gte: weekStarting }
+        weekStarting: { lt: weekEnding },
+        weekEnding: { gt: weekStarting }
       }
     });
 
