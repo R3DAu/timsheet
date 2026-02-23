@@ -460,6 +460,13 @@ class TsDataSyncService {
    * Map a TSDATA row to local TimesheetEntry fields.
    */
   mapEntryData(worker, tsRow, previousEndTime = null) {
+    // DEBUG: log raw TSDATA row keys on first call to identify time field names
+    if (!this._loggedRowShape) {
+      this._loggedRowShape = true;
+      console.log('[TSDATA] Raw row fields:', Object.keys(tsRow).join(', '));
+      console.log('[TSDATA] Raw row sample:', JSON.stringify(tsRow));
+    }
+
     // Find matching role/company
     const activeRole = worker.roles[0];
     if (!activeRole) {
