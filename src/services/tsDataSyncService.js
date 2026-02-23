@@ -202,10 +202,26 @@ class TsDataSyncService {
         // Skip entry import for APPROVED or higher timesheets (already finalised)
         if (skipEntries) continue;
 
+        // Sort rows by date then TSDATA ID so same-day entries are processed in
+        // a consistent order — this ensures sequential time assignment is stable.
+        week.rows.sort((a, b) => {
+          const dateA = a.entry_date.split('T')[0];
+          const dateB = b.entry_date.split('T')[0];
+          if (dateA !== dateB) return dateA.localeCompare(dateB);
+          return a.id - b.id;
+        });
+
+        // Track the last calculated endTime per date so that multiple entries
+        // on the same day are scheduled sequentially rather than all anchored
+        // to morningStart (which causes overlap validation failures).
+        const lastEndTimeByDate = {};
+
         // Upsert each entry
         for (const row of week.rows) {
           try {
-            const r = await this.syncEntry(timesheet, worker, row);
+            const dateKey = row.entry_date.split('T')[0];
+            const r = await this.syncEntry(timesheet, worker, row, lastEndTimeByDate[dateKey]);
+            if (r.endTime) lastEndTimeByDate[dateKey] = r.endTime;
             if (r.created) results.entriesCreated++;
             if (r.updated) results.entriesUpdated++;
           } catch (error) {
@@ -300,7 +316,7 @@ class TsDataSyncService {
    *   { id, worker_id, period_id, assignment_id, school_id, school_name,
    *     entry_date, hours_worked, hours_logged ("HH:MM:SS"), status, notes, ... }
    */
-  async syncEntry(localTimesheet, worker, tsRow) {
+  async syncEntry(localTimesheet, worker, tsRow, previousEndTime = null) {
     // Extract date string - handle both ISO format and plain YYYY-MM-DD
     let dateStr = tsRow.entry_date;
     if (dateStr.includes('T')) {
@@ -316,8 +332,8 @@ class TsDataSyncService {
     const tsEntryId = String(tsRow.id);
     const entryStatus = tsDataService.mapStatus(tsRow.status);
 
-    // Map fields
-    const entryData = this.mapEntryData(worker, tsRow);
+    // Map fields — pass previousEndTime so multi-entry days are scheduled sequentially
+    const entryData = this.mapEntryData(worker, tsRow, previousEndTime);
 
     // Check if entry already exists by tsDataEntryId
     const existingById = await prisma.timesheetEntry.findUnique({
@@ -336,7 +352,7 @@ class TsDataSyncService {
           verified: true
         }
       });
-      return { created: false, updated: true };
+      return { created: false, updated: true, endTime: entryData.endTime };
     }
 
     // Try to match existing local entry by date + hours (reuse dateStr from above)
@@ -353,7 +369,7 @@ class TsDataSyncService {
         }
       });
       console.log(`[TSDATA Sync] Verified entry ${matchingEntry.id} matches TSDATA entry ${tsEntryId}`);
-      return { created: false, updated: true };
+      return { created: false, updated: true, endTime: entryData.endTime };
     }
 
     // No match found — create new TSDATA entry
@@ -370,7 +386,7 @@ class TsDataSyncService {
       }
     });
     console.log(`[TSDATA Sync] ✅ Created new TSDATA entry ${tsEntryId} (no local match)`);
-    return { created: true, updated: false };
+    return { created: true, updated: false, endTime: entryData.endTime };
   }
 
   /**
@@ -443,7 +459,7 @@ class TsDataSyncService {
   /**
    * Map a TSDATA row to local TimesheetEntry fields.
    */
-  mapEntryData(worker, tsRow) {
+  mapEntryData(worker, tsRow, previousEndTime = null) {
     // Find matching role/company
     const activeRole = worker.roles[0];
     if (!activeRole) {
@@ -468,8 +484,9 @@ class TsDataSyncService {
     const date = parseLocalDate(tsRow.entry_date);
     const hours = parseTimeToHours(tsRow.hours_logged);
 
-    // Calculate start/end times from employee's default schedule + hours_logged
-    const { startTime, endTime } = this.calculateTimesFromSchedule(worker, hours);
+    // Calculate start/end times — if a previous entry exists on the same day,
+    // start from its end time to avoid overlapping entries.
+    const { startTime, endTime } = this.calculateTimesFromSchedule(worker, hours, previousEndTime);
 
     return {
       entryType: 'GENERAL',
@@ -488,23 +505,26 @@ class TsDataSyncService {
    * Calculate start/end times from employee's default schedule and hours duration.
    * If hours <= 4, use morning session. If > 4, use full day starting from morningStart.
    */
-  calculateTimesFromSchedule(worker, hours) {
+  calculateTimesFromSchedule(worker, hours, previousEndTime = null) {
     const morningStart = worker.morningStart || '08:30';
     const morningEnd = worker.morningEnd || '12:30';
-    const afternoonStart = worker.afternoonStart || '13:00';
-    const afternoonEnd = worker.afternoonEnd || '17:00';
 
-    // If 4 hours or less, assume morning session
+    // If a previous entry ended on the same day, start immediately after it.
+    // This prevents multiple entries on the same day from all anchoring to morningStart.
+    if (previousEndTime) {
+      const startMinutes = this.timeToMinutes(previousEndTime);
+      const endMinutes = startMinutes + Math.round(hours * 60);
+      return { startTime: previousEndTime, endTime: this.minutesToTime(endMinutes) };
+    }
+
+    // First entry of the day — use schedule defaults
     if (hours <= 4) {
       return { startTime: morningStart, endTime: morningEnd };
     }
 
-    // If 4-8 hours, start from morning and calculate end time
     const startMinutes = this.timeToMinutes(morningStart);
     const endMinutes = startMinutes + Math.round(hours * 60);
-    const endTime = this.minutesToTime(endMinutes);
-
-    return { startTime: morningStart, endTime };
+    return { startTime: morningStart, endTime: this.minutesToTime(endMinutes) };
   }
 
   /**
