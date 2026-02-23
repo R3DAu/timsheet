@@ -228,16 +228,14 @@ class TsDataSyncService {
    * "done" timesheets (Xero-synced, etc.) and should not have TSDATA entries imported into them.
    */
   async ensureTimesheet(worker, weekStarting, weekEnding, periodId, tsDataStatus) {
-    // Date-range window covers the full local Monday regardless of UTC offset stored
-    const dayStart = new Date(weekStarting);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(weekStarting);
-    dayEnd.setHours(23, 59, 59, 999);
-
+    // Match any existing timesheet whose week overlaps the TSDATA-computed week.
+    // This handles Sun-Sat vs Mon-Sun week boundary mismatches (e.g. local timesheet
+    // starts Sunday 15/02 but TSDATA computes week start as Monday 16/02).
     const existing = await prisma.timesheet.findFirst({
       where: {
         employeeId: worker.id,
-        weekStarting: { gte: dayStart, lte: dayEnd }
+        weekStarting: { lte: weekEnding },
+        weekEnding: { gte: weekStarting }
       }
     });
 
