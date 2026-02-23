@@ -109,7 +109,7 @@ export async function createTimesheet(){
 
     //only draw this if the user is an admin.
     if(currentUser.isAdmin){
-        const employees = await api.get('/employees');
+        const { employees } = await api.get('/employees');
         employeeSelectHtml = `
             <div class="form-group">
                 <label>Employee</label>

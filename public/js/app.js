@@ -1130,7 +1130,7 @@ var App = (() => {
     const currentUser2 = state.get("currentUser");
     let employeeSelectHtml = "";
     if (currentUser2.isAdmin) {
-      const employees = await api.get("/employees");
+      const { employees } = await api.get("/employees");
       employeeSelectHtml = `
             <div class="form-group">
                 <label>Employee</label>
