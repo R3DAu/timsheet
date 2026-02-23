@@ -47,10 +47,12 @@ async function fetchAllPages(path, params = {}) {
       allResults.push(...data.data);
     }
 
-    // Check if there are more pages
-    if (!data.meta || !data.meta.lastPage || page >= data.meta.lastPage) {
-      break;
-    }
+    // Check if there are more pages — API uses data.pagination (not data.meta)
+    const pagination = data.pagination || data.meta;
+    const hasNext = pagination
+      ? (pagination.hasNext ?? (page < (pagination.totalPages ?? pagination.lastPage ?? 1)))
+      : false;
+    if (!hasNext) break;
     page++;
   }
 

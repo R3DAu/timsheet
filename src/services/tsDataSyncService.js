@@ -314,7 +314,9 @@ class TsDataSyncService {
    *
    * TSDATA row shape:
    *   { id, worker_id, period_id, assignment_id, school_id, school_name,
-   *     entry_date, hours_worked, hours_logged ("HH:MM:SS"), status, notes, ... }
+   *     entry_date, hours_worked, hours_logged ("HH:MM:SS"), status, notes,
+   *     approved_by, approved_on, submitted_on, created_on, ... }
+   * NOTE: No start_time/end_time fields — times are calculated from hours_logged + schedule.
    */
   async syncEntry(localTimesheet, worker, tsRow, previousEndTime = null) {
     // Extract date string - handle both ISO format and plain YYYY-MM-DD
@@ -460,13 +462,6 @@ class TsDataSyncService {
    * Map a TSDATA row to local TimesheetEntry fields.
    */
   mapEntryData(worker, tsRow, previousEndTime = null) {
-    // DEBUG: log raw TSDATA row keys on first call to identify time field names
-    if (!this._loggedRowShape) {
-      this._loggedRowShape = true;
-      console.log('[TSDATA] Raw row fields:', Object.keys(tsRow).join(', '));
-      console.log('[TSDATA] Raw row sample:', JSON.stringify(tsRow));
-    }
-
     // Find matching role/company
     const activeRole = worker.roles[0];
     if (!activeRole) {
