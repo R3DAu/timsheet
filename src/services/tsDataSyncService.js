@@ -138,10 +138,16 @@ class TsDataSyncService {
     const tsDataWorkerId = deIdentifier.identifierValue;
     const periodId = String(currentPeriod.id);
 
-    // Fetch all TSDATA entries for this worker in the current period
+    // Fetch entries using a rolling 8-week lookback so that data from the previous
+    // pay period is always captured (e.g. new employees, period boundary week).
+    // The TSDATA entry ID deduplication makes this safe to re-run without duplicates.
+    const lookbackDate = new Date();
+    lookbackDate.setDate(lookbackDate.getDate() - 56); // 8 weeks
+    const fromDate = lookbackDate.toISOString().split('T')[0];
+
     const tsRows = await tsDataService.getTimesheets({
       workerId: tsDataWorkerId,
-      periodId
+      fromDate
     });
 
     console.log(`[TSDATA Sync] Worker ${worker.id} (${worker.user.name}): ${tsRows.length} TSDATA entries`);
