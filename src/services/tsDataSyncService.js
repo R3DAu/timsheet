@@ -298,7 +298,8 @@ class TsDataSyncService {
    *
    * TSDATA row shape:
    *   { id, worker_id, period_id, assignment_id, school_id, school_name,
-   *     entry_date, hours_worked, hours_logged ("HH:MM:SS"), status, notes, ... }
+   *     entry_date, start_time ("HH:MM"), end_time ("HH:MM"), break_minutes,
+   *     hours_worked (number), hours_logged (number), status, notes, comments, ... }
    */
   async syncEntry(localTimesheet, worker, tsRow) {
     // Extract date string - handle both ISO format and plain YYYY-MM-DD
@@ -466,20 +467,28 @@ class TsDataSyncService {
 
     // Parse date using dateUtils to handle timezone correctly
     const date = parseLocalDate(tsRow.entry_date);
-    const hours = parseTimeToHours(tsRow.hours_logged);
 
-    // Calculate start/end times from employee's default schedule + hours_logged
-    const { startTime, endTime } = this.calculateTimesFromSchedule(worker, hours);
+    // hours_logged is now a number from TSDATA (was previously HH:MM:SS string)
+    const hours = typeof tsRow.hours_logged === 'number'
+      ? tsRow.hours_logged
+      : (typeof tsRow.hours_worked === 'number' ? tsRow.hours_worked : parseTimeToHours(tsRow.hours_logged));
+
+    // Use start_time/end_time directly from TSDATA if available, otherwise fall back to schedule
+    const startTime = tsRow.start_time || null;
+    const endTime = tsRow.end_time || null;
+    const { startTime: fallbackStart, endTime: fallbackEnd } = (!startTime || !endTime)
+      ? this.calculateTimesFromSchedule(worker, hours)
+      : { startTime, endTime };
 
     return {
       entryType: 'GENERAL',
       date,
-      startTime,
-      endTime,
+      startTime: startTime || fallbackStart,
+      endTime: endTime || fallbackEnd,
       hours,
       roleId,
       companyId,
-      notes: tsRow.notes || null,
+      notes: tsRow.notes || tsRow.comments || null,
       startingLocation: tsRow.school_name || null
     };
   }
@@ -712,6 +721,156 @@ class TsDataSyncService {
       return result;
     } catch (error) {
       console.error('[TSDATA Cleanup] Weekend removal error:', error);
+      return { success: false, error: error.message };
+    }
+  }
+
+  /**
+   * One-time fix: Re-sync start_time/end_time from TSDATA API for all existing
+   * TSDATA-linked entries. This corrects entries that were previously created with
+   * schedule-calculated times instead of actual times from the API.
+   *
+   * Only updates startTime/endTime — does not touch hours, dates, or other fields.
+   * Optionally performs a dry run to preview changes without applying them.
+   */
+  async fixEntryTimes({ dryRun = false } = {}) {
+    console.log(`[TSDATA Fix Times] Starting${dryRun ? ' (DRY RUN)' : ''}...`);
+
+    const results = {
+      dryRun,
+      workersProcessed: 0,
+      entriesChecked: 0,
+      entriesUpdated: 0,
+      entriesSkipped: 0,
+      entriesNoMatch: 0,
+      errors: [],
+      changes: [] // detailed log of what changed
+    };
+
+    try {
+      // Step 1: Find all employees with de_worker_id
+      const deWorkers = await this.findDeWorkers();
+      console.log(`[TSDATA Fix Times] Found ${deWorkers.length} DE workers`);
+
+      for (const worker of deWorkers) {
+        try {
+          const deIdentifier = worker.identifiers.find(i => i.identifierType === 'de_worker_id');
+          if (!deIdentifier) continue;
+
+          const tsDataWorkerId = deIdentifier.identifierValue;
+
+          // Step 2: Get all local entries linked to TSDATA for this worker
+          const localEntries = await prisma.timesheetEntry.findMany({
+            where: {
+              tsDataEntryId: { not: null },
+              timesheet: { employeeId: worker.id }
+            },
+            include: {
+              timesheet: { select: { id: true, weekStarting: true } }
+            }
+          });
+
+          if (localEntries.length === 0) continue;
+
+          // Step 3: Fetch TSDATA rows for this worker (wide date range to cover all entries)
+          const oldestEntry = localEntries.reduce((min, e) => e.date < min.date ? e : min);
+          const fromDate = formatLocalDate(oldestEntry.date);
+
+          const tsRows = await tsDataService.getTimesheets({
+            workerId: tsDataWorkerId,
+            fromDate
+          });
+
+          // Build lookup map: TSDATA entry ID → row
+          const tsRowMap = new Map();
+          for (const row of tsRows) {
+            tsRowMap.set(String(row.id), row);
+          }
+
+          console.log(`[TSDATA Fix Times] Worker ${worker.id} (${worker.user.name}): ${localEntries.length} linked entries, ${tsRows.length} TSDATA rows`);
+          results.workersProcessed++;
+
+          // Step 4: Check and update each entry
+          for (const entry of localEntries) {
+            results.entriesChecked++;
+
+            const tsRow = tsRowMap.get(entry.tsDataEntryId);
+            if (!tsRow) {
+              results.entriesNoMatch++;
+              continue;
+            }
+
+            const newStart = tsRow.start_time || null;
+            const newEnd = tsRow.end_time || null;
+
+            // Skip if TSDATA has no times
+            if (!newStart || !newEnd) {
+              results.entriesSkipped++;
+              continue;
+            }
+
+            // Skip if times already match
+            if (entry.startTime === newStart && entry.endTime === newEnd) {
+              results.entriesSkipped++;
+              continue;
+            }
+
+            const change = {
+              entryId: entry.id,
+              tsDataEntryId: entry.tsDataEntryId,
+              date: formatLocalDate(entry.date),
+              employee: worker.user.name,
+              oldStart: entry.startTime,
+              oldEnd: entry.endTime,
+              newStart,
+              newEnd
+            };
+            results.changes.push(change);
+
+            if (!dryRun) {
+              await prisma.timesheetEntry.update({
+                where: { id: entry.id },
+                data: { startTime: newStart, endTime: newEnd }
+              });
+            }
+
+            results.entriesUpdated++;
+          }
+        } catch (error) {
+          console.error(`[TSDATA Fix Times] Error processing worker ${worker.id}:`, error.message);
+          results.errors.push({ employeeId: worker.id, name: worker.user.name, error: error.message });
+        }
+      }
+
+      // Log the operation
+      await this.logSync({
+        syncType: 'FIX_ENTRY_TIMES',
+        status: results.errors.length > 0 ? 'PARTIAL' : 'SUCCESS',
+        recordsProcessed: results.entriesChecked,
+        recordsUpdated: results.entriesUpdated,
+        recordsSkipped: results.entriesSkipped,
+        errorMessage: dryRun ? 'DRY RUN - no changes applied' : null,
+        syncDetails: JSON.stringify(results)
+      });
+
+      console.log(`[TSDATA Fix Times] Completed:`, {
+        dryRun,
+        workersProcessed: results.workersProcessed,
+        entriesChecked: results.entriesChecked,
+        entriesUpdated: results.entriesUpdated,
+        entriesSkipped: results.entriesSkipped,
+        entriesNoMatch: results.entriesNoMatch,
+        errors: results.errors.length
+      });
+
+      return results;
+    } catch (error) {
+      console.error('[TSDATA Fix Times] Fatal error:', error);
+      await this.logSync({
+        syncType: 'FIX_ENTRY_TIMES',
+        status: 'ERROR',
+        errorMessage: error.message
+      });
       return { success: false, error: error.message };
     }
   }

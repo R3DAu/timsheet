@@ -40,6 +40,10 @@ router.post('/remove-weekend-entries', requireApiKeyOrAdmin, tsDataController.re
 // Merge duplicate timesheets - admin only
 router.post('/merge-duplicate-timesheets', requireApiKeyOrAdmin, tsDataController.mergeDuplicateTimesheets);
 
+// Fix entry start/end times from TSDATA - admin only
+// Use ?dryRun=true to preview changes without applying them
+router.post('/fix-entry-times', requireApiKeyOrAdmin, tsDataController.fixEntryTimes);
+
 // Sync logs - admin only
 router.get('/sync-logs', requireApiKeyOrAdmin, tsDataController.getSyncLogs);
 

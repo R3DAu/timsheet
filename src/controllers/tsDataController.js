@@ -149,6 +149,31 @@ const mergeDuplicateTimesheets = async (req, res) => {
   }
 };
 
+const fixEntryTimes = async (req, res) => {
+  try {
+    const dryRun = req.query.dryRun === 'true' || req.query.dryRun === '1';
+    console.log(`[TSDATA Fix Times] Triggered by user ${req.session.userId}${dryRun ? ' (DRY RUN)' : ''}`);
+    const result = await tsDataSyncService.fixEntryTimes({ dryRun });
+
+    if (result.success === false) {
+      return res.status(500).json({
+        error: 'Fix entry times failed',
+        details: result.error
+      });
+    }
+
+    res.json({
+      message: dryRun
+        ? `Dry run complete — ${result.entriesUpdated} entries would be updated`
+        : `Fix complete — ${result.entriesUpdated} entries updated`,
+      ...result
+    });
+  } catch (error) {
+    console.error('Fix entry times error:', error);
+    res.status(500).json({ error: 'Failed to fix entry times: ' + error.message });
+  }
+};
+
 module.exports = {
   getTimesheets,
   getWorkers,
@@ -157,5 +182,6 @@ module.exports = {
   getSyncLogs,
   cleanupDuplicates,
   removeWeekendEntries,
-  mergeDuplicateTimesheets
+  mergeDuplicateTimesheets,
+  fixEntryTimes
 };
